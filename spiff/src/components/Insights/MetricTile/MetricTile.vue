@@ -79,7 +79,7 @@ const props = defineProps({
 	valueClass: { type: String, default: "text-gray-900" },
 	delta: { type: Number, default: undefined },
 	deltaKind: { type: String, default: "pct" }, // "pct" | "pt"
-	goodDirection: { type: String, default: "up" }, // "up" | "down"
+	goodDirection: { type: String, default: "up" }, // "up" | "down" | "none"
 	subtitle: { type: String, default: "" },
 	subtitleShort: { type: String, default: "" },
 	hint: { type: String, default: "" },

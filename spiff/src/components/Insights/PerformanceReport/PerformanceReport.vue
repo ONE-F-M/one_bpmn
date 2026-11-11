@@ -1,34 +1,93 @@
 <template>
 	<div class="space-y-6">
-		<div class="flex flex-wrap gap-3 items-center justify-between">
+		<div class="flex items-center justify-between gap-3">
 			<TabButtons
 				v-model="groupBy"
 				:buttons="GROUP_BY_BUTTONS"
 			/>
-			<FormControl
-				v-model="filterBpmnId"
-				type="text"
-				placeholder="Filter by BPMN Element ID"
-				class="w-56"
-				@update:model-value="debouncedFetch"
+			<Dropdown
+				:options="exportOptions"
+				placement="right"
+			>
+				<Button
+					icon-right="chevron-down"
+					:disabled="loading || !summary.measured_runs"
+				>
+					{{ __("Export") }}
+				</Button>
+			</Dropdown>
+		</div>
+
+		<div
+			v-if="loading && !reportData.summary"
+			class="flex items-center justify-center h-64"
+		>
+			<LoadingIndicator class="w-6 h-6 text-gray-500" />
+		</div>
+
+		<div
+			v-else-if="error"
+			class="flex flex-col items-center justify-center h-64 gap-3"
+		>
+			<ErrorMessage :message="error" />
+			<Button
+				:label="__('Retry')"
+				@click="fetchReport"
 			/>
 		</div>
 
-		<!-- Loading State -->
-		<div v-if="loading" class="flex items-center justify-center h-64">
-			<div class="text-gray-500">Loading...</div>
+		<div
+			v-else-if="!summary.runs"
+			class="flex flex-col items-center justify-center h-64 text-center"
+		>
+			<Icon
+				icon="lucide:timer"
+				class="w-12 h-12 text-gray-400 mb-3"
+			/>
+			<h3 class="text-base font-medium text-gray-900">{{ __("No runs in this range") }}</h3>
+			<p class="text-sm text-gray-500">{{ __("Try a wider date range or different filters") }}</p>
 		</div>
 
-		<!-- Empty State -->
-		<div v-else-if="!reportData.rows || reportData.rows.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
-			<div class="text-gray-400 mb-4">
-				<Icon icon="lucide:timer" class="w-16 h-16 mx-auto" />
-			</div>
-			<h3 class="text-lg font-medium text-gray-900 mb-1">No Performance Data</h3>
-			<p class="text-gray-500">No successful agent runs found for the selected period.</p>
+		<div
+			v-else-if="!summary.measured_runs"
+			class="flex flex-col items-center justify-center h-64 text-center"
+		>
+			<Icon
+				icon="lucide:timer-off"
+				class="w-12 h-12 text-gray-400 mb-3"
+			/>
+			<h3 class="text-base font-medium text-gray-900">{{ noTimingText }}</h3>
 		</div>
 
 		<template v-else>
+			<div class="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+				<MetricTile
+					:label="__('P50 agent latency')"
+					:value="fmtDuration(summary.p50_ms)"
+					:delta="summary.delta_p50_pct"
+					good-direction="down"
+					:subtitle="measuredSubtitle"
+					:subtitle-short="measuredSubtitleShort"
+				/>
+				<MetricTile
+					:label="__('P95 agent latency')"
+					:value="fmtDuration(summary.p95_ms)"
+					:delta="summary.delta_p95_pct"
+					good-direction="down"
+					:subtitle="priorDates"
+					:subtitle-short="__('vs prior')"
+				/>
+				<MetricTile
+					class="col-span-2 sm:col-span-1"
+					:label="__('Time in tools')"
+					:value="fmtPct(summary.time_in_tools)"
+					:delta="summary.delta_time_in_tools_pt"
+					delta-kind="pt"
+					good-direction="none"
+					:subtitle="splitSubtitle"
+				/>
+			</div>
+
 			<div
 				v-if="trend.labels && trend.labels.length > 0"
 				class="bg-gray-50 rounded-lg p-4"
@@ -40,7 +99,10 @@
 			</div>
 
 			<!-- Main Table -->
-			<div class="overflow-x-auto">
+			<div
+				v-if="reportData.rows?.length"
+				class="overflow-x-auto"
+			>
 				<table class="w-full">
 					<thead>
 						<tr class="border-b border-gray-200">
@@ -91,6 +153,12 @@
 								<td colspan="10" class="bg-gray-50 p-4">
 									<div v-if="recentRunsLoading" class="flex items-center justify-center py-6">
 										<div class="text-gray-500 text-sm">Loading recent runs...</div>
+									</div>
+									<div
+										v-else-if="recentRunsError"
+										class="flex justify-center py-6"
+									>
+										<ErrorMessage :message="recentRunsError" />
 									</div>
 									<div v-else-if="recentRuns.length === 0" class="flex items-center justify-center py-6">
 										<div class="text-gray-400 text-sm">No recent runs found</div>
@@ -145,9 +213,16 @@
 												</tr>
 
 												<!-- Steps detail: the run as a tree -->
-												<tr v-if="expandedStepRun === ri && tree">
+												<tr v-if="expandedStepRun === ri && (tree || treeError)">
 													<td colspan="8" class="bg-white p-3">
-														<RunTree :node="tree" />
+														<ErrorMessage
+															v-if="treeError"
+															:message="treeError"
+														/>
+														<RunTree
+															v-else
+															:node="tree"
+														/>
 													</td>
 												</tr>
 											</template>
@@ -165,11 +240,30 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
-import { AxisChart, Badge, FormControl, frappeRequest, TabButtons } from "frappe-ui"
+import {
+	AxisChart,
+	Badge,
+	Button,
+	Dropdown,
+	ErrorMessage,
+	frappeRequest,
+	LoadingIndicator,
+	TabButtons,
+} from "frappe-ui"
+import MetricTile from "@/components/Insights/MetricTile/MetricTile.vue"
+import { openReportExport } from "@/utils/exportReport"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/Insights/RunTree/RunTree.vue"
-import { fmtInt as fmtNum, fmtCompact, fmtCurrency, fmtCurrencyExact, fmtDuration } from "@/utils/formatters"
+import {
+	fmtCompact,
+	fmtCurrency,
+	fmtCurrencyExact,
+	fmtDateRange,
+	fmtDuration,
+	fmtInt as fmtNum,
+	fmtPct,
+} from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -180,22 +274,59 @@ const props = defineProps({
 	processModel: { type: String, default: "" },
 })
 
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
+
 const GROUP_BY_BUTTONS = [
-	{ label: "By model", value: "model" },
-	{ label: "By AI agent", value: "agent" },
+	{ label: __("By model"), value: "model" },
+	{ label: __("By AI agent"), value: "agent" },
 ]
 
 const loading = ref(false)
+const error = ref(null)
 const reportData = ref({})
-const filterBpmnId = ref("")
 const groupBy = ref("model")
+
+const summary = computed(() => reportData.value.summary || {})
+
+const measuredSubtitle = computed(() => {
+	const { runs, measured_runs: measured } = summary.value
+	return measured < runs
+		? `${fmtNum(measured)} ${__("of")} ${fmtNum(runs)} ${__("runs measured")}`
+		: `${__("of")} ${fmtNum(runs)} ${__("runs measured")}`
+})
+const measuredSubtitleShort = computed(() => {
+	const { runs, measured_runs: measured } = summary.value
+	return measured < runs ? `${fmtNum(measured)}/${fmtNum(runs)} ${__("runs")}` : `${fmtNum(runs)} ${__("runs")}`
+})
+const priorDates = computed(() => {
+	const { previous_from: from, previous_to: to } = reportData.value
+	return `${__("vs")} ${fmtDateRange(from, to)}`
+})
+const splitSubtitle = computed(() => {
+	const s = summary.value
+	return [
+		`${__("tools")} ${fmtPct(s.tool_share, 0)}`,
+		`${__("sub-calls")} ${fmtPct(s.sub_call_share, 0)}`,
+		`${__("model")} ${fmtPct(s.model_share, 0)}`,
+	].join(" · ")
+})
+const noTimingText = computed(
+	() => `${__("No step timing recorded for")} ${fmtNum(summary.value.runs)} ${__("runs in this range")}`,
+)
+
+const exportOptions = computed(() => [
+	{ label: "CSV", onClick: () => download("csv") },
+	{ label: "XLSX", onClick: () => download("xlsx") },
+])
 
 const expandedRow = ref(null)
 const recentRuns = ref([])
 const recentRunsLoading = ref(false)
+const recentRunsError = ref(null)
 
 const expandedStepRun = ref(null)
 const tree = ref(null)
+const treeError = ref(null)
 
 function formatDate(dateStr) {
 	if (!dateStr) return ""
@@ -230,12 +361,6 @@ const trendConfig = computed(() => ({
 	},
 }))
 
-let fetchTimer = null
-function debouncedFetch() {
-	if (fetchTimer) clearTimeout(fetchTimer)
-	fetchTimer = setTimeout(fetchReport, 400)
-}
-
 async function toggleExpand(idx) {
 	if (expandedRow.value === idx) {
 		expandedRow.value = null
@@ -251,6 +376,7 @@ async function toggleExpand(idx) {
 	const row = reportData.value.rows[idx]
 
 	recentRunsLoading.value = true
+	recentRunsError.value = null
 	try {
 		// Top-level runs only, each with its sub-runs rolled up.
 		// The "model" column holds the agent name when grouped by agent.
@@ -267,8 +393,8 @@ async function toggleExpand(idx) {
 			params,
 		})
 		recentRuns.value = response || []
-	} catch (error) {
-		console.error("Failed to fetch recent runs:", error)
+	} catch (err) {
+		recentRunsError.value = err
 		recentRuns.value = []
 	} finally {
 		recentRunsLoading.value = false
@@ -284,6 +410,7 @@ async function toggleSteps(ri, runName) {
 
 	expandedStepRun.value = ri
 	tree.value = null
+	treeError.value = null
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights.get_run_tree",
@@ -291,33 +418,39 @@ async function toggleSteps(ri, runName) {
 			params: { run_name: runName },
 		})
 		tree.value = response || null
-	} catch (error) {
-		console.error("Failed to fetch run tree:", error)
-		tree.value = null
+	} catch (err) {
+		treeError.value = err
 	}
+}
+
+function queryParams() {
+	return {
+		from_date: props.fromDate,
+		to_date: props.toDate,
+		origin: props.origin,
+		model: props.model,
+		provider: props.provider,
+		process_model: props.processModel,
+		group_by: groupBy.value,
+	}
+}
+
+function download(fmt) {
+	openReportExport("one_bpmn.api.insights.export_latency_report", { ...queryParams(), fmt })
 }
 
 async function fetchReport() {
 	loading.value = true
+	error.value = null
 	try {
-		const params = {}
-		if (props.fromDate) params.from_date = props.fromDate
-		if (props.toDate) params.to_date = props.toDate
-		if (props.model) params.model = props.model
-		if (props.provider) params.provider = props.provider
-		if (props.processModel) params.process_model = props.processModel
-		if (filterBpmnId.value) params.bpmn_id = filterBpmnId.value
-		params.origin = props.origin
-		params.group_by = groupBy.value
-
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights.get_performance_report",
 			method: "POST",
-			params,
+			params: queryParams(),
 		})
 		reportData.value = response || {}
-	} catch (error) {
-		console.error("Failed to fetch performance report:", error)
+	} catch (err) {
+		error.value = err
 		reportData.value = {}
 	} finally {
 		loading.value = false
