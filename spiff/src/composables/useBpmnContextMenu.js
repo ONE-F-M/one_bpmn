@@ -6,18 +6,18 @@ import { ref, computed, onBeforeUnmount } from "vue";
  * Responsibilities:
  *   – Listens for bpmn-js `element.contextmenu` events
  *   – Positions the menu within the viewport (clamping to edges)
- *   – Respects readonly mode (hides "Add Comment", keeps "View Comments")
+ *   – Respects commentsAllowed (hides "Add Comment", keeps "View Comments")
  *   – Dismisses on Escape / click-outside
  *   – Provides callbacks that delegate to the parent's comment helpers
  *
  * @param {Object} options
- * @param {import('vue').Ref<boolean>} options.readonly  - Whether the editor is in read-only mode
+ * @param {import('vue').Ref<boolean>} options.commentsAllowed - Whether new comments may be filed
  * @param {import('vue').Ref<Array>}   options.comments  - Reactive list of all Processa Comments for this model
  * @param {Function} options.selectCommentElement        - Opens the "Add Comment" dialog for an element
  * @param {Function} options.openViewCommentsDialog      - Opens the "View Comments" dialog for an element
  */
 export function useBpmnContextMenu({
-	readonly,
+	commentsAllowed,
 	comments,
 	selectCommentElement,
 	openViewCommentsDialog,
@@ -36,7 +36,7 @@ export function useBpmnContextMenu({
 	// Whether the "Add Comment" action should be shown.
 	// Only allowed on real shapes — not on the root process element.
 	const canAddComment = computed(() => {
-		if (readonly.value) return false;
+		if (!commentsAllowed.value) return false;
 		const el = contextMenuElement.value;
 		if (!el || !el.parent) return false; // root element has no parent
 		return true;
@@ -71,9 +71,9 @@ export function useBpmnContextMenu({
 		const hasComments = comments.value.some((c) => c.element_id === elementId);
 
 		// Nothing to show if: (a) it's the root element and there are no comments,
-		// or (b) readonly mode and no comments on this element.
+		// or (b) commenting is off and there are no comments on this element.
 		if (isRootElement && !hasComments) return;
-		if (readonly.value && !hasComments) return;
+		if (!commentsAllowed.value && !hasComments) return;
 
 		contextMenuElement.value = element;
 		contextMenuPosition.value = clampToViewport(
@@ -85,7 +85,7 @@ export function useBpmnContextMenu({
 
 	function addCommentFromContextMenu() {
 		showContextMenu.value = false;
-		if (readonly.value) return; // Guard — should never fire, but be safe
+		if (!commentsAllowed.value) return;
 		if (contextMenuElement.value) {
 			selectCommentElement(contextMenuElement.value);
 		}
