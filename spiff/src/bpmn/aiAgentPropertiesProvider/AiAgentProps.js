@@ -6,6 +6,8 @@ import {
 	isTextFieldEntryEdited,
 	TextAreaEntry,
 	isTextAreaEntryEdited,
+	NumberFieldEntry,
+	isNumberFieldEntryEdited,
 	HeaderButton,
 } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
@@ -13,18 +15,14 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { RecordPickerField } from "../shared/RecordPickerField";
 import { getAttr, setAttr, LinkedPromptEntry, DriftMarkers } from "../shared/agentAttrs";
+import { toolBoxOptions } from "../shared/toolBoxOptions";
+import { missingAiTaskSetting } from "@/utils/aiTaskConfig";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
 	direct_api: "Direct API",
 	antigravity: "Google Antigravity SDK",
 };
-
-// A task counts as "configured" once an AI Provider is selected AND the core
-// task instruction (the user prompt) has been entered.
-function isConfigured(bo) {
-	return Boolean(getAttr(bo, "aiProvider")) && Boolean(getAttr(bo, "aiUserPrompt"));
-}
 
 // ---------------------------------------------------------------------------
 // Entry list — the launcher button followed by the inline config fields,
@@ -97,7 +95,7 @@ export function AiAgentProps(props) {
 			id: "spiffworkflow-aiToolsAdhoc",
 			element,
 			component: ToolsAdhocComponent,
-			isEdited: isTextFieldEntryEdited,
+			isEdited: isSelectEntryEdited,
 		},
 		{
 			id: "spiffworkflow-aiToolCallResults",
@@ -109,7 +107,7 @@ export function AiAgentProps(props) {
 			id: "spiffworkflow-aiMaxToolCalls",
 			element,
 			component: MaxToolCallsComponent,
-			isEdited: isTextFieldEntryEdited,
+			isEdited: isNumberFieldEntryEdited,
 		},
 		{
 			id: "spiffworkflow-aiResponseFormat",
@@ -145,7 +143,7 @@ function LaunchEditorButton(props) {
 	return HeaderButton({
 		className: "spiffworkflow-properties-panel-button",
 		onClick: () => eventBus.fire("launch-ai-agent-editor", { element }),
-		children: isConfigured(bo)
+		children: !missingAiTaskSetting({ aiAgentConfig: getAttr(bo, "aiAgentConfig"), aiModel: getAttr(bo, "aiModel") })
 			? translate("Edit AI Task Configuration")
 			: translate("Configure AI Task"),
 	});
@@ -449,16 +447,16 @@ function ToolForComponent(props) {
 // ---------------------------------------------------------------------------
 function ToolsAdhocComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const debounce  = useService("debounceInput");
-	const bo        = getBusinessObject(element);
+	const modeling        = useService("modeling");
+	const translate       = useService("translate");
+	const elementRegistry = useService("elementRegistry");
+	const bo              = getBusinessObject(element);
 
-	return h(TextFieldEntry, {
+	return h(SelectEntry, {
 		element,
 		id,
-		label: translate("Tools: Ad-hoc sub-process ID"),
-		description: translate("Sub-process whose shapes are the agent's tools"),
+		label: translate("Tools box"),
+		description: translate("Ad-hoc sub-process whose shapes are the agent's tools"),
 		tooltip: translate(
 			"The id of the ad-hoc sub-process whose shapes the agent may call as tools "
 			+ "(Camunda's 'Ad-hoc sub-process ID'). The shapes are the tools — there is no registry. "
@@ -468,7 +466,12 @@ function ToolsAdhocComponent(props) {
 		),
 		getValue: () => getAttr(bo, "aiToolsAdhoc"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiToolsAdhoc", value),
-		debounce,
+		getOptions: () =>
+			toolBoxOptions(
+				elementRegistry.getAll().map((shape) => shape.businessObject),
+				getAttr(bo, "aiToolsAdhoc"),
+				translate,
+			),
 	});
 }
 
@@ -506,15 +509,18 @@ function MaxToolCallsComponent(props) {
 	const debounce  = useService("debounceInput");
 	const bo        = getBusinessObject(element);
 
-	return h(TextFieldEntry, {
+	return h(NumberFieldEntry, {
 		element,
 		id,
 		label: translate("Maximum Model Calls"),
+		min: 1,
+		step: 1,
 		tooltip: translate(
 			"Caps the agent's tool-calling loop (Camunda's 'Limits'). Defaults to 10 when blank."
 		),
 		getValue: () => getAttr(bo, "aiMaxToolCalls"),
-		setValue: (value) => setAttr(modeling, element, bo, "aiMaxToolCalls", value),
+		setValue: (value) =>
+			setAttr(modeling, element, bo, "aiMaxToolCalls", value === undefined ? "" : String(value)),
 		debounce,
 	});
 }
