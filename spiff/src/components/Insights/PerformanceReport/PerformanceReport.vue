@@ -88,15 +88,12 @@
 				/>
 			</div>
 
-			<div
-				v-if="trend.labels && trend.labels.length > 0"
-				class="bg-gray-50 rounded-lg p-4"
-			>
-				<div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Latency Trend (p50 / p95)</div>
-				<div class="latency-chart h-[180px]">
-					<AxisChart :config="trendConfig" />
-				</div>
-			</div>
+			<PerformanceReportChart
+				:timeseries="reportData.timeseries || {}"
+				:grain="reportData.grain"
+				:from-date="reportData.from_date"
+				:to-date="reportData.to_date"
+			/>
 
 			<!-- Main Table -->
 			<div
@@ -241,7 +238,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
 import {
-	AxisChart,
 	Badge,
 	Button,
 	Dropdown,
@@ -251,6 +247,7 @@ import {
 	TabButtons,
 } from "frappe-ui"
 import MetricTile from "@/components/Insights/MetricTile/MetricTile.vue"
+import PerformanceReportChart from "@/components/Insights/PerformanceReportChart/PerformanceReportChart.vue"
 import { openReportExport } from "@/utils/exportReport"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
@@ -332,34 +329,6 @@ function formatDate(dateStr) {
 	if (!dateStr) return ""
 	return dayjs(dateStr).format("DD-MM-YYYY hh:mm A")
 }
-
-const trend = computed(() => reportData.value.trend || { labels: [], p50: [], p95: [] })
-
-const trendConfig = computed(() => ({
-	data: trend.value.labels.map((date, i) => ({ date, p50: trend.value.p50[i], p95: trend.value.p95[i] })),
-	xAxis: {
-		key: "date",
-		type: "time",
-		timeGrain: "day",
-		echartOptions: { axisLabel: { formatter: (v) => dayjs(v).format("MMM D") } },
-	},
-	yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtDuration(v) } } },
-	series: [
-		{ name: "p50", type: "line", color: "#2563eb", showDataPoints: true },
-		{ name: "p95", type: "line", color: "#d97706", showDataPoints: true },
-	],
-	echartOptions: {
-		tooltip: {
-			confine: true,
-			formatter: (params) =>
-				[
-					`<div class="font-medium mb-1">${dayjs(params[0]?.value?.[0]).format("MMM D")}</div>`,
-					...params.map((p) => `<div class="flex justify-between gap-5"><span>${p.seriesName}</span><span>${fmtDuration(p.value?.[1])}</span></div>`),
-				].join(""),
-		},
-		grid: { bottom: 30 },
-	},
-}))
 
 async function toggleExpand(idx) {
 	if (expandedRow.value === idx) {
@@ -472,8 +441,4 @@ function runCostTitle(run) {
 </script>
 
 <style scoped>
-.latency-chart :deep(div[class*="min-h-[300px]"]) {
-	min-height: 0;
-	min-width: 0;
-}
 </style>

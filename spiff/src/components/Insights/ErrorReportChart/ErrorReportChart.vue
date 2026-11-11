@@ -61,7 +61,7 @@
 import { computed } from "vue"
 import { AxisChart, Button } from "frappe-ui"
 import { dayjs } from "@/dayjs"
-import { fmtDateRange, fmtInt, fmtPct } from "@/utils/formatters"
+import { fmtBucketLabel, fmtDateRange, fmtInt, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	timeseries: { type: Object, required: true },
@@ -153,12 +153,6 @@ const chartConfig = computed(() => {
 	}
 })
 
-function bucketLabel(date) {
-	if (props.grain === "week") return `${__("Week of")} ${dayjs(date).format("MMM D")}`
-	if (props.grain === "month") return dayjs(date).format("MMM YYYY")
-	return dayjs(date).format("MMM D")
-}
-
 function colorFor(code) {
 	return CODE_COLORS[code] || UNKNOWN_COLOR
 }
@@ -171,7 +165,7 @@ function tooltipHtml(params) {
 		(c) => `<div class="flex justify-between gap-5"><span>${c.error_code}</span><span>${fmtInt(c.values[i])}</span></div>`,
 	)
 	return [
-		`<div class="font-medium mb-1">${bucketLabel(labels[i])}</div>`,
+		`<div class="font-medium mb-1">${fmtBucketLabel(labels[i], props.grain)}</div>`,
 		`<div class="flex justify-between gap-5"><span>${__("Error rate")}</span><span class="font-semibold">${fmtPct(rates[i])}</span></div>`,
 		`<div class="flex justify-between gap-5"><span>${__("Counted runs")}</span><span>${fmtInt(runs[i])}</span></div>`,
 		...lines,

@@ -96,6 +96,15 @@ export function fmtDateRange(from, to) {
 	return `${month(start)} ${start.getDate()} - ${sameMonth ? "" : `${month(end)} `}${end.getDate()}`
 }
 
+// The chart tooltip title for a bucket: "Sep 21", "Week of Sep 21" or "Sep 2026".
+export function fmtBucketLabel(date, grain) {
+	const d = new Date(`${date}T00:00:00`)
+	const month = d.toLocaleString("en-US", { month: "short" })
+	if (grain === "week") return `Week of ${month} ${d.getDate()}`
+	if (grain === "month") return `${month} ${d.getFullYear()}`
+	return `${month} ${d.getDate()}`
+}
+
 export function fmtDuration(ms) {
 	ms = toNum(ms)
 	if (ms >= 3600000) {

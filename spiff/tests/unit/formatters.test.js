@@ -10,6 +10,7 @@ import {
 	fmtPct,
 	fmtDateRange,
 	fmtDelta,
+	fmtBucketLabel,
 	fmtDuration,
 } from "@/utils/formatters.js"
 
@@ -114,6 +115,12 @@ test("fmtDuration: an hour or more reads in hours and minutes", () => {
 	assert.equal(fmtDuration(6300000), "1h 45m")
 	assert.equal(fmtDuration(3600000), "1h 0m")
 	assert.equal(fmtDuration(3599000), "59:59")
+})
+
+test("fmtBucketLabel: day, week and month buckets", () => {
+	assert.equal(fmtBucketLabel("2026-09-21", "day"), "Sep 21")
+	assert.equal(fmtBucketLabel("2026-09-21", "week"), "Week of Sep 21")
+	assert.equal(fmtBucketLabel("2026-09-01", "month"), "Sep 2026")
 })
 
 test("fmtDuration: null is 0ms", () => {
