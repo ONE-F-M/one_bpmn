@@ -13,6 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_memory import budget as B
 from one_bpmn.ai_agent_registry.definitions.prosally import helpers
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_memory_follows_agent_configuration as config_patch
@@ -41,14 +42,14 @@ class TestRecallFollowsTheConfiguration(FrappeTestCase):
 		search.assert_not_called()
 
 	def test_the_token_budget_comes_from_the_configuration(self):
-		with patch.object(D, "bound_memories_to_budget", side_effect=lambda rows, budget: rows) as bound:
+		with patch.object(B, "bound_memories_to_budget", side_effect=lambda rows, budget: rows) as bound:
 			self._recall({**ON, "memory_token_budget": 50})
 		self.assertEqual(bound.call_args.args[1], 50)
 
 	def test_a_zero_budget_uses_the_default(self):
-		with patch.object(D, "bound_memories_to_budget", side_effect=lambda rows, budget: rows) as bound:
+		with patch.object(B, "bound_memories_to_budget", side_effect=lambda rows, budget: rows) as bound:
 			self._recall({**ON, "memory_token_budget": 0})
-		self.assertEqual(bound.call_args.args[1], D.DEFAULT_MEMORY_TOKEN_BUDGET)
+		self.assertEqual(bound.call_args.args[1], B.DEFAULT_MEMORY_TOKEN_BUDGET)
 
 
 class TestWriteFollowsTheConfiguration(FrappeTestCase):

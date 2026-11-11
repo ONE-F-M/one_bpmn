@@ -11,6 +11,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_memory import budget as B
 from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
@@ -817,17 +818,16 @@ class TestIsSmallTalk(FrappeTestCase):
 
 
 class TestBoundMemoriesToBudget(FrappeTestCase):
-	"""bound_memories_to_budget directly - the truncation dispatch applies to
-	whatever memory_search returns, before _format_memory_block renders it."""
+	"""bound_memories_to_budget on whatever memory_search returns, before format_memory_block renders it."""
 
 	def test_under_budget_is_unchanged(self):
 		memories = [{"content": "short fact"}]
-		self.assertEqual(D.bound_memories_to_budget(memories, 800), memories)
+		self.assertEqual(B.bound_memories_to_budget(memories, 800), memories)
 
 	def test_zero_or_blank_budget_is_a_noop(self):
 		memories = [{"content": "x" * 10_000}]
-		self.assertEqual(D.bound_memories_to_budget(memories, 0), memories)
-		self.assertEqual(D.bound_memories_to_budget(memories, None), memories)
+		self.assertEqual(B.bound_memories_to_budget(memories, 0), memories)
+		self.assertEqual(B.bound_memories_to_budget(memories, None), memories)
 
 	def test_lowest_ranked_memories_are_dropped_first(self):
 		# Rank order is memory_search's contract (relevance/recency); the
@@ -838,10 +838,10 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		memories = [{"content": "a" * 100}, {"content": "b" * 100}, {"content": "c" * 100}]
-		one = estimate_tokens({"content": D._format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
-		two = estimate_tokens({"content": D._format_memory_block(memories[:2])}, DEFAULT_CHARS_PER_TOKEN)
+		one = estimate_tokens({"content": B.format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
+		two = estimate_tokens({"content": B.format_memory_block(memories[:2])}, DEFAULT_CHARS_PER_TOKEN)
 		self.assertLess(one, two)
-		kept = D.bound_memories_to_budget(memories, two - 1)
+		kept = B.bound_memories_to_budget(memories, two - 1)
 		self.assertEqual(kept, [memories[0]])
 
 	def test_single_oversized_memory_is_truncated_not_dropped(self):
@@ -849,7 +849,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		with no size cap of its own — even the sole, best-ranked memory is cut
 		to fit rather than sent whole over budget or left empty."""
 		memories = [{"content": "z" * 10_000}]
-		kept = D.bound_memories_to_budget(memories, 100)
+		kept = B.bound_memories_to_budget(memories, 100)
 		self.assertEqual(len(kept), 1)
 		self.assertLess(len(kept[0]["content"]), 10_000)
 		self.assertGreater(len(kept[0]["content"]), 0)
@@ -859,8 +859,8 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 
 		memories = [{"content": "word " * 200} for _ in range(5)]
 		budget = 100
-		kept = D.bound_memories_to_budget(memories, budget)
-		block = D._format_memory_block(kept)
+		kept = B.bound_memories_to_budget(memories, budget)
+		block = B.format_memory_block(kept)
 		self.assertLessEqual(estimate_tokens({"content": block}, DEFAULT_CHARS_PER_TOKEN), budget)
 
 
@@ -889,7 +889,7 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 		memory_block = prompt.split("Process the latest message.")[0].rstrip("\n")
 		self.assertLessEqual(
 			estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN),
-			D.DEFAULT_MEMORY_TOKEN_BUDGET,
+			B.DEFAULT_MEMORY_TOKEN_BUDGET,
 		)
 
 	def test_per_agent_budget_override(self):
@@ -971,7 +971,7 @@ class TestRecallObservability(FrappeTestCase):
 			)
 		kwargs = self.create_ai_run_mock.call_args.kwargs
 		self.assertGreater(kwargs["memory_injected_tokens"], 0)
-		self.assertLessEqual(kwargs["memory_injected_tokens"], D.DEFAULT_MEMORY_TOKEN_BUDGET)
+		self.assertLessEqual(kwargs["memory_injected_tokens"], B.DEFAULT_MEMORY_TOKEN_BUDGET)
 
 	def test_memory_injected_tokens_is_zero_when_nothing_found(self):
 		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]):
@@ -1016,7 +1016,7 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 
 class TestMemoryBlockProvenance(FrappeTestCase):
 	def test_the_notes_are_offered_as_possibly_relevant(self):
-		block = D._format_memory_block([{"content": "invoices are approved by the finance lead"}])
+		block = B.format_memory_block([{"content": "invoices are approved by the finance lead"}])
 		self.assertEqual(
 			block.splitlines()[1],
 			"Possibly relevant notes from earlier work; use them only if they match this request.",
@@ -1024,7 +1024,7 @@ class TestMemoryBlockProvenance(FrappeTestCase):
 		self.assertNotIn("standing fact", block)
 
 	def test_the_memories_follow_the_provenance_line(self):
-		block = D._format_memory_block([{"content": "ship by DHL"}, {"content": "net-30 terms"}])
+		block = B.format_memory_block([{"content": "ship by DHL"}, {"content": "net-30 terms"}])
 		lines = block.splitlines()
-		self.assertEqual(lines[0], D.MEMORY_BLOCK_HEADER)
+		self.assertEqual(lines[0], B.MEMORY_BLOCK_HEADER)
 		self.assertEqual(lines[-2:], ["- ship by DHL", "- net-30 terms"])

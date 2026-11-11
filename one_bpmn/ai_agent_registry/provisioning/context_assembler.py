@@ -43,7 +43,7 @@ SKILLS_HEADER = "## AI Skills"
 SKILLS_LOADED_HEADER = "## Loaded Skills"
 
 # Prefix for the retrieved-memory block in the DYNAMIC layer. The old
-# system-prompt header lives on as dispatchers.MEMORY_BLOCK_HEADER, which the
+# system-prompt header lives on as budget.MEMORY_BLOCK_HEADER, which the
 # run inspector and evals key on; this module reuses it rather than inventing a
 # second format.
 _SECTION_GAP = "\n\n"
