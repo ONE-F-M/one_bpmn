@@ -50,12 +50,12 @@ class TestRulesFollowTheLinkedAgent(FrappeTestCase):
 			_linked({"Frontend Agent v1": "Frontend Agent"}),
 			patch.object(ops, "_skill_loaded", return_value=False),
 		):
-			self.assertIsNotNone(ops.frontend_edit_error(instance, "edit_file", "spiff/src/A.vue"))
+			self.assertIsNotNone(ops.frontend_edit_error(instance, "edit_file", "frontend/src/A.vue"))
 
 	def test_a_map_that_is_not_a_frontend_agent_is_not_held_to_them(self):
 		instance = frappe._dict(process_model="Dev Agent v1", name="INST-1")
 		with _linked({"Dev Agent v1": "Dev Agent"}), patch.object(ops, "_skill_loaded", return_value=False):
-			self.assertIsNone(ops.frontend_edit_error(instance, "edit_file", "spiff/src/A.vue"))
+			self.assertIsNone(ops.frontend_edit_error(instance, "edit_file", "frontend/src/A.vue"))
 
 
 class TestJobDecisionUsesTheLinkedAgent(FrappeTestCase):

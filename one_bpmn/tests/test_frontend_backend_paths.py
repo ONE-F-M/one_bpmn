@@ -7,7 +7,7 @@ import re
 from frappe.tests.utils import FrappeTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SOURCE = os.path.join(ROOT, "spiff", "src")
+SOURCE = os.path.join(ROOT, "frontend", "src")
 PY_PATH = re.compile(r"(?<![\w/.])(?:one_bpmn/)?[a-z_]+(?:/[a-z_0-9]+)+\.py\b")
 
 

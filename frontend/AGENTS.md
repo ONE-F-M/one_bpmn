@@ -1,6 +1,6 @@
 # AGENTS.md: the Vue frontend
 
-Rules for `spiff/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpmn-js. The build lands in `one_bpmn/public/frontend/` (shell `one_bpmn/www/processa.html`) and is served at `/processa`. Components are already large; resist adding to them.
+Rules for `frontend/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpmn-js. The build lands in `one_bpmn/public/frontend/` (shell `one_bpmn/www/processa.html`) and is served at `/processa`. Components are already large; resist adding to them.
 
 ## Layout
 

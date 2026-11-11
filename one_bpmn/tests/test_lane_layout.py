@@ -39,13 +39,13 @@ import unittest
 from frappe.tests.utils import FrappeTestCase
 
 PIPELINE_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
+    os.path.dirname(__file__), "..", "..", "frontend", "tools", "bpmn-pipeline", "pipeline.mjs",
 ))
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
 BPMN_MODDLE = os.path.join(os.path.dirname(PIPELINE_PATH), "..", "..", "node_modules", "bpmn-moddle")
 PIPELINE_READY = bool(shutil.which("node")) and os.path.exists(PIPELINE_PATH) and os.path.isdir(BPMN_MODDLE)
-PIPELINE_SKIP_REASON = "node, pipeline.mjs or spiff/node_modules (yarn install) unavailable"
+PIPELINE_SKIP_REASON = "node, pipeline.mjs or frontend/node_modules (yarn install) unavailable"
 
 # Crossings are the one metric a lane layout cannot drive to zero: a re-check
 # loop back to an early step has to cross every lane-changing flow it spans, and

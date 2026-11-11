@@ -91,7 +91,7 @@ class TestHints(unittest.TestCase):
 
 
 class TestCompileIrEndToEnd(unittest.TestCase):
-	"""Runs the real spiff/tools/bpmn-pipeline/pipeline.mjs — needs node on PATH."""
+	"""Runs the real frontend/tools/bpmn-pipeline/pipeline.mjs - needs node on PATH."""
 
 	def test_planar_ir_draws_with_no_crossings(self):
 		res = compile_ir(planar_ir())

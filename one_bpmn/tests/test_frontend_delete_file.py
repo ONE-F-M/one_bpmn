@@ -46,7 +46,7 @@ class TestWriteFileRefusesEmptyContent(FrappeTestCase):
 		dispatch.assert_not_called()
 
 	def test_whitespace_only_content_is_refused(self):
-		result, dispatch = _exec(fix.WRITE_FILE, dict(ARGS, path="spiff/src/a.vue", content="  \n\t"))
+		result, dispatch = _exec(fix.WRITE_FILE, dict(ARGS, path="frontend/src/a.vue", content="  \n\t"))
 		self.assertIn("delete_file", result["error"])
 		dispatch.assert_not_called()
 
@@ -58,15 +58,15 @@ class TestWriteFileRefusesEmptyContent(FrappeTestCase):
 		dispatch.assert_called_once()
 
 	def test_real_content_is_written_as_before(self):
-		_, dispatch = _exec(fix.WRITE_FILE, dict(ARGS, path="spiff/src/a.vue", content="<template/>"))
+		_, dispatch = _exec(fix.WRITE_FILE, dict(ARGS, path="frontend/src/a.vue", content="<template/>"))
 		self.assertEqual(dispatch.call_args.args[0], "write_file")
 
 
 class TestDeleteFile(FrappeTestCase):
 	def test_delete_file_dispatches_the_path(self):
-		result, dispatch = _exec(fix.DELETE_FILE, dict(ARGS, path="spiff/src/components/Old.vue"))
+		result, dispatch = _exec(fix.DELETE_FILE, dict(ARGS, path="frontend/src/components/Old.vue"))
 		self.assertEqual(dispatch.call_args.args[0], "delete_file")
-		self.assertEqual(dispatch.call_args.args[4], {"path": "spiff/src/components/Old.vue"})
+		self.assertEqual(dispatch.call_args.args[4], {"path": "frontend/src/components/Old.vue"})
 		self.assertNotIn("error", result)
 
 	def test_delete_file_without_a_path_is_refused(self):

@@ -34,7 +34,7 @@ bench --site your-site.local migrate
 
 ```bash
 # Navigate to the Vue.js frontend directory
-cd apps/one_bpmn/spiff
+cd apps/one_bpmn/frontend
 
 # Install dependencies
 yarn install
@@ -53,7 +53,7 @@ bench --site your-site.local clear-cache
 ### Development Mode
 
 ```bash
-cd apps/one_bpmn/spiff
+cd apps/one_bpmn/frontend
 yarn dev --host
 ```
 
@@ -87,7 +87,7 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── hooks.py               # Frappe hooks (doc events + scheduler)
 │   └── tasks.py               # Scheduled A2A, conversation, memory and model jobs
 │
-└── spiff/                     # Vue.js frontend source
+└── frontend/                     # Vue.js frontend source
     └── src/
         ├── pages/             # Processes, Process, Instances, Instance, agent pages
         ├── components/        # Editor, toolbar, ProsAlly panel, instance views, dialogs
@@ -284,7 +284,7 @@ Compiled process models run as **process instances** via the SpiffWorkflow engin
 ### After Making Changes
 
 ```bash
-cd apps/one_bpmn/spiff
+cd apps/one_bpmn/frontend
 yarn build
 cd ../../../
 bench build --app one_bpmn
@@ -294,9 +294,9 @@ bench --site your-site.local clear-cache
 ### Adding New Features
 
 - **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
-- **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
-- **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
-- **Moddle extension**: add under `spiff/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
+- **Vue component / view**: add under `frontend/src/components/` or `frontend/src/pages/` and register routes in `frontend/src/router.js`.
+- **bpmn-js module**: add under `frontend/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
+- **Moddle extension**: add under `frontend/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 
 ### Runtime Hooks
 
@@ -387,9 +387,9 @@ Intent Classifier
 
 | File | Purpose |
 |---|---|
-| `spiff/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
-| `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
-| `spiff/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
+| `frontend/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI - messages, option buttons, rich-text input |
+| `frontend/src/utils/bpmnLayout.js` | Auto-layout - positions generated BPMN elements left-to-right |
+| `frontend/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
 | `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
 | `one_bpmn/ai_agent_conversations/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
@@ -495,5 +495,5 @@ See `AGENTS.md` for the full working rules.
 - `one_bpmn/one_bpmn/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
 - `one_bpmn/tasks.py` — scheduled A2A, conversation, memory and model jobs
 - `one_bpmn/hooks.py` — universal document-event trigger and scheduler events
-- `spiff/` — the Vue.js frontend (bpmn-js editor + ProsAlly assistant)
+- `frontend/` - the Vue.js frontend (bpmn-js editor + ProsAlly assistant)
 - `one_bpmn/agents/`: the AI agent runtime behind ProsAlly, Logix and the other agents

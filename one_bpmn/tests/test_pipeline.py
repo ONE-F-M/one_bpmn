@@ -28,7 +28,7 @@ from frappe.tests.utils import FrappeTestCase
 PIPELINE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__),
     "..", "..",
-    "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
+    "frontend", "tools", "bpmn-pipeline", "pipeline.mjs",
 ))
 
 
@@ -44,7 +44,7 @@ def _find_node() -> str | None:
 
 BPMN_MODDLE = os.path.join(os.path.dirname(PIPELINE_PATH), "..", "..", "node_modules", "bpmn-moddle")
 PIPELINE_READY = bool(_find_node()) and os.path.exists(PIPELINE_PATH) and os.path.isdir(BPMN_MODDLE)
-PIPELINE_SKIP_REASON = "node, pipeline.mjs or spiff/node_modules (yarn install) unavailable"
+PIPELINE_SKIP_REASON = "node, pipeline.mjs or frontend/node_modules (yarn install) unavailable"
 
 
 def _run_pipeline(ir_dict: dict) -> dict:

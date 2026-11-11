@@ -1,11 +1,11 @@
 # AGENTS.md
 
-This repository holds `one_bpmn` (Processa), a Frappe v15 app for BPMN process modelling and execution: a Python backend with a SpiffWorkflow engine, and a Vue and bpmn-js editor under `spiff/`.
+This repository holds `one_bpmn` (Processa), a Frappe v15 app for BPMN process modelling and execution: a Python backend with a SpiffWorkflow engine, and a Vue and bpmn-js editor under `frontend/`.
 
 These are the only instructions coding agents read. Folder-specific rules live in nested files:
 
 - [`one_bpmn/agents/AGENTS.md`](one_bpmn/agents/AGENTS.md): the AI agent runtime, Logix and ProsAlly.
-- [`spiff/AGENTS.md`](spiff/AGENTS.md): the Vue frontend and the bpmn-js extensions.
+- [`frontend/AGENTS.md`](frontend/AGENTS.md): the Vue frontend and the bpmn-js extensions.
 
 House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered rule set (A1 to F8) is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
 
@@ -13,7 +13,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 
 - Frappe v15, Python 3.10 or later (`requires-python` in `pyproject.toml`).
 - SpiffWorkflow for BPMN execution and serialization.
-- Vue 3, Vite, frappe-ui, TailwindCSS and bpmn-js in `spiff/`. Node.js 20, Yarn.
+- Vue 3, Vite, frappe-ui, TailwindCSS and bpmn-js in `frontend/`. Node.js 20, Yarn.
 - The editor is served at `/processa` from `one_bpmn/www/processa.py` and the built shell `one_bpmn/www/processa.html`.
 
 ## Repository layout
@@ -42,7 +42,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - `one_bpmn/templates/`: email and deployment templates.
 - `one_bpmn/hooks.py`: app hooks, the universal document-event trigger, scheduler events and fixtures.
 - `one_bpmn/tasks.py`: scheduled A2A polling, conversation, memory and model jobs.
-- `spiff/`: the Vue frontend. See its `AGENTS.md`.
+- `frontend/`: the Vue frontend. See its `AGENTS.md`.
 - `docs/`: operations notes and retros.
 
 ## Data model
@@ -69,7 +69,7 @@ Do not add a status without checking the DocType JSON and every consumer.
 - Use the ORM or `frappe.qb`; no raw SQL.
 - Use `frappe.throw(_(...))` for user-facing errors.
 - Use `frappe.db.exists()` for existence checks, not try/except.
-- Return stable dict and list shapes; the Vue app reads them directly. Change a response shape and its caller in `spiff/src/` together.
+- Return stable dict and list shapes; the Vue app reads them directly. Change a response shape and its caller in `frontend/src/` together.
 - Never return tracebacks, private fields or file paths.
 - Name only endpoints that exist; search for `@frappe.whitelist()` before documenting or calling one.
 - Ruff enforces tabs, double quotes and a 110-character line.

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { progressLineFor } from "@/utils/progressLineFor.js"
 
-// No component harness in spiff, so the panel is read as text (as cardExpand.test.mjs does).
+// No component harness in the frontend, so the panel is read as text (as cardExpand.test.mjs does).
 const here = fileURLToPath(new URL("../../src/components/Chat/", import.meta.url))
 const panel = readFileSync(join(here, "AgentChatPanel/AgentChatPanel.vue"), "utf8")
 

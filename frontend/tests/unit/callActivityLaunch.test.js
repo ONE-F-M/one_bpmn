@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
-// No component harness in spiff, so this reads the single-file component as text.
+// No component harness in the frontend, so this reads the single-file component as text.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
 const editor = readFileSync(join(here, "../composables/Editor/useEditorCanvas.js"), "utf8")
 const editorCss = readFileSync(join(here, "Editor/BpmnEditor/BpmnEditor.css"), "utf8")

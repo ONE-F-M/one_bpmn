@@ -56,9 +56,9 @@ SHARED_FOLDER = "shared"
 DEFINITION_NAMES = ("tools.py", "helpers.py", "validators.py", "__init__.py", "AGENTS.md")
 DEFINITION_NAME_PREFIXES = ("tools_", "helpers_", "validators_")
 
-FRONTEND_PREFIXES = ("spiff/src/", "frontend/src/")
-COMPONENT_PREFIXES = ("spiff/src/components/", "frontend/src/components/")
-COMPOSABLE_PREFIXES = ("spiff/src/composables/", "frontend/src/composables/")
+FRONTEND_PREFIXES = ("frontend/src/",)
+COMPONENT_PREFIXES = ("frontend/src/components/",)
+COMPOSABLE_PREFIXES = ("frontend/src/composables/",)
 COMPOSABLE_NAME = re.compile(r"use[A-Z]\w*\.js")
 FRONTEND_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue")
 # A bare or window-level fetch call; resource.fetch() is not the browser API.

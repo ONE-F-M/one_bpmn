@@ -55,16 +55,16 @@ class TestSizeRule(unittest.TestCase):
 		self.assertIn("801 lines", message)
 
 	def test_new_vue_file_over_500_lines_fails_and_names_file_and_size(self):
-		result = run([cs.Change.new_file("spiff/src/components/Big/Big.vue", lines(501))])
+		result = run([cs.Change.new_file("frontend/src/components/Big/Big.vue", lines(501))])
 		self.assertEqual(rules(result), ["size"])
-		self.assertIn("spiff/src/components/Big/Big.vue", str(result.failures[0]))
+		self.assertIn("frontend/src/components/Big/Big.vue", str(result.failures[0]))
 		self.assertIn("501 lines", str(result.failures[0]))
 
 	def test_files_at_the_limit_pass(self):
 		result = run(
 			[
 				cs.Change.new_file("one_bpmn/ok.py", lines(800)),
-				cs.Change.new_file("spiff/src/Ok.vue", lines(500)),
+				cs.Change.new_file("frontend/src/Ok.vue", lines(500)),
 			]
 		)
 		self.assertTrue(result.ok)
@@ -140,7 +140,7 @@ class TestUnsafeCallRule(unittest.TestCase):
 		self.assertTrue(self.added('\tnames = frappe.db.sql_list("select name from tabX")').ok)
 
 	def test_only_python_files_are_checked(self):
-		change = cs.Change.modified("spiff/src/a.js", "x", [(1, f"// {SKIP_PERMISSIONS}")])
+		change = cs.Change.modified("frontend/src/a.js", "x", [(1, f"// {SKIP_PERMISSIONS}")])
 		self.assertTrue(run([change]).ok)
 
 
@@ -326,24 +326,24 @@ class TestDefinitionsRules(unittest.TestCase):
 
 class TestComponentJsRule(unittest.TestCase):
 	def test_a_new_js_file_under_components_fails(self):
-		for path in ("spiff/src/components/chat/newThing.js", "frontend/src/components/newThing.js"):
+		for path in ("frontend/src/components/chat/newThing.js", "frontend/src/components/newThing.js"):
 			with self.subTest(path=path):
 				result = run([cs.Change.new_file(path, "export const a = 1\n")])
 				self.assertEqual(rules(result), ["component-js"])
 				self.assertIn(path, str(result.failures[0]))
 
 	def test_vue_files_and_js_outside_components_pass(self):
-		for path in ("spiff/src/components/chat/NewThing/NewThing.vue", "spiff/src/utils/newThing.js"):
+		for path in ("frontend/src/components/chat/NewThing/NewThing.vue", "frontend/src/utils/newThing.js"):
 			with self.subTest(path=path):
 				self.assertTrue(run([cs.Change.new_file(path, "x\n")]).ok)
 
 	def test_a_baselined_js_file_passes(self):
-		path = "spiff/src/components/chat/index.js"
+		path = "frontend/src/components/chat/index.js"
 		baseline = {("component-js", path): 0}
 		self.assertTrue(run([cs.Change.new_file(path, "x\n")], baseline, baseline).ok)
 
 	def test_moving_a_baselined_js_file_out_asks_for_the_entry_to_be_deleted(self):
-		path = "spiff/src/components/chat/index.js"
+		path = "frontend/src/components/chat/index.js"
 		baseline = {("component-js", path): 0}
 		result = run([cs.Change.deleted(path)], baseline, baseline)
 		self.assertTrue(result.ok)
@@ -351,7 +351,7 @@ class TestComponentJsRule(unittest.TestCase):
 
 
 class TestComponentFolderRule(unittest.TestCase):
-	BASE = "spiff/src/components"
+	BASE = "frontend/src/components"
 
 	def failing(self, path, tree=None, baseline=None):
 		return run([cs.Change.new_file(path, "x\n")], baseline, baseline, tree=tree)
@@ -397,7 +397,7 @@ class TestComponentFolderRule(unittest.TestCase):
 		self.assertTrue(run(changes).ok)
 
 	def test_files_outside_components_are_ignored(self):
-		self.assertTrue(self.failing("spiff/src/views/Loose.vue").ok)
+		self.assertTrue(self.failing("frontend/src/views/Loose.vue").ok)
 
 	def test_a_baselined_file_passes_and_deleting_it_asks_for_the_entry_to_go(self):
 		path = f"{self.BASE}/Modals/CompareModal.vue"
@@ -421,7 +421,7 @@ class TestComponentFolderRule(unittest.TestCase):
 
 
 class TestComposableLayoutRule(unittest.TestCase):
-	BASE = "spiff/src/composables"
+	BASE = "frontend/src/composables"
 	TREE = {f"{BASE}/Docu/useDocu.js", f"{BASE}/Docu/useDocuTree.js", f"{BASE}/useWindowSize.js"}
 
 	def failing(self, *paths):
@@ -449,7 +449,7 @@ class TestComposableLayoutRule(unittest.TestCase):
 				self.assertIn(text, str(result.failures[0]))
 
 	def test_files_outside_composables_are_ignored(self):
-		self.assertTrue(self.failing("spiff/src/utils/thing.ts").ok)
+		self.assertTrue(self.failing("frontend/src/utils/thing.ts").ok)
 
 
 class TestFetchRule(unittest.TestCase):
@@ -458,7 +458,7 @@ class TestFetchRule(unittest.TestCase):
 
 	def test_fetch_in_frontend_code_fails_and_names_the_line(self):
 		for path, text in (
-			("spiff/src/components/chat/AgentChatPanel/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
+			("frontend/src/components/chat/AgentChatPanel/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
 			("frontend/src/bpmn/shared/frappeResource.js", f"\treturn window.{FETCH}path)"),
 		):
 			with self.subTest(path=path):
@@ -468,17 +468,17 @@ class TestFetchRule(unittest.TestCase):
 
 	def test_the_streaming_client_under_utils_may_fetch(self):
 		self.assertTrue(
-			self.added("spiff/src/utils/aguiClient.js", f"\tresponse = await {FETCH}ENDPOINT)").ok
+			self.added("frontend/src/utils/aguiClient.js", f"\tresponse = await {FETCH}ENDPOINT)").ok
 		)
 
 	def test_the_streaming_client_outside_utils_fails(self):
-		result = self.added("spiff/src/components/chat/aguiClient.js", f"\tresponse = await {FETCH}ENDPOINT)")
+		result = self.added("frontend/src/components/chat/aguiClient.js", f"\tresponse = await {FETCH}ENDPOINT)")
 		self.assertEqual(rules(result), ["fetch"])
 
 	def test_resource_fetch_comments_and_backend_pass(self):
 		for path, text in (
-			("spiff/src/pages/List.vue", f"\tinstances.{FETCH})"),
-			("spiff/src/pages/List.vue", f"\t// never call {FETCH}) here"),
+			("frontend/src/pages/List.vue", f"\tinstances.{FETCH})"),
+			("frontend/src/pages/List.vue", f"\t// never call {FETCH}) here"),
 			("one_bpmn/api/x.py", f"\trequests_{FETCH}url)"),
 			("one_bpmn/api/x.py", f"\t{FETCH}url)"),
 		):
@@ -570,24 +570,24 @@ class TestBaseline(unittest.TestCase):
 		files = {
 			"one_bpmn/a.py": lines(801),
 			"one_bpmn/b.py": lines(800),
-			"spiff/src/C.vue": lines(501),
+			"frontend/src/C.vue": lines(501),
 			"one_bpmn/agents/test_d.py": "x = 1\n",
 			"one_bpmn/tests/test_e.py": "x = 1\n",
 			"one_bpmn/f.py": "from one_bpmn.g import _h, public\n",
 			"one_bpmn/tests/test_f.py": "from one_bpmn.g import _h\n",
-			"spiff/src/components/chat/i.js": "x\n",
-			"spiff/src/components/Docu/Bar/Bar.vue": "x\n",
-			"spiff/src/components/Docu/Loose.vue": "x\n",
+			"frontend/src/components/chat/i.js": "x\n",
+			"frontend/src/components/Docu/Bar/Bar.vue": "x\n",
+			"frontend/src/components/Docu/Loose.vue": "x\n",
 		}
 		self.assertEqual(
 			cs.generate_baseline(files),
 			{
 				("size", "one_bpmn/a.py"): 801,
-				("size", "spiff/src/C.vue"): 501,
+				("size", "frontend/src/C.vue"): 501,
 				("test-location", "one_bpmn/agents/test_d.py"): 0,
 				("private-import", "one_bpmn/f.py one_bpmn.g._h"): 0,
-				("component-js", "spiff/src/components/chat/i.js"): 0,
-				("component-folder", "spiff/src/components/Docu/Loose.vue"): 0,
+				("component-js", "frontend/src/components/chat/i.js"): 0,
+				("component-folder", "frontend/src/components/Docu/Loose.vue"): 0,
 			},
 		)
 
