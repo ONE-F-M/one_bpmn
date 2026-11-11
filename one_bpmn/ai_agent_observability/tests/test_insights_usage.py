@@ -356,7 +356,7 @@ class TestInsightsUsage(FrappeTestCase):
 			from_date="2026-09-01", to_date="2026-09-30", model=model, provider="usage-perf-a"
 		)
 
-		self.assertEqual(sum(row["runs"] for row in report["rows"]), 1)
+		self.assertEqual(sum(element["runs"] for element in report["elements"]), 1)
 
 	def test_days_is_rejected(self):
 		with self.assertRaises(frappe.ValidationError):
