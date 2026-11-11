@@ -95,7 +95,7 @@ test("every name an agent config component reads from the dialog context is prov
 		"return {",
 	);
 	const parts = list("components/AgentConfig").filter((d) => /^AgentConfig/.test(d));
-	assert.equal(parts.length, 7);
+	assert.equal(parts.length, 8);
 	for (const part of parts) {
 		const files = list(`components/AgentConfig/${part}`).sort();
 		assert.ok(

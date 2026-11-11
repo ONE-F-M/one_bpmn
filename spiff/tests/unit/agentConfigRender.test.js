@@ -10,6 +10,12 @@ vi.mock("frappe-ui", async () => {
 			props: ["modelValue", "options"],
 			render: () => h("div", { class: "dialog-stub" }),
 		},
+		TabButtons: {
+			props: ["modelValue", "buttons"],
+			render() {
+				return h("div", { class: "tab-buttons-stub" }, this.buttons.map((b) => b.label).join(" | "));
+			},
+		},
 	};
 });
 vi.mock("@iconify/vue", async () => {

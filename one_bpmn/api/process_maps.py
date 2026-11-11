@@ -3,6 +3,7 @@
 
 import frappe
 
+from one_bpmn.processa_engine.agent_runtime import dry_run
 from one_bpmn.processa_engine.maps import listing, readiness, saving
 
 
@@ -71,3 +72,34 @@ def delete_diagram(name: str) -> dict:
 def rename_process_model(name: str, new_title: str) -> dict:
 	"""Rename a BPMN Process Model without running its validate hooks."""
 	return saving.rename_model(name, new_title)
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_ai_task(
+	model_name: str,
+	bpmn_xml: str,
+	bpmn_id: str,
+	form: str | None = None,
+	sample_variables: str | None = None,
+	sample_message: str | None = None,
+) -> dict:
+	"""The prompts and tools an AI Agent Task would send, from the diagram as it stands in the editor."""
+	frappe.has_permission("BPMN Process Model", "write", model_name, throw=True)
+	return dry_run.preview_task(bpmn_xml, bpmn_id, form, sample_variables, sample_message or "")
+
+
+@frappe.whitelist(methods=["POST"])
+def dry_run_ai_task(
+	model_name: str,
+	bpmn_xml: str,
+	bpmn_id: str,
+	form: str | None = None,
+	sample_variables: str | None = None,
+	sample_message: str | None = None,
+	sample_results: str | None = None,
+) -> dict:
+	"""Run one sample turn of an AI Agent Task with tools that return sample results; nothing is saved."""
+	frappe.has_permission("BPMN Process Model", "write", model_name, throw=True)
+	return dry_run.dry_run_task(
+		bpmn_xml, bpmn_id, form, sample_variables, sample_message or "", sample_results
+	)

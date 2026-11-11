@@ -64,6 +64,7 @@
 			:modeler="ed.modeler"
 			:mode="aiAgentModal.mode"
 			:readonly="readonly"
+			:model-name="modelName"
 			@hide="aiAgentModal.show = false"
 			@close="aiAgentModal.element = null"
 		/>
