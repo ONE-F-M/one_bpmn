@@ -140,7 +140,7 @@ class TestTheReadBudgetAndGatesSeeTheNewActions(FrappeTestCase):
 		instance = frappe._dict(name="i", process_model="Frontend Agent")
 		edits = [
 			{"path": "api/x.py", "old_string": "a", "new_string": "b"},
-			{"path": "spiff/src/Home.vue", "old_string": "a", "new_string": "b"},
+			{"path": "frontend/src/Home.vue", "old_string": "a", "new_string": "b"},
 		]
 		with patch.object(ops, "_skill_loaded", return_value=False), patch.object(
 			ops, "_has_read", return_value=True

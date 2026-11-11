@@ -13,8 +13,8 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.ai_agent_conversations.agui import contract as agui_contract
 
 APP_ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = APP_ROOT / "spiff" / "tests" / "fixtures" / "agui_card_events"
-REGISTRY = APP_ROOT / "spiff" / "src" / "utils" / "cardRegistry.js"
+FIXTURES = APP_ROOT / "frontend" / "tests" / "fixtures" / "agui_card_events"
+REGISTRY = APP_ROOT / "frontend" / "src" / "utils" / "cardRegistry.js"
 
 # Panel chrome — deliberately not cards, so not in the registry.
 CHROME_EVENTS = {"onefm.choice", "onefm.conversation_title", "onefm.mode_transition", "onefm.progress"}

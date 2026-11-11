@@ -2,7 +2,7 @@
 // For license information, please see license.txt
 //
 // Purge button for the AI Memory list view, mirroring the memory browser's
-// Purge action (spiff/src/pages/Memory.vue): confirm first, call the same
+// Purge action (frontend/src/pages/Memory.vue): confirm first, call the same
 // purge_memories endpoint, then show the count removed and reload the list.
 // Nothing is deleted until the confirmation is accepted.
 

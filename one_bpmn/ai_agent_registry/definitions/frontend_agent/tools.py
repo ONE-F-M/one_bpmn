@@ -55,7 +55,7 @@ EXCLUDED_PARTS = ("node_modules", "/dist/", "/public/frontend/", "/public/one_ai
                   "__pycache__", "/.git/", "site_config.json")
 
 SPA_APP = "one_bpmn"
-SPA_DIR = "spiff"
+SPA_DIR = "frontend"
 
 
 # ── paths ────────────────────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ def run_prettier(path: str, content: str) -> dict:
 	"""Format content the way the pre-commit hook will."""
 	prettier = os.path.join(spa_root(), "node_modules", ".bin", "prettier")
 	if not os.path.isfile(prettier):
-		return {"ok": False, "error": "prettier is not installed in spiff/node_modules."}
+		return {"ok": False, "error": "prettier is not installed in frontend/node_modules."}
 	try:
 		proc = subprocess.run(
 			[prettier, "--stdin-filepath", path or "component.vue"],
@@ -269,7 +269,7 @@ def run_build(files: dict | None = None) -> dict:
 	TWO THINGS THIS HAS TO GET RIGHT, both learned the hard way:
 
 	1. It must not be able to damage the running application.
-	   ``spiff/vite.config.js`` points the frappe-ui buildConfig plugin at the LIVE
+	   ``frontend/vite.config.js`` points the frappe-ui buildConfig plugin at the LIVE
 	   asset directory with ``emptyOutDir: true``, and the plugin's ``writeBundle``
 	   copies the built index.html over ``www/processa.html`` — the shell the
 	   site serves. A build using that config and failing part-way would leave the
@@ -291,7 +291,7 @@ def run_build(files: dict | None = None) -> dict:
 
 	src_root = spa_root()
 	if not os.path.isdir(os.path.join(src_root, "node_modules")):
-		return {"ok": False, "errors": ["spiff/node_modules is missing — run yarn install."],
+		return {"ok": False, "errors": ["frontend/node_modules is missing - run yarn install."],
 		        "warnings": [], "duration_s": 0, "output": "", "applied": []}
 
 	tmp = tempfile.mkdtemp(prefix="fe_build_")

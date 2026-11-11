@@ -35,11 +35,11 @@ one_bpmn/public/frontend
 one_bpmn/www/processa.html
 # Old build output locations, kept so stale local builds stay untracked
 one_bpmn/public/processa
-# one-ai desk bundle, built by `npm run build:oneai` in spiff/
+# one-ai desk bundle, built by `npm run build:oneai` in frontend/
 one_bpmn/public/one_ai
 one_bpmn/www/processa/index.html
 
 # Auto-generated type declarations
-spiff/components.d.ts
-spiff/auto-imports.d.ts
-spiff/stats.html
+frontend/components.d.ts
+frontend/auto-imports.d.ts
+frontend/stats.html

@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
-// No component harness in spiff, so these read the single-file components as text.
+// No component harness in the frontend, so these read the single-file components as text.
 const here = fileURLToPath(new URL("../../src/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
 

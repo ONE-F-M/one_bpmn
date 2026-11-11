@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
-// spiff has no component harness, so these read the single-file components as text.
+// The frontend has no component harness, so these read the single-file components as text.
 const here = fileURLToPath(new URL("../../src/components/Chat/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
 const card = source("Cards/DiagramPreviewCard/DiagramPreviewCard.vue")
