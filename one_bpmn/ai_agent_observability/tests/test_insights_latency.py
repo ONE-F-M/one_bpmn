@@ -9,6 +9,7 @@ Every test uses its own model and bpmn_ids, so rows other suites leave behind ca
 from __future__ import annotations
 
 import csv
+import inspect
 import io
 
 import frappe
@@ -264,13 +265,14 @@ class TestLatencyReport(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			export_latency_report(from_date=FROM, to_date=TO, fmt="pdf")
 
-	def test_the_legacy_keys_stay_for_the_current_tab(self):
+	def test_the_legacy_keys_and_bpmn_id_are_gone(self):
 		self._run("2026-09-02", 1000, duration_ms=5000)
 
 		report = self._report()
 
-		self.assertEqual(report["rows"][0]["p95_duration_ms"], 5000)
-		self.assertEqual(len(report["trend"]["labels"]), 7)
+		self.assertNotIn("rows", report)
+		self.assertNotIn("trend", report)
+		self.assertNotIn("bpmn_id", inspect.signature(get_performance_report).parameters)
 
 	def test_a_user_without_system_manager_is_refused(self):
 		email = f"lat-{frappe.generate_hash(length=6)}@example.com"
