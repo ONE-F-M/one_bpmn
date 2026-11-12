@@ -130,40 +130,19 @@ class TestAllowedRolesEnforcement(FrappeTestCase):
 		self.assertTrue(user_may_use_agent(AGENT))
 
 	# ── The picker and the gate must not disagree ────────────────────────
-	def test_the_picker_never_offers_what_the_gate_would_refuse(self):
-		"""The root cause was two readings of one field, so this is the real fix.
-
-		Stated one-directionally on purpose. The picker applies filters the gate
-		does not — an agent with no deployed map is hidden from chat but is still
-		invocable by a task — so "offered == callable" is not true and asserting
-		it would be testing the wrong thing. The invariant that matters is that
-		the picker can never offer something the gate then refuses.
-		"""
-		from one_bpmn.api.a2a import list_available_agents
-
+	def test_the_restricted_agent_is_refused_for_a_user_without_the_role(self):
 		self._agent(roles=[ROLE])
 
-		for user in (INSIDER, OUTSIDER):
-			frappe.set_user(user)
-			offered = [a["agent_id"] for a in list_available_agents(include_legacy=0)]
-			for agent_id in offered:
-				name = frappe.db.get_value("AI Agent Configuration", {"agent_id": agent_id}, "name")
-				if not name:
-					continue
-				self.assertTrue(
-					user_may_use_agent(name),
-					f"{user} was offered '{agent_id}' but the gate refuses it",
-				)
-
-	def test_the_restricted_agent_is_hidden_from_a_user_without_the_role(self):
-		from one_bpmn.api.a2a import list_available_agents
-
-		self._agent(roles=[ROLE])
 		frappe.set_user(OUTSIDER)
-
-		offered = [a["agent_id"] for a in list_available_agents(include_legacy=0)]
-		self.assertNotIn("zz_allowed_roles_test", offered)
 		self.assertFalse(user_may_use_agent(AGENT))
+
+		frappe.set_user(INSIDER)
+		self.assertTrue(user_may_use_agent(AGENT))
+
+	def test_the_picker_endpoint_is_gone(self):
+		import one_bpmn.api.a2a as module
+
+		self.assertFalse(hasattr(module, "list_available_agents"))
 
 	# ── The Draft gate still works ───────────────────────────────────────
 	def test_a_draft_agent_is_still_author_only(self):

@@ -18,8 +18,8 @@ from one_bpmn.processa_engine.agent_runtime.tool_bounds import DEFAULT_TOOL_RESU
 from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fix
 
 REPO = frappe.get_app_source_path("one_bpmn")
-BPMN_EDITOR = "spiff/src/components/Editor/BpmnEditor/BpmnEditor.vue"
-EDITOR = "spiff/src/pages/Process.vue"
+BPMN_EDITOR = "frontend/src/components/Editor/BpmnEditor/BpmnEditor.vue"
+EDITOR = "frontend/src/pages/Process.vue"
 ARGS = {"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the panel."}
 
 
@@ -84,7 +84,7 @@ class TestALongFileIsReadInWindows(FrappeTestCase):
 
 	def test_a_short_file_still_comes_back_whole(self):
 		content = "line\n" * 50
-		out = _read("spiff/src/small.js", content)
+		out = _read("frontend/src/small.js", content)
 		self.assertEqual(out["content"], content)
 		self.assertNotIn("hint", out)
 
@@ -117,7 +117,7 @@ class TestTheFrontendToolsPointAtWindows(FrappeTestCase):
 			{"parent": fix.SKILL, "resource_name": fix.TAILWIND_RESOURCE},
 			"resource_value",
 		)
-		self.assertEqual(value, _source("spiff/tailwind.config.cjs"))
+		self.assertEqual(value, _source("frontend/tailwind.config.cjs"))
 
 
 class TestThePatchEdits(FrappeTestCase):

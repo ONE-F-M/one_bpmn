@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const composablesDir = join(repoRoot, "spiff/src/composables");
+const composablesDir = join(repoRoot, "frontend/src/composables");
 
 function pythonSource(modulePath) {
 	const base = join(repoRoot, ...modulePath.split("."));

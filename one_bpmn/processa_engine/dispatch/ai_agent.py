@@ -9,14 +9,13 @@ import frappe
 import frappe.utils
 from frappe.utils import cint
 
+from one_bpmn.ai_agent_memory.budget import (
+	DEFAULT_MEMORY_TOKEN_BUDGET,
+	bound_memories_to_budget,
+	format_memory_block,
+)
 from one_bpmn.processa_engine.dispatch.common import cfg_truthy, split_config, template_renderer
 
-# Evals and the run inspector read this header.
-MEMORY_BLOCK_HEADER = "Relevant memory:"
-_MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them only if they match this request."
-
-# Per-agent default for the injected memory block; aiMemoryTokenBudget overrides it.
-DEFAULT_MEMORY_TOKEN_BUDGET = 800
 KEYED_PROCESS_ROWS = 5
 KEYED_USER_ROWS = 3
 
@@ -186,7 +185,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				if memories:
 					token_budget = int(task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET)
 					memories = bound_memories_to_budget(memories, token_budget)
-					memory_block = _format_memory_block(memories)
+					memory_block = format_memory_block(memories)
 					from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 					memory_injected_tokens = estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN)
@@ -830,38 +829,6 @@ def terminal_tools_for(task_cfg: dict) -> list:
 	return list({"finalize", *split_config(task_cfg.get("aiTerminalTools"))})
 
 
-def bound_memories_to_budget(memories: list, token_budget: int) -> list:
-	"""Keep rank-ordered memories while the rendered block fits token_budget; drop the tail.
-
-	A hard ceiling: when even the first memory does not fit, its content is cut to fit.
-	"""
-	from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
-
-	if not memories or not token_budget or token_budget <= 0:
-		return memories
-
-	header_cost = estimate_tokens({"content": _format_memory_block([])}, DEFAULT_CHARS_PER_TOKEN)
-	budget = max(token_budget - header_cost, 0)
-	# The "\n- " each bullet adds costs about a token.
-	per_item_overhead = 1
-
-	kept = []
-	spent = 0
-	for m in memories:
-		content = str((m or {}).get("content") or "")
-		cost = estimate_tokens({"content": content}, DEFAULT_CHARS_PER_TOKEN) + per_item_overhead
-		if spent + cost <= budget:
-			kept.append(m)
-			spent += cost
-			continue
-		if not kept:
-			max_chars = max((budget - per_item_overhead) * DEFAULT_CHARS_PER_TOKEN, 0)
-			if max_chars > 0:
-				kept.append({**m, "content": content[:max_chars]})
-		break
-	return kept
-
-
 def _is_small_talk(message: str) -> bool:
 	"""True for an empty message or one whose every word is a greeting or acknowledgement word."""
 	words = re.findall(r"[a-z']+", (message or "").strip().lower())
@@ -931,16 +898,6 @@ def _preference_user(task_data: dict | None) -> str | None:
 		return None
 	user = frappe.session.user
 	return user if user and user != "Guest" else None
-
-
-def _format_memory_block(memories: list) -> str:
-	"""Render memories as the delimited block for the dynamic prompt layer, headed by MEMORY_BLOCK_HEADER."""
-	lines = [MEMORY_BLOCK_HEADER, _MEMORY_BLOCK_PROVENANCE]
-	for m in memories:
-		content = (m.get("content") or "").strip()
-		if content:
-			lines.append(f"- {content}")
-	return "\n".join(lines)
 
 
 def _turn_user_message(instance, task) -> str:

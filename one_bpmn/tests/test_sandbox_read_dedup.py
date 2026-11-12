@@ -15,7 +15,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 SCRIPT = "Sandbox Tool: Read File"
-PATH = "spiff/src/components/BpmnEditor.vue"
+PATH = "frontend/src/components/BpmnEditor.vue"
 BIG = "<template>\n" + ("x" * 4000) + "\n</template>\n"
 
 
@@ -119,7 +119,7 @@ class TestRepeatReadIsElided(FrappeTestCase):
 		self.assertEqual(out["content"], BIG)
 
 	def test_a_read_of_a_different_path_does_not_match(self):
-		_earlier_read("i-test", "spiff/src/pages/Process.vue", BIG)
+		_earlier_read("i-test", "frontend/src/pages/Process.vue", BIG)
 		out = _run(self.args, self._dispatch(BIG))
 		self.assertEqual(out["content"], BIG)
 

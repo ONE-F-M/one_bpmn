@@ -12,7 +12,7 @@
 </template>
 <script setup>
 // Display primitive: read-only BPMN thumbnail from XML.
-// bpmn-js is already a spiff dependency; the viewer is lazy-imported so
+// bpmn-js is already a frontend dependency; the viewer is lazy-imported so
 // non-diagram conversations never pay for it.
 // `height` and `large` let the expanded window reuse it; the defaults keep
 // the chat thumbnail as it was.

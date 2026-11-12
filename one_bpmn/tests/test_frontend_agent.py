@@ -70,9 +70,9 @@ class TestPathContainment(unittest.TestCase):
 	"""``resolve`` stays in Python because it needs realpath, and it is atomic."""
 
 	def test_accepts_a_front_end_source_file(self):
-		abs_path, refusal = fs.resolve("one_bpmn/spiff/src/router.js")
+		abs_path, refusal = fs.resolve("one_bpmn/frontend/src/router.js")
 		self.assertEqual(refusal, "")
-		self.assertTrue(abs_path.endswith("spiff/src/router.js"))
+		self.assertTrue(abs_path.endswith("frontend/src/router.js"))
 
 	def test_refuses_traversal_out_of_the_apps_tree(self):
 		_, refusal = fs.resolve("../../../etc/passwd")
@@ -82,18 +82,18 @@ class TestPathContainment(unittest.TestCase):
 		self.assertNotEqual(fs.resolve("/etc/hosts")[1], "")
 
 	def test_refuses_generated_and_vendored(self):
-		for path in ("one_bpmn/spiff/node_modules/vue/index.js",
+		for path in ("one_bpmn/frontend/node_modules/vue/index.js",
 		             "one_bpmn/one_bpmn/public/frontend/assets/index.js"):
 			self.assertNotEqual(fs.resolve(path)[1], "", path)
 
 	def test_a_symlink_out_of_the_tree_is_refused(self):
 		"""Containment is checked after the link is resolved, not before."""
-		link = os.path.join(fs.apps_root(), "one_bpmn", "spiff", "src", "_escape_probe.js")
+		link = os.path.join(fs.apps_root(), "one_bpmn", "frontend", "src", "_escape_probe.js")
 		if os.path.lexists(link):
 			os.unlink(link)
 		os.symlink("/etc/hosts", link)
 		try:
-			_, refusal = fs.resolve("one_bpmn/spiff/src/_escape_probe.js")
+			_, refusal = fs.resolve("one_bpmn/frontend/src/_escape_probe.js")
 			self.assertIn("outside the apps directory", refusal)
 		finally:
 			os.unlink(link)
@@ -113,7 +113,7 @@ class TestReadAndSearch(FrontendAgentCase):
 	def test_catalogue_lists_components_that_exist(self):
 		out = run_tool("Component Catalogue")
 		if not out.get("frappe_ui"):
-			self.skipTest("frappe-ui is not installed in spiff/node_modules")
+			self.skipTest("frappe-ui is not installed in frontend/node_modules")
 		for expected in ("Button", "Dialog", "FormControl"):
 			self.assertIn(expected, out["frappe_ui"])
 
@@ -154,9 +154,9 @@ class TestAppRouting(FrontendAgentCase):
 		self.assertEqual(out["kind"], "route")
 		self.assertTrue(any(r["to"] == "processa" for r in out["route_rules"]))
 # ── the build must not be able to hurt the running app ───────────────────────
-@unittest.skipUnless(_spa_installed(), "spiff/node_modules is not installed")
+@unittest.skipUnless(_spa_installed(), "frontend/node_modules is not installed")
 class TestBuildIsolation(unittest.TestCase):
-	"""``spiff/vite.config.js`` empties the live asset directory and overwrites the
+	"""``frontend/vite.config.js`` empties the live asset directory and overwrites the
 	served shell, so the check must never use it."""
 
 	def _live_state(self):
