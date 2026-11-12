@@ -150,7 +150,7 @@ def _render(template: str | None, jinja_ctx: dict, label: str) -> str:
 	try:
 		return REQUEST_JINJA.from_string(template).render(jinja_ctx)
 	except Exception as exc:
-		frappe.throw(_("The {0} does not render with these sample variables: {1}").format(label, exc))
+		frappe.throw(_("The {0} does not render with these sample variables: {1}").format(label, str(exc)))
 
 
 def _tools(task_cfg: dict, sample_results) -> tuple:
