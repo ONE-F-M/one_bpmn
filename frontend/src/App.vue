@@ -1,5 +1,6 @@
 <template>
 	<div class="h-screen flex bg-gray-100 overflow-hidden relative">
+		<SiteUpdateBanner />
 		<!-- Mobile Header Toggle (Only visible on small screens, hidden on Editor routes) -->
 		<div v-if="!isEditorRoute" class="lg:hidden fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-[100] shadow-sm">
 			<div class="flex items-center gap-3">
@@ -304,6 +305,7 @@ import { ref, computed, onMounted, provide } from "vue"
 import { useRoute } from "vue-router"
 import { Icon } from "@iconify/vue"
 import { frappeRequest } from "frappe-ui"
+import SiteUpdateBanner from "./components/SiteUpdateBanner.vue"
 
 const route = useRoute()
 const collapsed = ref(false)
