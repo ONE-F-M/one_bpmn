@@ -124,9 +124,12 @@ def read_doctype_definition(doctype: str) -> dict | None:
 			else:
 				row[attr] = val or ""
 		fields.append(row)
+	# Imported here because one_bpmn.api.docu imports this module at load time
+	from one_bpmn.api.docu import DEFAULT_MODULE
+
 	out = {
 		"doctype_name": doctype,
-		"module": getattr(meta, "module", "ONE BPMN"),
+		"module": getattr(meta, "module", DEFAULT_MODULE),
 		"is_child_table": int(bool(getattr(meta, "istable", 0))),
 		"custom": int(bool(getattr(meta, "custom", 0))),
 		"autoname": getattr(meta, "autoname", "") or "",
