@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import random
 import time
 from typing import Any, ClassVar
 
@@ -23,7 +22,7 @@ from one_bpmn.processa_engine.agent_runtime.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.processa_engine.agent_runtime import structured_output
+from one_bpmn.processa_engine.agent_runtime import backoff_seconds, structured_output
 
 
 def run_coro_blocking(coro):
@@ -293,7 +292,7 @@ class DirectApiExecutor(Executor):
 
 			if attempt >= config.max_retries:
 				break
-			self._sleep_backoff(config, attempt)
+			time.sleep(backoff_seconds(attempt, config.retry_backoff_ms))
 			attempt += 1
 
 		last_error_result.attempts = list(attempts)
@@ -624,12 +623,6 @@ class DirectApiExecutor(Executor):
 		content = "".join(text_parts)
 		token_usage = self._parse_token_usage(data.get("usage") or {})
 		return content, token_usage, None
-
-	@staticmethod
-	def _sleep_backoff(config: ExecutorConfig, attempt: int) -> None:
-		base_s = (config.retry_backoff_ms / 1000.0) * (2**attempt)
-		jitter = random.uniform(0, 0.1)
-		time.sleep(base_s + jitter)
 
 	@staticmethod
 	def _parse_token_usage(usage_raw: dict) -> TokenUsage:

@@ -7,6 +7,7 @@ Card discovery is guest-readable and answers a hidden agent with the same 404 as
 
 from __future__ import annotations
 
+import html
 import json
 
 import frappe
@@ -560,9 +561,7 @@ def invoke_agent(
 	# ``strip_html``): unlike markup tags, a plain chat message can
 	# legitimately contain a literal ``<...>``-shaped placeholder, and this
 	# must not corrupt that.
-	from one_bpmn.ai_agent_memory.text_clean import unescape_entities
-
-	message = unescape_entities(message)
+	message = html.unescape(message or "")
 
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
