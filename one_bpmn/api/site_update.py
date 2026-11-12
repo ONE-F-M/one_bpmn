@@ -22,7 +22,7 @@ MANAGER_ROLE = "System Manager"
 @frappe.whitelist(methods=["POST"])
 def start_site_update_countdown(minutes=DEFAULT_MINUTES) -> dict:
 	"""Start (or restart) the countdown and tell every user. Returns {"ends_at", "seconds_remaining"}."""
-	frappe.only_for(MANAGER_ROLE)
+	_require_manager()
 	minutes = _checked_minutes(minutes)
 
 	ends_at = (_now() + timedelta(minutes=minutes)).replace(microsecond=0)
@@ -55,10 +55,16 @@ def get_site_update_countdown() -> dict:
 @frappe.whitelist(methods=["POST"])
 def cancel_site_update_countdown() -> dict:
 	"""Clear the countdown and tell every user it is cancelled."""
-	frappe.only_for(MANAGER_ROLE)
+	_require_manager()
 	frappe.cache.delete_value(CACHE_KEY)
 	frappe.publish_realtime(EVENT, {"cancelled": True}, after_commit=False)
 	return {"cancelled": True}
+
+
+def _require_manager() -> None:
+	# Not frappe.only_for: that returns early while tests run, so it could not be tested.
+	if MANAGER_ROLE not in frappe.get_roles():
+		frappe.throw(_("Only a System Manager can do this"), frappe.PermissionError)
 
 
 def _checked_minutes(minutes) -> float:
