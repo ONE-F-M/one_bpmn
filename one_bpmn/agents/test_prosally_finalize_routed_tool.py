@@ -53,6 +53,8 @@ class TestClarifyOutput(unittest.TestCase):
 
 class TestFinalizeRunsTheRoutedTool(unittest.TestCase):
     def _run_finalize(self, turn):
+        from one_bpmn.one_bpmn.patches.v1_0 import prosally_finalize_runs_routed_tool as patch
+
         ns = {"context_docname": "ctx", "instance": None, "result": {}}
         with (
             mock.patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
@@ -99,4 +101,4 @@ class TestFinalizeRunsTheRoutedTool(unittest.TestCase):
         clarify.assert_not_called()
         self.assertTrue(result["fallback"])
         self.assertNotIn("ran_tool", result)
-        self.assertIn(GENERIC_QUESTION, patch.FINALIZE)
+        self.assertEqual(result["response"], GENERIC_QUESTION)
