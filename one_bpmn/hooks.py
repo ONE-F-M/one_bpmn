@@ -36,6 +36,8 @@ app_include_js = [
 	# rest, so a form nobody has ever asked about costs no round trip.
 	# ?v= as above — a plain path gets no automatic cache-busting.
 	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=2",
+	# Site-update countdown banner shown on every desk page.
+	"/assets/one_bpmn/js/site_update_banner.js",
 ]
 
 # Purge action on the AI Memory list view, mirroring the memory browser's
