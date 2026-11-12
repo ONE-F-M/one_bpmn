@@ -14,6 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api import collaboration
 from one_bpmn.api.collaboration import (
+	EVENT_AWARENESS,
 	EVENT_DIAGRAM_CHANGE,
 	EVENT_DIAGRAM_SAVED,
 	EVENT_PRESENCE,
@@ -304,3 +305,38 @@ class TestModelState(CollaborationCase):
 		self.assertEqual(state["revision"], 1)
 		self.assertIn('name="v2"', state["bpmn_xml"])
 		self.assertEqual(state["model"], self.model)
+
+
+class TestAwareness(CollaborationCase):
+	def _set(self, **kwargs):
+		with patch.object(frappe, "publish_realtime") as publish:
+			collaboration.set_awareness(self.model, "tab-1", **kwargs)
+		return _calls(publish, EVENT_AWARENESS)
+
+	def test_the_selection_goes_to_the_model_room_with_who_sent_it(self):
+		(args, kwargs), = self._set(mode="editing", selection=["Task_1"])
+		self.assertEqual(kwargs["doctype"], "BPMN Process Model")
+		self.assertEqual(kwargs["docname"], self.model)
+		self.assertEqual(args[1]["selection"], ["Task_1"])
+		self.assertEqual(args[1]["client_id"], "tab-1")
+		self.assertEqual(args[1]["user"], "Administrator")
+		self.assertEqual(args[1]["mode"], "editing")
+
+	def test_a_viewer_who_cannot_edit_is_shown_as_viewing(self):
+		with patch.object(collaboration, "_can_edit", return_value=False):
+			(args, _), = self._set(mode="editing")
+		self.assertEqual(args[1]["mode"], "viewing")
+
+	def test_junk_is_dropped_and_the_selection_is_capped(self):
+		(args, _), = self._set(mode="bogus", selection=["a", 5, None] + ["x"] * 100)
+		self.assertEqual(args[1]["mode"], "viewing")
+		self.assertEqual(len(args[1]["selection"]), 48)  # 50 kept, 2 of them not strings
+
+	def test_awareness_writes_nothing_and_needs_a_client_id(self):
+		with self.assertRaises(frappe.ValidationError):
+			collaboration.set_awareness(self.model, "")
+
+	def test_guest_is_refused(self):
+		frappe.set_user("Guest")
+		with self.assertRaises(frappe.PermissionError):
+			collaboration.set_awareness(self.model, "tab-1")
