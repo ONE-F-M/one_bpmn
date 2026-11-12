@@ -138,6 +138,7 @@ const props = defineProps({
 const emit = defineEmits([
 	"ready",
 	"changed",
+	"selection-changed",
 	"zoom-changed",
 	"launch-script-editor",
 	"confirm-script-delete",
@@ -180,6 +181,7 @@ const {
 	fitToScreen,
 	getRawLintIssues,
 	getSelectedElements,
+	getLiveXML,
 	getXML,
 	getZoomLevel,
 	isCommentMode,
@@ -191,6 +193,7 @@ const {
 	removeOverlaysByElement,
 	resetZoom,
 	setElementColor,
+	setPresence,
 	setProcessName,
 	showCommentDialog,
 	showPropertiesPanel,
@@ -207,6 +210,8 @@ const {
 
 defineExpose({
 	getXML,
+	getLiveXML,
+	setPresence,
 	getRawLintIssues,
 	loadXML,
 	setProcessName,

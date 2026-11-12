@@ -1,5 +1,9 @@
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage";
+import { useDiagramCollaboration } from "@/composables/useDiagramCollaboration";
+import { useDiagramAwareness } from "@/composables/useDiagramAwareness";
+import { useCurrentUser } from "@/composables/useCurrentUser";
 
 export function useProcessDocument(pc) {
 	const {
@@ -189,48 +193,73 @@ export function useProcessDocument(pc) {
 		window.removeEventListener("keydown", pc.handleKeyDown);
 		window.removeEventListener("beforeunload", pc.handleBeforeUnload);
 		clearTimeout(pc.saveTimeout);
-		stopHeartbeat();
+		leaveCollaboration();
 	});
 
-	function startHeartbeat(modelName) {
-		stopHeartbeat();
-		if (!modelName) return;
+	// Shares the open diagram with the other editors of the same model.
+	const collab = useDiagramCollaboration({
+		hasLocalChanges: () => pc.isUnsavedOrInFlight() || pc.isEditingShapeProperties(),
+		applyXml: applyRemoteDiagram,
+		getLiveXml: () => editorRef.value?.getLiveXML(),
+		onEditors: (editors) => {
+			otherEditors.value = editors;
+		},
+	});
 
-		// Initial check
-		performHeartbeat(modelName);
+	// Shows who else has the diagram open and what they have selected.
+	const { currentUser } = useCurrentUser();
+	const localSelection = ref([]);
+	const awareness = useDiagramAwareness({
+		currentUser: () => currentUser.value,
+		getSelection: () => localSelection.value,
+		canEdit: () => pc.canEditActiveDiagram.value,
+	});
+	watch(awareness.peers, (list) => editorRef.value?.setPresence(list));
 
-		// Periodic check every 30 seconds
-		pc.heartbeatInterval = setInterval(() => {
-			performHeartbeat(modelName);
-		}, 30000);
+	function onSelectionChanged(ids) {
+		localSelection.value = ids;
+		awareness.announce();
 	}
 
-	function stopHeartbeat() {
-		if (pc.heartbeatInterval) {
-			clearInterval(pc.heartbeatInterval);
-			pc.heartbeatInterval = null;
-		}
-		otherEditors.value = [];
+	async function applyRemoteDiagram(xml) {
+		if (!editorRef.value) return;
+		await editorRef.value.loadXML(xml, { keepViewbox: true });
+		diagramDataCache.value[activeDiagramName.value] = xml;
+		isExecutable.value = extractIsExecutable(xml);
+		hasUnsavedChanges.value = false;
+		saveState.value = "saved";
 	}
 
-	async function performHeartbeat(modelName) {
+	function markSynced(xml) {
+		collab.synced(xml).catch((err) => console.error("Diagram sync failed:", err));
+	}
+
+	async function onLoadLatest() {
 		try {
-			const response = await frappeRequest({
-				url: "one_bpmn.api.editability.check_and_update_editor_lock",
-				params: { model_name: modelName },
-			});
-
-			const otherUsers = response.message || response;
-
-			if (otherUsers && otherUsers.length > 0) {
-				otherEditors.value = otherUsers;
-				// Multi-user editing is reflected by avatars in the header.
-			} else {
-				otherEditors.value = [];
-			}
-		} catch (err) {
-			console.error("Heartbeat error:", err);
+			await collab.loadLatest();
+		} catch (error) {
+			pc.showNotification("Couldn't Load Latest", serverMessage(error), "red", true);
 		}
+	}
+
+	async function onKeepMine() {
+		try {
+			await collab.keepMine();
+			await pc.saveCurrentDiagram();
+		} catch (error) {
+			pc.showNotification("Couldn't Save Process", serverMessage(error), "red", true);
+		}
+	}
+
+	function joinCollaboration(modelName) {
+		if (!modelName) return;
+		collab.join(modelName).catch((err) => console.error("Collaboration join failed:", err));
+		awareness.join(modelName);
+	}
+
+	function leaveCollaboration() {
+		collab.leave();
+		awareness.leave();
 	}
 
 	async function loadProcess() {
@@ -292,12 +321,12 @@ export function useProcessDocument(pc) {
 	// Watch for diagram tab switches and load new XML without remounting the editor.
 	watch(activeDiagramName, async (newName) => {
 		if (!newName) {
-			stopHeartbeat();
+			leaveCollaboration();
 			isExecutable.value = false;
 			return;
 		}
 
-		startHeartbeat(newName);
+		joinCollaboration(newName);
 
 		if (!editorReady.value) return;
 		hasUnsavedChanges.value = false;
@@ -314,6 +343,7 @@ export function useProcessDocument(pc) {
 				await editorRef.value.loadXML(diagramDataCache.value[name]);
 				if (processName.value) editorRef.value.setProcessName(processName.value);
 				isExecutable.value = extractIsExecutable(diagramDataCache.value[name]);
+				markSynced(diagramDataCache.value[name]);
 			}
 			return;
 		}
@@ -330,6 +360,7 @@ export function useProcessDocument(pc) {
 				await editorRef.value.loadXML(data.xml_content);
 				if (processName.value) editorRef.value.setProcessName(processName.value);
 				isExecutable.value = extractIsExecutable(data.xml_content);
+				markSynced(data.xml_content);
 			}
 		} catch (error) {
 			console.error("Failed to load diagram:", error);
@@ -361,9 +392,11 @@ export function useProcessDocument(pc) {
 		lockReason,
 		pickDefaultDiagram,
 		checkEditability,
-		startHeartbeat,
-		stopHeartbeat,
-		performHeartbeat,
+		collab,
+		awareness,
+		onSelectionChanged,
+		onLoadLatest,
+		onKeepMine,
 		loadProcess,
 		selectDiagram,
 		onEditorReady,

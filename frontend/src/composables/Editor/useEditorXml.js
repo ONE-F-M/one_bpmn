@@ -69,8 +69,16 @@ export function useEditorXml(ed) {
 		return xml;
 	}
 
-	async function loadXML(xml) {
+	// Serializes the canvas for live sync without blurring the field the user is typing in.
+	async function getLiveXML() {
+		if (!ed.modeler) return "";
+		const { xml } = await ed.modeler.saveXML({ format: true });
+		return xml;
+	}
+
+	async function loadXML(xml, { keepViewbox = false } = {}) {
 		if (!ed.modeler) return;
+		const viewbox = keepViewbox ? ed.modeler.get("canvas").viewbox() : null;
 		isImporting.value = true;
 		try {
 			await ed.modeler.importXML(xml);
@@ -116,18 +124,22 @@ export function useEditorXml(ed) {
 			ed.updateUndoRedoState();
 			ed.renderComments();
 			// Fit diagram to screen by default after loading, safely catching zero-dimension errors
-			setTimeout(() => {
-				try {
-					const canvas = ed.modeler.get("canvas");
-					canvas.zoom("fit-viewport");
-					zoomLevel.value = Math.round(canvas.zoom() * 100);
-				} catch (e) {
-					console.warn(
-						"Could not fit viewport automatically - container may be hidden:",
-						e,
-					);
-				}
-			}, 100);
+			if (viewbox) {
+				ed.modeler.get("canvas").viewbox(viewbox);
+			} else {
+				setTimeout(() => {
+					try {
+						const canvas = ed.modeler.get("canvas");
+						canvas.zoom("fit-viewport");
+						zoomLevel.value = Math.round(canvas.zoom() * 100);
+					} catch (e) {
+						console.warn(
+							"Could not fit viewport automatically - container may be hidden:",
+							e,
+						);
+					}
+				}, 100);
+			}
 
 			// Extract process name from the loaded XML so ProsAlly and other
 			// consumers use the actual BPMN process name, not the model record name.
@@ -255,7 +267,45 @@ export function useEditorXml(ed) {
 		}
 	});
 
+	// Outlines, in each collaborator's colour, the elements they have selected, with their name on top.
+	let presencePeers = [];
+	function setPresence(peers) {
+		presencePeers = peers;
+		renderPresence();
+	}
+
+	function renderPresence() {
+		if (!ed.modeler) return;
+		const overlays = ed.modeler.get("overlays");
+		const registry = ed.modeler.get("elementRegistry");
+		overlays.remove({ type: "presence" });
+		for (const peer of presencePeers) {
+			if (peer.mode === "idle") continue;
+			for (const id of peer.selection) {
+				const element = registry.get(id);
+				if (!element) continue;
+				const box = element.waypoints ? bboxOf(element.waypoints) : element;
+				const frame = document.createElement("div");
+				frame.style.cssText = `width:${box.width + 8}px;height:${box.height + 8}px;border:2px solid ${peer.color};border-radius:6px;pointer-events:none;position:relative`;
+				const label = document.createElement("span");
+				label.textContent = `${peer.fullName} · ${peer.mode}`;
+				label.style.cssText = `position:absolute;bottom:100%;left:-2px;background:${peer.color};color:#fff;font-size:10px;line-height:14px;padding:0 4px;border-radius:3px;white-space:nowrap`;
+				frame.appendChild(label);
+				overlays.add(element, "presence", { position: { top: -4, left: -4 }, html: frame });
+			}
+		}
+	}
+
+	function bboxOf(points) {
+		const xs = points.map((p) => p.x);
+		const ys = points.map((p) => p.y);
+		return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+	}
+
 	Object.assign(ed, {
+		renderPresence,
+		setPresence,
+		getLiveXML,
 		makeEmptyDiagram,
 		getXML,
 		loadXML,

@@ -264,7 +264,11 @@ export function useEditorCanvas(ed) {
 		// Ensure comments are rendered after any diagram import finishes
 		eventBus.on("import.done", () => {
 			ed.renderComments();
+			ed.renderPresence();
 		});
+
+		// Remote edits can move or remove an element someone has selected.
+		eventBus.on("elements.changed", () => ed.renderPresence());
 	});
 
 	Object.assign(ed, {

@@ -167,6 +167,7 @@ export function useEditorElements(ed) {
 		// Listen for selection changes for formatting toolbar
 		eventBus.on("selection.changed", (e) => {
 			selectedElements.value = e.newSelection || [];
+			emit("selection-changed", selectedElements.value.map((el) => el.id));
 
 			// Auto-open the properties panel when an element is selected
 			if (e.newSelection?.length > 0) {
