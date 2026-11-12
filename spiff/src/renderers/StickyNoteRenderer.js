@@ -12,7 +12,7 @@ function layoutStyle(element) {
 	const s = getTextStyle(element);
 	return {
 		fontSize: s.fontSize,
-		fontFamily: s.fontFamily,
+		fontFamily: `${s.fontFamily}, Arial, sans-serif`,
 		fontWeight: s.fontWeight,
 		fontStyle: s.fontStyle,
 		lineHeight: LINE_HEIGHT,

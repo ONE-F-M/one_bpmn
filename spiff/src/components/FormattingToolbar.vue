@@ -683,7 +683,9 @@ function applyFontSize(fontSize) {
 			
 			// Auto-resize element to fit larger text (Bug #2 fix)
 			// Only resize shapes that have bounds (not connections)
-			if (rawElement.width && rawElement.height && rawElement.type !== "bpmn:SequenceFlow") {
+			// Sticky notes size themselves to their text (StickyNoteRenderer), so skip this.
+			const isSticky = rawElement.businessObject?.get?.("spiffworkflow:isStickyNote");
+			if (!isSticky && rawElement.width && rawElement.height && rawElement.type !== "bpmn:SequenceFlow") {
 				// Only resize if font is getting larger
 				if (fontSize > oldFontSize) {
 					// Calculate scale factor based on font size increase
