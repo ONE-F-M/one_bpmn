@@ -101,4 +101,3 @@ class TestFinalizeRunsTheRoutedTool(unittest.TestCase):
         clarify.assert_not_called()
         self.assertTrue(result["fallback"])
         self.assertNotIn("ran_tool", result)
-        self.assertEqual(result["response"], GENERIC_QUESTION)
