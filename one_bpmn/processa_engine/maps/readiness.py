@@ -5,6 +5,7 @@ from lxml import etree as ET
 import frappe
 from frappe import _
 
+from one_bpmn.processa_engine.maps.lane_permissions import lane_role_permission_warnings
 from one_bpmn.processa_engine.maps.references import extract_bpmn_references, extract_call_activity_refs
 
 
@@ -175,6 +176,8 @@ def check_readiness(xml_content: str, model_name: str = None) -> dict:
 			})
 		else:
 			role_items.append({"name": role_name, "exists": True, "type": "check"})
+	valid_roles = {i["name"] for i in role_items if i["exists"]}
+	role_items.extend(lane_role_permission_warnings(refs["root"], valid_roles))
 	if role_items:
 		categories.append({
 			"label": "Lane Roles",
