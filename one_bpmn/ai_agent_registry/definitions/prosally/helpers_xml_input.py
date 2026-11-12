@@ -18,10 +18,10 @@ Pure Python (no frappe), so it can be tested without a site.
 from __future__ import annotations
 
 import difflib
+import html
 import re
 from xml.etree import ElementTree as ET
 
-from one_bpmn.ai_agent_memory.text_clean import unescape_entities
 from one_bpmn.ai_agent_registry.definitions.prosally.helpers_xml_replies import (
 	analysis_reply,
 	build_analysis_block,
@@ -104,7 +104,7 @@ def is_bpmn_xml(text: str) -> bool:
 	A single tag-shaped word in a sentence ("what is a <task>?") is not enough; a document-level tag, an XML
 	declaration with a BPMN tag, or two different BPMN tags is.
 	"""
-	text = unescape_entities(text or "")
+	text = html.unescape(text or "")
 	if "<" not in text:
 		return False
 	found = {m.group(1) for m in _BPMN_TAG.finditer(text)}
@@ -115,7 +115,7 @@ def is_bpmn_xml(text: str) -> bool:
 
 def extract_xml(text: str) -> tuple[str, str, str]:
 	"""(xml, text_before, text_after): the XML in a message, from a code fence or from its first tag to its last ``>``."""
-	text = unescape_entities(text or "")
+	text = html.unescape(text or "")
 	for fence in _FENCE.finditer(text):
 		if _BPMN_TAG.search(fence.group(1)):
 			return fence.group(1).strip("\r\n"), text[: fence.start()], text[fence.end() :]

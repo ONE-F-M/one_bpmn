@@ -39,6 +39,7 @@ stops being worth looking at.
 from __future__ import annotations
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
 RECONCILER_METHOD = "one_bpmn.a2a.poller.poll_a2a_tasks"
@@ -261,12 +262,3 @@ def _interval_seconds(job) -> int:
 		"Monthly": 2592000, "Monthly Long": 2592000,
 		"Yearly": 31536000, "Annual": 31536000,
 	}.get(job.frequency or "", 3600)
-
-
-def _(text: str) -> str:
-	"""frappe._ without importing it at module scope, so this module stays
-	importable from a plain script."""
-	try:
-		return frappe._(text)
-	except Exception:
-		return text

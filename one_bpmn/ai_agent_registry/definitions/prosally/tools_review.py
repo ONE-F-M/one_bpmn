@@ -1,5 +1,6 @@
 """ProsAlly answers without a redraw: diagnose an error, compare with a spec, tidy the layout, type plain tasks."""
 
+import html
 import json
 import re
 from xml.etree import ElementTree as ET
@@ -7,7 +8,7 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.ai_agent_memory.text_clean import strip_html, unescape_entities
+from one_bpmn.ai_agent_memory.text_clean import strip_html
 from one_bpmn.ai_agent_registry.definitions.prosally.helpers import (
 	NS,
 	REQUEST_STOPWORDS,
@@ -126,7 +127,7 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|[a-z][.)])\s+(.+?)\s*$", re.I
 
 def spec_items(text: str) -> list[str]:
 	"""The bulleted or numbered lines of text, or dash items run together after a comma or colon, without their markers."""
-	plain = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or "")))
+	plain = html.unescape(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or "")))
 	lines = re.sub(r"[,:]\s+(?=[-*\u2022]\s)", "\n", plain).splitlines()
 	return [m.group(1) for line in lines if (m := LIST_ITEM.match(line))]
 

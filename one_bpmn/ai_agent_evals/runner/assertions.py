@@ -532,10 +532,6 @@ def stringify(output: Any) -> str:
     return json.dumps(output)
 
 
-def _tokens_of(result) -> int:
-    return result.token_usage.total_tokens if result.token_usage else 0
-
-
 def prompt_tokens_of(result) -> int:
     return result.token_usage.prompt_tokens if result.token_usage else 0
 

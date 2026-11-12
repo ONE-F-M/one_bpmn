@@ -12,6 +12,7 @@ import time
 import frappe
 
 from one_bpmn.ai_agent_security.screening.provenance import wrap_tool_result
+from one_bpmn.processa_engine.agent_runtime import backoff_seconds
 from one_bpmn.processa_engine.agent_runtime.tool_bounds import (
 	bound_tool_result,
 	salvage_leaked_delimiters,
@@ -301,8 +302,10 @@ async def _step_with_retries(
 				raise
 			wait = _retry_after_seconds(exc)
 			if wait is None:
-				wait = min((retry_backoff_ms / 1000.0) * (2**attempt), MAX_BACKOFF_SECONDS)
-			await asyncio.sleep(wait + random.uniform(0, 0.1))
+				wait = backoff_seconds(attempt, retry_backoff_ms, MAX_BACKOFF_SECONDS)
+			else:
+				wait += random.uniform(0, 0.1)
+			await asyncio.sleep(wait)
 			attempt += 1
 
 
