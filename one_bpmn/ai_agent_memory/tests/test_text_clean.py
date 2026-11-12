@@ -22,8 +22,6 @@ class TestStripHtml(unittest.TestCase):
 		self.assertEqual(strip_html(None), "")
 
 	def test_decodes_escaped_placeholders(self):
-		# The observed live bug: a "<PROJECT>-<YEAR>-<SEQ>" naming convention was
-		# stored as "&lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt;" - decoding must restore it exactly.
 		self.assertEqual(
 			strip_html("Use &lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt; for names."),
 			"Use <PROJECT>-<YEAR>-<SEQ> for names.",

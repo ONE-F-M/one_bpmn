@@ -1,13 +1,12 @@
 """ProsAlly answers without a redraw: diagnose an error, compare with a spec, tidy the layout, type plain tasks."""
 
+import html
 import json
 import re
 from xml.etree import ElementTree as ET
 
 import frappe
 from frappe import _
-
-import html
 
 from one_bpmn.ai_agent_memory.text_clean import strip_html
 from one_bpmn.ai_agent_registry.definitions.prosally.helpers import (
