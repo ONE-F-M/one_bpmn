@@ -1,6 +1,24 @@
 import BaseRenderer from 'diagram-js/lib/draw/BaseRenderer';
+import { getTextStyle } from '../utils/textStyleUtils';
 
 const HIGH_PRIORITY = 1500;
+const PADDING = 8;
+const MIN_HEIGHT = 80;
+const LINE_HEIGHT = 1.2;
+
+// Layout style from the note's own font settings, so line spacing and wrapping
+// follow the chosen size instead of the hardcoded 13px.
+function layoutStyle(element) {
+	const s = getTextStyle(element);
+	return {
+		fontSize: s.fontSize,
+		fontFamily: s.fontFamily,
+		fontWeight: s.fontWeight,
+		fontStyle: s.fontStyle,
+		lineHeight: LINE_HEIGHT,
+		fill: '#000000'
+	};
+}
 
 /**
  * Custom renderer for Sticky Notes.
@@ -47,11 +65,8 @@ export default class StickyNoteRenderer extends BaseRenderer {
 			const textElement = this.textRenderer.createText(text, {
 				box: element,
 				align: 'center-middle',
-				padding: 8,
-				style: {
-					fontSize: '13px',
-					fill: '#000000' // pure black for maximum contrast
-				}
+				padding: PADDING,
+				style: layoutStyle(element)
 			});
 			parentNode.appendChild(textElement);
 		}
@@ -65,10 +80,46 @@ export default class StickyNoteRenderer extends BaseRenderer {
 	}
 }
 
+/**
+ * Grow/shrink a note's height to fit its text (width stays user-controlled).
+ */
+function StickyNoteAutoSize(eventBus, modeling, textRenderer, canvas) {
+	function fit(element) {
+		if (!element || !element.businessObject ||
+			!element.businessObject.get('spiffworkflow:isStickyNote')) return;
+
+		const svg = canvas._svg;
+		const text = textRenderer.createText(element.businessObject.text || '', {
+			box: { width: element.width, height: 100000 },
+			align: 'left-top',
+			padding: PADDING,
+			style: layoutStyle(element)
+		});
+		svg.appendChild(text);
+		const h = Math.ceil(text.getBBox().height) + PADDING * 2;
+		svg.removeChild(text);
+
+		const height = Math.max(MIN_HEIGHT, h);
+		if (height !== Math.round(element.height)) {
+			modeling.resizeShape(element, {
+				x: element.x, y: element.y, width: element.width, height
+			});
+		}
+	}
+
+	eventBus.on([
+		'commandStack.element.updateProperties.postExecuted',
+		'commandStack.element.updateLabel.postExecuted'
+	], ({ context }) => fit(context.element));
+}
+
+StickyNoteAutoSize.$inject = ['eventBus', 'modeling', 'textRenderer', 'canvas'];
+
 StickyNoteRenderer.$inject = ['eventBus', 'bpmnRenderer', 'textRenderer'];
 
 // Module definition for bpmn-js
 export const stickyNoteModule = {
-	__init__: ['stickyNoteRenderer'],
+	__init__: ['stickyNoteRenderer', 'stickyNoteAutoSize'],
+	stickyNoteAutoSize: ['type', StickyNoteAutoSize],
 	stickyNoteRenderer: ['type', StickyNoteRenderer]
 };
