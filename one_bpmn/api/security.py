@@ -12,6 +12,7 @@ from frappe import _
 from frappe.utils import cint, now_datetime
 
 from one_bpmn.ai_agent_security.code_checks.script_gate import lint_code
+from one_bpmn.api.common import distinct
 
 # Process Owner holds write on the pattern doctype for seeding, but only these roles edit it here.
 PATTERN_EDIT_ROLES = ("System Manager",)
@@ -84,19 +85,9 @@ EVENT_FIELDS = (
 )
 
 
-def _can_edit_patterns() -> bool:
+def _can_edit() -> bool:
 	roles = set(frappe.get_roles())
 	return any(r in roles for r in PATTERN_EDIT_ROLES)
-
-
-def _require_pattern_editor():
-	if not _can_edit_patterns():
-		frappe.throw(
-			_("Editing the injection pattern pack is restricted to {0}.").format(
-				", ".join(PATTERN_EDIT_ROLES)
-			),
-			frappe.PermissionError,
-		)
 
 
 @frappe.whitelist()
@@ -104,8 +95,8 @@ def can_manage() -> dict:
 	"""What this user may do, so the page renders only the controls that will work."""
 	roles = set(frappe.get_roles())
 	return {
-		"edit_patterns": _can_edit_patterns(),
-		"edit_policies": _can_edit_policies(),
+		"edit_patterns": _can_edit(),
+		"edit_policies": _can_edit(),
 		"release_locks": bool(roles & set(reviewer_roles() or [])) or "System Manager" in roles,
 		"read_events": bool(frappe.has_permission("AI Security Event", "read")),
 	}
@@ -185,15 +176,11 @@ def event_filter_options() -> dict:
 	"""The values present in the log, so the filters offer real choices."""
 	frappe.has_permission("AI Security Event", "read", throw=True)
 
-	def distinct(field):
-		rows = frappe.get_all("AI Security Event", fields=[field], group_by=field, limit_page_length=0)
-		return sorted({r[field] for r in rows if r.get(field)})
-
 	return {
-		"agents": distinct("agent_configuration"),
-		"boundaries": distinct("boundary"),
-		"actions": distinct("action"),
-		"severities": distinct("severity"),
+		"agents": distinct("AI Security Event", "agent_configuration"),
+		"boundaries": distinct("AI Security Event", "boundary"),
+		"actions": distinct("AI Security Event", "action"),
+		"severities": distinct("AI Security Event", "severity"),
 	}
 
 
@@ -245,7 +232,7 @@ def list_patterns(enabled_only: int = 0) -> dict:
 			order_by="modified desc",
 			limit_page_length=0,
 		),
-		"can_edit": _can_edit_patterns(),
+		"can_edit": _can_edit(),
 	}
 
 
@@ -264,7 +251,7 @@ def pattern_options() -> dict:
 @frappe.whitelist()
 def save_pattern(pattern: str | dict = None, name: str = None) -> dict:
 	"""Create or update one pattern through the document, so a regex that does not compile is refused."""
-	_require_pattern_editor()
+	frappe.only_for(PATTERN_EDIT_ROLES)
 	if isinstance(pattern, str):
 		pattern = frappe.parse_json(pattern) or {}
 	pattern = pattern or {}
@@ -284,25 +271,11 @@ def save_pattern(pattern: str | dict = None, name: str = None) -> dict:
 @frappe.whitelist()
 def set_pattern_enabled(name: str, enabled: int) -> dict:
 	"""Enable or disable one pattern."""
-	_require_pattern_editor()
+	frappe.only_for(PATTERN_EDIT_ROLES)
 	doc = frappe.get_doc("AI Injection Pattern", name)
 	doc.enabled = 1 if int(enabled or 0) else 0
 	doc.save()
 	return {"name": doc.name, "enabled": int(doc.enabled)}
-
-
-def _can_edit_policies() -> bool:
-	return any(r in set(frappe.get_roles()) for r in PATTERN_EDIT_ROLES)
-
-
-def _require_policy_editor():
-	if not _can_edit_policies():
-		frappe.throw(
-			_("Editing tool policy rules is restricted to {0}.").format(
-				", ".join(PATTERN_EDIT_ROLES)
-			),
-			frappe.PermissionError,
-		)
 
 
 POLICY_FIELDS = (
@@ -338,7 +311,7 @@ def list_policies(enabled_only: int = 0) -> dict:
 			)
 	for rule in rules:
 		rule["exempt_agents"] = exempt.get(rule["name"], [])
-	return {"policies": rules, "can_edit": _can_edit_policies()}
+	return {"policies": rules, "can_edit": _can_edit()}
 
 
 @frappe.whitelist()
@@ -360,7 +333,7 @@ def policy_options() -> dict:
 @frappe.whitelist()
 def save_policy(policy: str | dict = None, name: str = None) -> dict:
 	"""Create or update one rule through the document, so its limit grammar is validated."""
-	_require_policy_editor()
+	frappe.only_for(PATTERN_EDIT_ROLES)
 	if isinstance(policy, str):
 		policy = frappe.parse_json(policy) or {}
 	policy = policy or {}
@@ -391,7 +364,7 @@ def save_policy(policy: str | dict = None, name: str = None) -> dict:
 @frappe.whitelist()
 def set_policy_enabled(name: str, enabled: int) -> dict:
 	"""Enable or disable one rule through save(), so the rule cache is cleared."""
-	_require_policy_editor()
+	frappe.only_for(PATTERN_EDIT_ROLES)
 	doc = frappe.get_doc("AI Tool Policy Rule", name)
 	doc.enabled = 1 if int(enabled or 0) else 0
 	doc.save()
@@ -401,7 +374,7 @@ def set_policy_enabled(name: str, enabled: int) -> dict:
 @frappe.whitelist()
 def delete_policy(name: str) -> dict:
 	"""Delete one tool policy rule."""
-	_require_policy_editor()
+	frappe.only_for(PATTERN_EDIT_ROLES)
 	frappe.delete_doc("AI Tool Policy Rule", name)
 	return {"deleted": name}
 
