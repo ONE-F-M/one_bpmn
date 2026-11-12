@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.one_bpmn.patches.v1_0 import prosally_finalize_runs_routed_tool as patch
 
 CFG = {"sub_prompts": {"redirect": {"prompt": "Redirect text."}, "clarifier": {"prompt": "sys"}}}
 GENERIC_QUESTION = "Could you tell me more about the process you'd like to model?"
