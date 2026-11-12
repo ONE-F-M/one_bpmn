@@ -39,18 +39,18 @@ class TestModuleMove(FrappeTestCase):
 		return json.dumps({"doctype_name": self.name, "module": module, "fields": fields})
 
 	def test_a_new_doctype_lands_in_the_module_it_asked_for(self):
-		apply_doctype(self._ir("ONE BPMN"), confirm=1)
-		self.assertEqual(frappe.db.get_value("DocType", self.name, "module"), "ONE BPMN")
+		apply_doctype(self._ir("Processa Engine"), confirm=1)
+		self.assertEqual(frappe.db.get_value("DocType", self.name, "module"), "Processa Engine")
 
 	def test_applying_a_different_module_moves_it(self):
-		apply_doctype(self._ir("ONE BPMN"), confirm=1)
+		apply_doctype(self._ir("Processa Engine"), confirm=1)
 		apply_doctype(self._ir("Operations"), confirm=1)
 		self.assertEqual(frappe.db.get_value("DocType", self.name, "module"), "Operations")
 
 	def test_a_child_table_follows_its_parent(self):
 		"""Left behind, it is the same bug one level down — and the child ends up
 		orphaned in a module its parent no longer belongs to."""
-		apply_doctype(self._ir("ONE BPMN", with_child=True), confirm=1)
+		apply_doctype(self._ir("Processa Engine", with_child=True), confirm=1)
 		child = frappe.db.get_value("DocType", {"name": ["like", f"{self.name}%"], "istable": 1}, "name")
 		self.assertTrue(child, "no child table was created")
 		self.made.append(child)
@@ -61,4 +61,4 @@ class TestModuleMove(FrappeTestCase):
 
 	def test_an_unrecognised_module_still_falls_back(self):
 		apply_doctype(self._ir("Not A Real Module"), confirm=1)
-		self.assertEqual(frappe.db.get_value("DocType", self.name, "module"), "ONE BPMN")
+		self.assertEqual(frappe.db.get_value("DocType", self.name, "module"), "Processa Engine")

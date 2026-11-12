@@ -20,7 +20,7 @@ DT = "Docu Permission Rules Probe"
 def _ir(**over):
 	ir = {
 		"doctype_name": DT,
-		"module": "ONE BPMN",
+		"module": "Processa Engine",
 		"fields": [{"fieldname": "subject", "fieldtype": "Data", "label": "Subject"}],
 	}
 	ir.update(over)
@@ -30,7 +30,7 @@ def _ir(**over):
 class TestDocuPermissionRules(FrappeTestCase):
 	def tearDown(self):
 		if frappe.db.exists("DocType", DT):
-			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "Processa Engine"})
 			frappe.delete_doc("DocType", DT, force=True, ignore_permissions=True)
 		frappe.db.delete("Custom DocPerm", {"parent": DT})
 		# Saving a non-custom DocType under developer mode writes its files, so a
@@ -142,7 +142,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 			self.assertIn("Projects User", grid)
 		finally:
 			frappe.db.delete("Custom DocPerm", {"parent": DT})
-			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "Processa Engine"})
 
 	def test_a_doctype_from_one_of_our_apps_is_recognised(self):
 		"""Routing depends on who owns the DocType, so the split is worth pinning.
@@ -209,7 +209,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 			self.assertEqual(by_role["Projects User"]["write"], 0)
 		finally:
 			frappe.db.delete("Custom DocPerm", {"parent": DT})
-			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "Processa Engine"})
 
 
 class TestDocuKnowsPermissionsAreItsJob(FrappeTestCase):
