@@ -7,27 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from one_bpmn.ai_agent_memory.text_clean import strip_html, unescape_entities
-
-
-class TestUnescapeEntities(unittest.TestCase):
-	def test_decodes_named_entities(self):
-		# The observed live bug: a "<PROJECT>-<YEAR>-<SEQ>" naming convention was
-		# stored as "&lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt;" (AI Memory row
-		# 36jr4rba7k) — decoding must restore it exactly.
-		self.assertEqual(
-			unescape_entities("Use &lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt; for names."),
-			"Use <PROJECT>-<YEAR>-<SEQ> for names.",
-		)
-
-	def test_leaves_literal_angle_brackets_untouched(self):
-		# Unlike strip_html, this must never remove a literal "<...>"-shaped
-		# placeholder that was never escaped in the first place.
-		self.assertEqual(unescape_entities("keep <PROJECT> as-is"), "keep <PROJECT> as-is")
-
-	def test_empty_and_none_safe(self):
-		self.assertEqual(unescape_entities(""), "")
-		self.assertEqual(unescape_entities(None), "")
+from one_bpmn.ai_agent_memory.text_clean import strip_html
 
 
 class TestStripHtml(unittest.TestCase):
@@ -40,3 +20,17 @@ class TestStripHtml(unittest.TestCase):
 	def test_empty_and_none_safe(self):
 		self.assertEqual(strip_html(""), "")
 		self.assertEqual(strip_html(None), "")
+
+	def test_decodes_escaped_placeholders(self):
+		# The observed live bug: a "<PROJECT>-<YEAR>-<SEQ>" naming convention was
+		# stored as "&lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt;" - decoding must restore it exactly.
+		self.assertEqual(
+			strip_html("Use &lt;PROJECT&gt;-&lt;YEAR&gt;-&lt;SEQ&gt; for names."),
+			"Use <PROJECT>-<YEAR>-<SEQ> for names.",
+		)
+
+	def test_decodes_ampersand_angle_brackets_and_nbsp(self):
+		self.assertEqual(strip_html("a &amp; b &lt; c&nbsp;d"), "a & b < c d")
+
+	def test_decodes_entities_outside_the_old_six_entry_table(self):
+		self.assertEqual(strip_html("&eacute; &#x27;"), "\u00e9 '")
