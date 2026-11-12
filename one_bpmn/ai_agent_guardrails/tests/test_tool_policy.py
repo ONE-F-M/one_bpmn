@@ -182,6 +182,147 @@ class TestGuardAppliedAtConstruction(FrappeTestCase):
 		self.assertIs(again.fn, inner.fn)
 
 
+class TestDenialRecordedAsSecurityEvent(FrappeTestCase):
+	"""A refused tool call is an AI Security Event as well as an Error Log row,
+	so it shows on the Security screen and can be promoted to an eval case."""
+
+	TOOL = "zz_wi4638_probe"
+	AGENT_NAME = "ZZ-wi4638 agent"
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._cleanup()
+		_make_rule(violation_message="test rule fired.")
+		self.addCleanup(tp.clear_rule_cache)
+		self.addCleanup(self._cleanup)
+		self.addCleanup(frappe.flags.pop, "bpmn_ai_current_run", None)
+		frappe.flags.pop("bpmn_ai_current_run", None)
+
+		from one_bpmn.ai_agent_security.turn import begin_turn, end_turn
+
+		begin_turn()
+		self.addCleanup(end_turn)
+
+		self.ran = []
+
+		def probe(**kwargs):
+			self.ran.append(kwargs)
+			return "ok"
+
+		self.guarded = tp.guard(probe, self.TOOL)
+
+	def _cleanup(self):
+		frappe.db.delete("AI Security Event", {"classifier": self.TOOL})
+		frappe.db.delete("AI Agent Configuration", {"agent_name": self.AGENT_NAME})
+		frappe.db.delete("Error Log", {"method": ("like", f"AI Tool Policy: % {self.TOOL}")})
+
+	def _events(self):
+		return frappe.get_all(
+			"AI Security Event",
+			filters={"classifier": self.TOOL},
+			fields=["name", "stage", "action", "severity", "boundary", "rule_type", "run",
+			        "agent_configuration", "detail", "rule"],
+		)
+
+	def _refuse(self, **kwargs):
+		with self.assertRaises(tp.PolicyViolation):
+			self.guarded(**kwargs)
+
+	def _agent(self):
+		return frappe.get_doc({
+			"doctype": "AI Agent Configuration", "agent_name": self.AGENT_NAME,
+			"agent_id": "zz_wi4638_agent", "agent_type": "Chat",
+			"agent_framework": "Direct API", "enabled": 1,
+		}).insert(ignore_permissions=True).name
+
+	def test_a_refused_call_writes_one_security_event(self):
+		self._refuse(doctype="ZZ Protected Alpha")
+		events = self._events()
+		self.assertEqual(len(events), 1)
+		event = events[0]
+		self.assertEqual(event.stage, "tool-policy")
+		self.assertEqual(event.action, "Block")
+		self.assertEqual(event.severity, "High")
+		self.assertEqual(event.boundary, "tool-result")
+		self.assertEqual(event.rule_type, RULE)
+		self.assertFalse(event.rule, "rule is a Link to AI Injection Pattern and must stay empty")
+		self.assertEqual(self.ran, [])
+
+	def test_the_event_names_the_run_when_one_is_in_flight(self):
+		run = frappe.get_doc(
+			{"doctype": "AI Agent Run", "bpmn_id": "agent", "status": "Success", "started_at": frappe.utils.now_datetime()}
+		).insert(ignore_permissions=True, ignore_links=True).name
+		frappe.flags["bpmn_ai_current_run"] = run
+		self._refuse(doctype="ZZ Protected Alpha")
+		self.assertEqual(self._events()[0].run, run)
+
+	def test_the_event_is_still_written_with_no_run(self):
+		self._refuse(doctype="ZZ Protected Alpha")
+		events = self._events()
+		self.assertEqual(len(events), 1)
+		self.assertFalse(events[0].run)
+
+	def test_the_event_carries_the_current_agent(self):
+		agent = self._agent()
+		token = tp.set_current_agent(agent)
+		try:
+			self._refuse(doctype="ZZ Protected Alpha")
+		finally:
+			tp.reset_current_agent(token)
+		self.assertEqual(self._events()[0].agent_configuration, agent)
+
+	def test_detail_holds_no_argument_values(self):
+		self._refuse(doctype="ZZ Protected Alpha", note="zz-secret-value-4638")
+		detail = self._events()[0].detail
+		self.assertNotIn("ZZ Protected Alpha", detail)
+		self.assertNotIn("zz-secret-value-4638", detail)
+		self.assertIn(RULE, detail)
+		self.assertIn("test rule fired.", detail)
+		self.assertIn("doctype", detail)
+		self.assertIn("note", detail)
+
+	def test_different_arguments_in_one_turn_are_two_events(self):
+		self._refuse(doctype="ZZ Protected Alpha")
+		self._refuse(doctype="ZZ Protected Beta")
+		self.assertEqual(len(self._events()), 2)
+
+	def test_the_identical_call_twice_in_one_turn_is_one_event(self):
+		self._refuse(doctype="ZZ Protected Alpha")
+		self._refuse(doctype="ZZ Protected Alpha")
+		self.assertEqual(len(self._events()), 1)
+
+	def test_the_event_can_be_promoted_to_an_eval_case(self):
+		from one_bpmn.ai_agent_evals.tests.factories import make_eval_suite
+		from one_bpmn.api.security import promote_to_eval_case
+
+		suite = make_eval_suite(title="_Test wi4638 " + frappe.generate_hash(length=6)).name
+		self._refuse(doctype="ZZ Protected Alpha")
+		event = self._events()[0].name
+
+		case = promote_to_eval_case(event=event, suite=suite, input_text="read the protected record")
+		self.assertTrue(case)
+		self.assertEqual(frappe.db.get_value("AI Eval Suite", suite, "suite_type"), "Adversarial")
+
+	def test_the_error_log_entry_is_still_written(self):
+		self._refuse(doctype="ZZ Protected Alpha")
+		self.assertTrue(
+			frappe.db.exists("Error Log", {"method": f"AI Tool Policy: deny \u2014 {self.TOOL}"})
+		)
+
+	def test_an_allowed_call_writes_no_event(self):
+		self.assertEqual(self.guarded(doctype="Employee"), "ok")
+		self.assertEqual(self._events(), [])
+
+	def test_a_failing_event_write_does_not_stop_the_refusal(self):
+		from unittest.mock import patch
+
+		with patch(
+			"one_bpmn.ai_agent_security.events.record_event", side_effect=RuntimeError("cannot write")
+		):
+			self._refuse(doctype="ZZ Protected Alpha")
+		self.assertEqual(self.ran, [])
+
+
 class _FakeAdapter:
 	def __init__(self, steps):
 		self.steps = list(steps)

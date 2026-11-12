@@ -521,3 +521,31 @@ def _record_violation(tool_name: str, arguments: dict, decision: PolicyDecision)
 		)
 	except Exception:
 		pass
+
+	# Also surface the refusal as an AI Security Event, so the Security screen and
+	# promote-to-eval show it alongside the other verdicts. record_event never
+	# raises, but the import and the argument handling here might, and neither may
+	# stop the refusal. Argument VALUES stay in the Error Log only: ``content`` is
+	# hashed and discarded by record_event, and ``detail`` carries key names only.
+	try:
+		from one_bpmn.ai_agent_observability.observability import current_run_name
+		from one_bpmn.ai_agent_security.events import record_event
+
+		keys = sorted(str(k) for k in arguments) if isinstance(arguments, dict) else []
+		record_event(
+			boundary="tool-result",
+			stage="tool-policy",
+			action="Block",
+			severity="High",
+			classifier=tool_name,
+			rule_type=decision.rule,
+			content=json.dumps(arguments, sort_keys=True, default=str),
+			agent_configuration=current_agent(),
+			run=current_run_name(),
+			detail=(
+				f"rule: {decision.rule}; reason: {decision.reason}; "
+				f"argument keys: {', '.join(keys) if keys else '(none)'}"
+			),
+		)
+	except Exception:
+		pass
