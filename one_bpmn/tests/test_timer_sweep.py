@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import json
 import time
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.deploy import compile_process_model
-from one_bpmn.processa_engine.timers import _refresh_timer_tasks
+from one_bpmn.processa_engine.timers import _refresh_timer_tasks, process_timer_catch_events
 
 TIMER_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -113,3 +114,20 @@ class TestTimerSweep(FrappeTestCase):
 		})
 		instance.insert(ignore_permissions=True)
 		_refresh_timer_tasks(instance.name)  # must not raise
+
+	def test_failed_run_is_rolled_back_and_halted(self):
+		instance = self._start_instance()
+
+		def write_then_fail(instance_name):
+			frappe.db.set_value("BPMN Process Instance", instance_name, "context_docname", "partial write")
+			raise frappe.MandatoryError("reason_for_changes")
+
+		with patch("one_bpmn.processa_engine.timers._refresh_timer_tasks", side_effect=write_then_fail), \
+			patch.object(frappe.db, "commit"):
+			process_timer_catch_events()
+
+		status, context_docname = frappe.db.get_value(
+			"BPMN Process Instance", instance.name, ["status", "context_docname"]
+		)
+		self.assertIsNone(context_docname)
+		self.assertEqual(status, "Errored")

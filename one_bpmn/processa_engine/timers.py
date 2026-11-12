@@ -11,6 +11,7 @@ from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEO
 from one_bpmn.processa_engine.runtime.active_tasks import check_completion, sync_active_tasks
 from one_bpmn.processa_engine.runtime.common import log_task, refresh_user_task_extensions_from_model
 from one_bpmn.processa_engine.runtime.engine_loop import run_engine
+from one_bpmn.processa_engine.runtime.failures import record_runtime_failure
 
 
 # Timer Start Events
@@ -201,13 +202,13 @@ def process_timer_catch_events():
 	)
 
 	for instance_name in active_instances:
+		frappe.db.savepoint("timer_sweep")
 		try:
 			_refresh_timer_tasks(instance_name)
 		except Exception:
-			frappe.log_error(
-				title=f"BPMN Timer Catch: failed for instance {instance_name}",
-				message=frappe.get_traceback(),
-			)
+			# Undo the failed run's writes, then halt it so the next sweep does not repeat them.
+			frappe.db.rollback(save_point="timer_sweep")
+			record_runtime_failure(frappe.get_doc("BPMN Process Instance", instance_name), "timer")
 
 
 def _refresh_timer_tasks(instance_name: str):
