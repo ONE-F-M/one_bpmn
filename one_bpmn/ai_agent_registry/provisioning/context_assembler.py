@@ -145,26 +145,22 @@ def _render_guardrails(rows) -> str:
 	rail 4") in a review or an eval assertion without ambiguity.
 	"""
 	by_category: dict[str, list[str]] = {}
-	order: list[str] = []
 	for get in _enabled_rows(rows):
 		text = str(get("guardrail", "") or "").strip()
 		if not text:
 			continue
 		category = str(get("category", "") or "").strip() or "Other"
-		if category not in by_category:
-			by_category[category] = []
-			order.append(category)
-		by_category[category].append(text)
+		by_category.setdefault(category, []).append(text)
 
-	if not order:
+	if not by_category:
 		return ""
 
 	lines = [GUARDRAILS_HEADER, "You must obey every rule below on every turn."]
 	n = 0
-	for category in order:
+	for category, texts in by_category.items():
 		lines.append("")
 		lines.append(f"**{category}**")
-		for text in by_category[category]:
+		for text in texts:
 			n += 1
 			lines.append(f"{n}. {text}")
 	return "\n".join(lines)

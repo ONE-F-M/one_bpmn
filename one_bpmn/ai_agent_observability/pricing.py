@@ -29,6 +29,7 @@ import re
 from typing import Dict, Optional
 
 import frappe
+from frappe.utils import flt
 
 
 # Matches a trailing date-like segment: -YYYYMMDD or -YYYY-MM-DD
@@ -99,12 +100,12 @@ def _lookup(model_name: str) -> Optional[Dict]:
 	)
 	if not rates:
 		return None
-	if not (_flt(rates.get("input_cost")) or _flt(rates.get("output_cost"))):
+	if not (flt(rates.get("input_cost")) or flt(rates.get("output_cost"))):
 		return None
 
 	row = {
-		"input_cost_per_1k": _flt(rates.get("input_cost")) / _PER_1M_TO_PER_1K,
-		"output_cost_per_1k": _flt(rates.get("output_cost")) / _PER_1M_TO_PER_1K,
+		"input_cost_per_1k": flt(rates.get("input_cost")) / _PER_1M_TO_PER_1K,
+		"output_cost_per_1k": flt(rates.get("output_cost")) / _PER_1M_TO_PER_1K,
 		"cache_read_cost_per_1k": 0.0,
 		"cache_write_cost_per_1k": 0.0,
 	}
@@ -128,18 +129,11 @@ def _apply_cache_rate_defaults(row: Dict) -> None:
 	charge nothing for cache writes (OpenAI, Gemini) report no cache-write
 	tokens in the first place, so the write rate is never applied to them.
 	"""
-	input_rate = _flt(row.get("input_cost_per_1k"))
-	if not _flt(row.get("cache_read_cost_per_1k")):
+	input_rate = flt(row.get("input_cost_per_1k"))
+	if not flt(row.get("cache_read_cost_per_1k")):
 		row["cache_read_cost_per_1k"] = input_rate * CACHE_READ_MULTIPLIER
-	if not _flt(row.get("cache_write_cost_per_1k")):
+	if not flt(row.get("cache_write_cost_per_1k")):
 		row["cache_write_cost_per_1k"] = input_rate * CACHE_WRITE_MULTIPLIER
-
-
-def _flt(value) -> float:
-	try:
-		return float(value or 0)
-	except (TypeError, ValueError):
-		return 0.0
 
 
 def compute_token_cost(
@@ -191,10 +185,10 @@ def compute_token_cost(
 	# total must not produce a negative uncached figure (and thus a credit).
 	uncached = max(0, int(prompt_tokens or 0) - cache_read - cache_write)
 
-	input_cost = (uncached / 1000.0) * _flt(pricing.get("input_cost_per_1k"))
-	output_cost = (int(completion_tokens or 0) / 1000.0) * _flt(pricing.get("output_cost_per_1k"))
-	cache_read_cost = (cache_read / 1000.0) * _flt(pricing.get("cache_read_cost_per_1k"))
-	cache_write_cost = (cache_write / 1000.0) * _flt(pricing.get("cache_write_cost_per_1k"))
+	input_cost = (uncached / 1000.0) * flt(pricing.get("input_cost_per_1k"))
+	output_cost = (int(completion_tokens or 0) / 1000.0) * flt(pricing.get("output_cost_per_1k"))
+	cache_read_cost = (cache_read / 1000.0) * flt(pricing.get("cache_read_cost_per_1k"))
+	cache_write_cost = (cache_write / 1000.0) * flt(pricing.get("cache_write_cost_per_1k"))
 
 	return {
 		"input_cost": input_cost,
