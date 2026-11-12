@@ -21,6 +21,8 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
+from one_bpmn.api.common import distinct
+
 FIELDS = (
 	"name",
 	"question",
@@ -66,13 +68,6 @@ LIST_FIELDS = (
 MAX_PAGE_LENGTH = 200
 
 
-def _require_admin() -> None:
-	"""Same gate as the rest of the A2A screen: this lists questions asked about
-	documents across the whole site, which is more than any one person's view."""
-	if "System Manager" not in frappe.get_roles():
-		frappe.throw(_("Only System Managers may review clarifications."), frappe.PermissionError)
-
-
 @frappe.whitelist()
 def list_clarifications(
 	agent_configuration: str = None,
@@ -90,7 +85,7 @@ def list_clarifications(
 	just been answered, reminded or escalated is the one worth seeing, and
 	ordering by asked_at buries it under everything raised since.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	filters: dict = {}
 	if agent_configuration:
 		filters["agent_configuration"] = agent_configuration
@@ -135,7 +130,7 @@ def clarification_detail(name: str) -> dict:
 	answer that failed to settle the matter it reads as the agent doing exactly
 	what it was asked to do.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	row = frappe.db.get_value("AI Clarification", name, list(LIST_FIELDS) + ["instance", "human_task_id", "interpretations", "asked_by_agent_run"], as_dict=True)
 	if not row:
 		frappe.throw(_("Clarification {0} not found.").format(name), frappe.DoesNotExistError)
@@ -173,24 +168,13 @@ def clarification_filter_options() -> dict:
 	An agent that has never asked anything, or a person nobody has ever asked, is
 	a dead entry in a dropdown.
 	"""
-	_require_admin()
-
-	def distinct(fieldname):
-		rows = frappe.get_all(
-			"AI Clarification",
-			filters={fieldname: ["is", "set"]},
-			fields=[fieldname],
-			group_by=fieldname,
-			order_by=f"{fieldname} asc",
-			limit=MAX_PAGE_LENGTH,
-		)
-		return [r[fieldname] for r in rows if r.get(fieldname)]
+	frappe.only_for("System Manager")
 
 	return {
-		"agents": distinct("agent_configuration"),
-		"people": distinct("owner_asked"),
-		"doctypes": distinct("reference_doctype"),
-		"statuses": distinct("status"),
+		"agents": distinct("AI Clarification", "agent_configuration"),
+		"people": distinct("AI Clarification", "owner_asked"),
+		"doctypes": distinct("AI Clarification", "reference_doctype"),
+		"statuses": distinct("AI Clarification", "status"),
 	}
 
 

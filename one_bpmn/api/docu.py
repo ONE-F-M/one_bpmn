@@ -48,6 +48,7 @@ from one_bpmn.ai_agent_security.code_checks.client_script_validator import (
 	validate_form_script,
 	validate_list_view_script,
 )
+from one_bpmn.api.common import parse_json_or_passthrough, shape_reply
 from one_bpmn.utils.session import as_user
 
 DOCU_AGENT = "Docu Agent"
@@ -89,17 +90,6 @@ _DOCFIELD_FLAGS = DOCFIELD_FLAGS
 _DOCFIELD_INTS = DOCFIELD_INTS
 # All configurable DocType-level settings, keyed once for extraction/apply.
 _DOCTYPE_SETTING_KEYS = DOCTYPE_SETTING_FLAGS + DOCTYPE_SETTING_INTS + DOCTYPE_SETTING_STRS
-
-
-def _parse(value, fallback):
-	if value in (None, ""):
-		return fallback
-	if isinstance(value, (dict, list)):
-		return value
-	try:
-		return json.loads(value)
-	except (json.JSONDecodeError, TypeError, ValueError):
-		return fallback
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -168,7 +158,7 @@ def preview_doctype(ir: str) -> dict:
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 
-	ir_dict = _parse(ir, None)
+	ir_dict = parse_json_or_passthrough(ir)
 	if not isinstance(ir_dict, dict):
 		return {"valid": False, "violations": [_("Invalid form definition.")]}
 
@@ -277,7 +267,7 @@ def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in
 	``base_modified`` is the DocType's ``modified`` the client last read; when it no
 	longer matches, the form was edited elsewhere and the save is refused.
 	"""
-	ir_dict = _parse(ir, None)
+	ir_dict = parse_json_or_passthrough(ir)
 	if not isinstance(ir_dict, dict):
 		frappe.throw(_("Invalid form definition."))
 
@@ -1276,20 +1266,11 @@ def build_docu_turn_context(context: dict) -> dict:
 def shape_docu_reply(result: dict) -> dict:
 	"""Lift the Docu JSON contract out of a text reply (reply shaper); a
 	no-op when the purpose-built map already returned structured keys."""
-	if result.get("doctype_ir") or result.get("intent"):
-		return result
-	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
-
-	raw = result.get("response") or ""
-	parsed = extract_json(raw if isinstance(raw, str) else "")
-	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("doctype_ir")):
-		return result
-	shaped = dict(result)
-	shaped["response"] = str(parsed.get("response") or "").strip() or raw
-	for key in ("intent", "doctype_ir", "diff", "suggested_name", "options"):
-		if parsed.get(key):
-			shaped[key] = parsed[key]
-	return shaped
+	return shape_reply(
+		result,
+		("intent", "doctype_ir"),
+		("intent", "doctype_ir", "diff", "suggested_name", "options"),
+	)
 
 
 # ── Process-ownership governance ──
@@ -1475,7 +1456,7 @@ def _mark_decided(req, status: str, reason: str = None) -> None:
 def approve_doctype_change(request: str, confirm: int = 0) -> dict:
 	"""Apply a pending Doctype Change Request (a Process Owner of the doctype only)."""
 	req = _load_decidable_request(request)
-	ir_dict = _parse(req.requested_ir, None)
+	ir_dict = parse_json_or_passthrough(req.requested_ir)
 	if not isinstance(ir_dict, dict):
 		frappe.throw(_("Invalid form definition."))
 	name = (ir_dict.get("doctype_name") or "").strip()
