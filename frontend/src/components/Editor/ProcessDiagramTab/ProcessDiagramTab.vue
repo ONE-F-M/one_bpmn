@@ -2,6 +2,7 @@
 import { inject, toRef } from "vue";
 import BpmnEditor from "@/components/Editor/BpmnEditor/BpmnEditor.vue";
 import CompareDialog from "@/components/Modals/CompareModal/CompareModal.vue";
+import DiagramConflictBanner from "@/components/Editor/DiagramConflictBanner/DiagramConflictBanner.vue";
 import EditorTabs from "@/components/Editor/EditorTabs/EditorTabs.vue";
 import { Icon } from "@iconify/vue";
 import VersionDiffDialog from "@/components/Modals/VersionDiffModal/VersionDiffModal.vue";
@@ -14,6 +15,7 @@ const {
 	activeDiagramName,
 	activeVersionName,
 	canEditActiveDiagram,
+	collab,
 	compareDialogRef,
 	diagrams,
 	editorRef,
@@ -28,6 +30,9 @@ const {
 	namedVersionTabs,
 	onConfirmScriptDelete,
 	onDiagramChanged,
+	onKeepMine,
+	onLoadLatest,
+	onSelectionChanged,
 	onEditorReady,
 	onLaunchCallActivityEditor,
 	onLaunchCallActivitySearch,
@@ -62,6 +67,14 @@ const {
 			<!-- Canvas -->
 
 			<div class="flex-1 relative">
+				<DiagramConflictBanner
+					:conflict="collab.conflict.value"
+					:status="collab.status.value"
+					:status-message="collab.statusMessage.value"
+					@load-latest="onLoadLatest"
+					@keep-mine="onKeepMine"
+				/>
+
 				<!-- Loading state -->
 				<div v-if="loading" class="flex items-center justify-center h-full bg-gray-100">
 					<div class="text-center">
@@ -89,6 +102,7 @@ const {
 					@changed="onDiagramChanged"
 					@reassign-changed="onReassignChanged"
 					@zoom-changed="onZoomChanged"
+					@selection-changed="onSelectionChanged"
 					@launch-script-editor="onLaunchScriptEditor"
 					@confirm-script-delete="onConfirmScriptDelete"
 					@launch-markdown-editor="onLaunchMarkdownEditor"

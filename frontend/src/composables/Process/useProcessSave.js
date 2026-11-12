@@ -1,10 +1,8 @@
 import { computed } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
-import { frappeRequest } from "frappe-ui";
 import { serverMessage } from "@/utils/serverMessage";
 
 export function useProcessSave(pc) {
-	const {
 		props,
 		editorRef,
 		diagrams,
@@ -187,6 +185,8 @@ export function useProcessSave(pc) {
 		clearTimeout(pc.saveTimeout);
 		pc.hasPendingSave = true;
 		pc.saveTimeout = setTimeout(runDebouncedSave, 1500);
+		pc.collab.publishLive();
+		pc.awareness.touchEdit();
 	}
 
 	// Runs when the auto-save debounce elapses. If the analyst is still entering
@@ -209,6 +209,7 @@ export function useProcessSave(pc) {
 		if (!activeDiagramName.value || !editorRef.value) return;
 		if (!pc.canEditActiveDiagram.value) return; // Guard: this map is locked
 		if (activeVersionName.value) return; // Guard: previewing a read-only version
+		if (pc.collab.conflict.value) return; // Guard: resolve the conflict banner first
 
 		saving.value = true;
 		saveState.value = "saving";
@@ -216,18 +217,13 @@ export function useProcessSave(pc) {
 			const xml = await editorRef.value.getXML();
 			isExecutable.value = pc.extractIsExecutable(xml);
 			const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
-			const modelName = diagram?.model_name || activeDiagramName.value;
 			const description = diagram?.description || "";
 
-			await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.save_process_model",
-				params: {
-					process: props.process,
-					model_name: modelName,
-					xml_content: xml,
-					description: description,
-				},
-			});
+			const result = await pc.collab.save(xml, description);
+			if (!result.saved) {
+				saveState.value = "unsaved";
+				return;
+			}
 
 			hasUnsavedChanges.value = false;
 			diagramDataCache.value[activeDiagramName.value] = xml;

@@ -2,7 +2,7 @@
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
 import ProcessActions from "../ProcessActions/ProcessActions.vue";
-import { getAvatarColor, getInitials } from "@/utils/avatar";
+import { getInitials } from "@/utils/avatar";
 import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
@@ -16,7 +16,7 @@ const {
 	getStatusTheme,
 	goBack,
 	lockReason,
-	otherEditors,
+	awareness,
 	processName,
 	processStatus,
 	selectDiagram,
@@ -188,24 +188,20 @@ const {
 
 			<!-- Other Active Editors Avatars (hidden on mobile) -->
 			<div
-				v-if="otherEditors.length > 0"
+				v-if="awareness.peers.value.length > 0"
 				class="hidden sm:flex items-center -space-x-2 ml-4"
 			>
-				<div v-for="user in otherEditors" :key="user.name" class="relative group">
-					<img
-						v-if="user.user_image"
-						:src="user.user_image"
-						:alt="user.full_name"
-						class="w-7 h-7 rounded-full border-2 border-white object-cover"
-					/>
+				<div
+					v-for="user in awareness.peers.value"
+					:key="user.clientId"
+					:style="{ opacity: user.mode === 'idle' ? 0.5 : 1 }"
+					class="relative group"
+				>
 					<div
-						v-else
-						:class="[
-							'w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase',
-							getAvatarColor(user.name),
-						]"
+						:style="{ background: user.color }"
+						class="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase"
 					>
-						{{ getInitials(user.full_name) }}
+						{{ getInitials(user.fullName) }}
 					</div>
 
 					<!-- Hover Tooltip -->
@@ -215,7 +211,7 @@ const {
 						<div
 							class="bg-gray-800 text-white text-[11px] py-1 px-2 rounded shadow-lg whitespace-nowrap"
 						>
-							{{ user.full_name }} is editing
+							{{ user.fullName }} is {{ user.mode }}
 						</div>
 						<div
 							class="w-2 h-2 bg-gray-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"
