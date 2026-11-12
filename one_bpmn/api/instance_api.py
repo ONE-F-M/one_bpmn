@@ -9,6 +9,7 @@ import frappe
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
+from one_bpmn.api.dss_signing import get_reason, signer_outcome
 from one_bpmn.api.utils import _is_bpmn_super_user
 from one_bpmn.utils.session import as_user
 
@@ -463,6 +464,84 @@ def _start_process_as_user(
 		)
 
 
+DSS_SIGNING_MODEL = "DSS In Action Executable"
+
+
+def _action_requires_signature(instance, row, action: str) -> bool:
+	"""Whether this action on the task row carries the Sign flag."""
+	return any(
+		d.get("action") == action and d.get("requireDigitalSignature") == "true"
+		for d in instance._resolve_task_actions_detail(row)
+	)
+
+
+def _has_signed_dss(doctype: str, docname: str, user: str, action: str, since) -> bool:
+	"""A successful DSS signature by the user on this document for the action since the given time."""
+	return bool(
+		frappe.db.exists(
+			"DSS Response Log",
+			{
+				"reference_doctype": doctype,
+				"reference_docname": docname,
+				"requester": user,
+				"workflow_action": action,
+				"status": "Success",
+				"creation": [">=", since],
+			},
+		)
+	)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_dss_signing(instance_name: str, task_id: str, action: str) -> dict:
+	"""Start the DSS signing process for a task action flagged to need a signature."""
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("write")
+
+	row = next((r for r in instance.active_tasks if r.task_id == task_id and r.status == "Waiting"), None)
+	if not row:
+		frappe.throw(_("Task '{0}' is not waiting in this instance.").format(task_id))
+
+	refusal, _approved_ctc = _task_authorization(instance, row, frappe.session.user)
+	if refusal:
+		frappe.throw(refusal, frappe.PermissionError)
+
+	if not _action_requires_signature(instance, row, action):
+		frappe.throw(_("Action '{0}' does not require a digital signature.").format(action))
+	if not (instance.context_doctype and instance.context_docname):
+		frappe.throw(_("This instance has no document to sign."))
+
+	return start_process(
+		model_name=DSS_SIGNING_MODEL,
+		context_doctype=instance.context_doctype,
+		context_docname=instance.context_docname,
+		initial_data=json.dumps({"workflow_action": action}),
+	)
+
+
+@frappe.whitelist()
+def get_dss_signing_status(signing_instance: str, action: str) -> dict:
+	"""Progress of a signing run the current user started."""
+	signing = frappe.get_doc("BPMN Process Instance", signing_instance)
+	signing.check_permission("read")
+	if signing.process_model != DSS_SIGNING_MODEL or signing.initiated_by != frappe.session.user:
+		frappe.throw(_("This is not a signing run you started."), frappe.PermissionError)
+
+	signed = _has_signed_dss(
+		signing.context_doctype,
+		signing.context_docname,
+		frappe.session.user,
+		action,
+		signing.started_at or signing.creation,
+	)
+	return {
+		"finished": signing.status != "Active",
+		"signed": signed,
+		"exempt": signer_outcome(frappe.session.user) == "skip",
+		"reason": get_reason(signing.name),
+	}
+
+
 @frappe.whitelist()
 def complete_task(
 	instance_name: str,
@@ -571,6 +650,24 @@ def complete_task(
 					submitted_action, ", ".join(allowed_actions)
 				),
 				frappe.ValidationError,
+			)
+
+	# 2b. Digital signature check
+	if (
+		submitted_action
+		and _action_requires_signature(instance, active_row, submitted_action)
+		and signer_outcome(current_user) != "skip"
+	):
+		if not _has_signed_dss(
+			instance.context_doctype,
+			instance.context_docname,
+			current_user,
+			submitted_action,
+			active_row.started_at or instance.creation,
+		):
+			frappe.throw(
+				_("Action '{0}' needs a digital signature first.").format(submitted_action),
+				frappe.PermissionError,
 			)
 
 	# ── 3. DOCUMENT PERMISSION CHECK ─────────────────────────────────────────
