@@ -43,6 +43,7 @@ MODEL_DOCTYPE = "BPMN Process Model"
 EVENT_DIAGRAM_CHANGE = "bpmn_diagram_change"
 EVENT_DIAGRAM_SAVED = "bpmn_diagram_saved"
 EVENT_PRESENCE = "bpmn_editor_presence"
+EVENT_AWARENESS = "bpmn_diagram_awareness"
 
 # Presence shares the cache entry that ``editability.check_and_update_editor_lock``
 # maintains ({user: last heartbeat epoch seconds}) so both stay consistent.
@@ -52,6 +53,12 @@ PRESENCE_CACHE_EXPIRY_SECONDS = 60
 
 # A live change is a small delta, not a whole diagram. Whole diagrams go through save_diagram.
 MAX_CHANGE_BYTES = 256 * 1024
+
+
+# Awareness (who is looking at / editing which element) is ephemeral: relayed, never stored.
+AWARENESS_MODES = ("editing", "viewing", "idle")
+MAX_AWARENESS_SELECTION = 50
+MAX_ELEMENT_ID_LENGTH = 140
 
 
 class StaleDiagramRevision(frappe.ValidationError):
@@ -217,6 +224,48 @@ def leave_model(model_name: str, client_id: str = None) -> dict:
 		_announce_presence(model_name, "left", editors, client_id)
 
 	return {"model": model_name, "editors": _editor_details(editors)}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_awareness(
+	model_name: str, client_id: str, mode: str = "viewing", selection=None, left: int = 0, reply: int = 0
+) -> dict:
+	"""Relay what the caller is doing on the canvas to everyone with the model open.
+
+	Read permission is enough (viewers show up too); "editing" is downgraded to
+	"viewing" unless the caller may edit. Nothing is stored. ``left`` announces a
+	departure; ``reply`` marks an answer to a newcomer so it is not answered again.
+	"""
+	doc = _load_model(model_name, "read")
+	if not client_id:
+		frappe.throw(_("client_id is required"))
+	if isinstance(selection, str):
+		selection = frappe.parse_json(selection)
+	selection = [
+		element_id[:MAX_ELEMENT_ID_LENGTH]
+		for element_id in (selection or [])[:MAX_AWARENESS_SELECTION]
+		if isinstance(element_id, str)
+	]
+	if mode not in AWARENESS_MODES:
+		mode = "viewing"
+	if mode == "editing" and not _can_edit(doc):
+		mode = "viewing"
+
+	_broadcast(
+		EVENT_AWARENESS,
+		model_name,
+		{
+			"model": model_name,
+			"client_id": client_id,
+			"user": frappe.session.user,
+			"full_name": frappe.utils.get_fullname(frappe.session.user),
+			"mode": mode,
+			"selection": selection,
+			"left": bool(cint(left)),
+			"reply": bool(cint(reply)),
+		},
+	)
+	return {"ok": True}
 
 
 @frappe.whitelist()

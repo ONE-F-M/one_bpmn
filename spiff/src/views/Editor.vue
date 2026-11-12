@@ -110,32 +110,24 @@
 				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
 
 				<!-- Other Active Editors Avatars (hidden on mobile) -->
-				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
+				<div v-if="awareness.peers.value.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
 					<div
-						v-for="user in otherEditors"
-						:key="user.name"
+						v-for="user in awareness.peers.value"
+						:key="user.clientId"
+						:style="{ opacity: user.mode === 'idle' ? 0.5 : 1 }"
 						class="relative group"
 					>
-						<img
-							v-if="user.user_image"
-							:src="user.user_image"
-							:alt="user.full_name"
-							class="w-7 h-7 rounded-full border-2 border-white object-cover"
-						/>
 						<div
-							v-else
-							:class="[
-								'w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase',
-								getAvatarColor(user.name)
-							]"
+							:style="{ background: user.color }"
+							class="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase"
 						>
-							{{ getInitials(user.full_name) }}
+							{{ getInitials(user.fullName) }}
 						</div>
-						
+
 						<!-- Hover Tooltip -->
 						<div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-[60]">
 							<div class="bg-gray-800 text-white text-[11px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
-								{{ user.full_name }} is editing
+								{{ user.fullName }} is {{ user.mode }}
 							</div>
 							<div class="w-2 h-2 bg-gray-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"></div>
 						</div>
@@ -508,6 +500,7 @@
 						@changed="onDiagramChanged"
 						@reassign-changed="onReassignChanged"
 						@zoom-changed="onZoomChanged"
+						@selection-changed="onSelectionChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@confirm-script-delete="onConfirmScriptDelete"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
@@ -1169,6 +1162,8 @@ import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { serverMessage } from "@/utils/serverMessage";
 import DiagramConflictBanner from "@/components/DiagramConflictBanner.vue";
 import { useDiagramCollaboration } from "@/composables/useDiagramCollaboration";
+import { useDiagramAwareness } from "@/composables/useDiagramAwareness";
+import { useCurrentUser } from "@/composables/useCurrentUser";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { dayjs } from "@/dayjs";
@@ -1698,6 +1693,20 @@ const collab = useDiagramCollaboration({
 		otherEditors.value = editors;
 	},
 });
+
+// Shows who else has the diagram open and what they have selected.
+const { currentUser: awarenessUser } = useCurrentUser();
+const localSelection = ref([]);
+const awareness = useDiagramAwareness({
+	currentUser: () => awarenessUser.value,
+	getSelection: () => localSelection.value,
+	canEdit: () => canEditActiveDiagram.value,
+});
+watch(awareness.peers, (list) => editorRef.value?.setPresence(list));
+function onSelectionChanged(ids) {
+	localSelection.value = ids;
+	awareness.announce();
+}
 
 async function applyRemoteDiagram(xml) {
 	if (!editorRef.value) return;
@@ -2411,10 +2420,12 @@ onUnmounted(() => {
 function joinCollaboration(modelName) {
 	if (!modelName) return;
 	collab.join(modelName).catch((err) => console.error("Collaboration join failed:", err));
+	awareness.join(modelName);
 }
 
 function leaveCollaboration() {
 	collab.leave();
+	awareness.leave();
 }
 
 async function loadProcess() {
@@ -2543,6 +2554,7 @@ function onDiagramChanged() {
 	hasPendingSave = true;
 	saveTimeout = setTimeout(runDebouncedSave, 1500);
 	collab.publishLive();
+	awareness.touchEdit();
 }
 
 // Runs when the auto-save debounce elapses. If the analyst is still entering

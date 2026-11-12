@@ -1150,6 +1150,7 @@ const props = defineProps({
 const emit = defineEmits([
 	"ready",
 	"changed",
+	"selection-changed",
 	"zoom-changed",
 	"launch-script-editor",
 	"confirm-script-delete",
@@ -2099,6 +2100,7 @@ onMounted(async () => {
 			// Listen for selection changes for formatting toolbar
 			eventBus.on("selection.changed", (e) => {
 				selectedElements.value = e.newSelection || [];
+				emit("selection-changed", selectedElements.value.map((el) => el.id));
 
 				// Auto-open the properties panel when an element is selected
 				if (e.newSelection?.length > 0) {
@@ -2216,6 +2218,9 @@ onMounted(async () => {
 				}
 			});
 
+		// Remote edits can move or remove an element someone has selected.
+		eventBus.on("elements.changed", () => renderPresence());
+
 		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
 		eventBus.on("canvas.viewbox.changed", () => {
 			const canvas = modeler.get("canvas");
@@ -2227,6 +2232,7 @@ onMounted(async () => {
 		// Ensure comments are rendered after any diagram import finishes
 		eventBus.on("import.done", () => {
 			renderComments();
+			renderPresence();
 		});
 
 
@@ -3388,6 +3394,41 @@ function getOverlays() {
 	return modeler.get("overlays");
 }
 
+// Outlines, in each collaborator's colour, the elements they have selected, with their name on top.
+let presencePeers = [];
+function setPresence(peers) {
+	presencePeers = peers;
+	renderPresence();
+}
+
+function renderPresence() {
+	if (!modeler) return;
+	const overlays = modeler.get("overlays");
+	const registry = modeler.get("elementRegistry");
+	overlays.remove({ type: "presence" });
+	for (const peer of presencePeers) {
+		if (peer.mode === "idle") continue;
+		for (const id of peer.selection) {
+			const element = registry.get(id);
+			if (!element) continue;
+			const box = element.waypoints ? bboxOf(element.waypoints) : element;
+			const frame = document.createElement("div");
+			frame.style.cssText = `width:${box.width + 8}px;height:${box.height + 8}px;border:2px solid ${peer.color};border-radius:6px;pointer-events:none;position:relative`;
+			const label = document.createElement("span");
+			label.textContent = `${peer.fullName} · ${peer.mode}`;
+			label.style.cssText = `position:absolute;bottom:100%;left:-2px;background:${peer.color};color:#fff;font-size:10px;line-height:14px;padding:0 4px;border-radius:3px;white-space:nowrap`;
+			frame.appendChild(label);
+			overlays.add(element, "presence", { position: { top: -4, left: -4 }, html: frame });
+		}
+	}
+}
+
+function bboxOf(points) {
+	const xs = points.map((p) => p.x);
+	const ys = points.map((p) => p.y);
+	return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+}
+
 function addOverlay(elementId, html, options = {}) {
 	const overlays = getOverlays();
 	if (!overlays) return null;
@@ -3482,6 +3523,7 @@ function updateCalledElement(element, processId, process) {
 defineExpose({
 	getXML,
 	getLiveXML,
+	setPresence,
 	getRawLintIssues,
 	loadXML,
 	setProcessName,
