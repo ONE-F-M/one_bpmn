@@ -40,7 +40,11 @@ export default class StickyNoteRenderer extends BaseRenderer {
 
 	drawShape(parentNode, element) {
 		const businessObject = element.businessObject;
-		const color = businessObject.get('spiffworkflow:color') || '#fff9c4'; // Default pastel yellow
+		// Colours picked in the formatting toolbar live on the DI (bioc:*); fall back to the note's own defaults.
+		const di = element.di;
+		const color = (di && (di.get('bioc:fill') || di.get('color:background-color')))
+			|| businessObject.get('spiffworkflow:color') || '#fff9c4'; // Default pastel yellow
+		const stroke = (di && (di.get('bioc:stroke') || di.get('color:border-color'))) || '#eab308';
 
 		// Get element dimensions
 		const width = element.width || 100;
@@ -51,7 +55,7 @@ export default class StickyNoteRenderer extends BaseRenderer {
 		rect.setAttribute('width', width);
 		rect.setAttribute('height', height);
 		rect.setAttribute('fill', color);
-		rect.setAttribute('stroke', '#eab308'); // tailwind yellow-500 approx
+		rect.setAttribute('stroke', stroke);
 		rect.setAttribute('stroke-width', '1');
 		rect.setAttribute('rx', '2');
 		rect.setAttribute('ry', '2');
