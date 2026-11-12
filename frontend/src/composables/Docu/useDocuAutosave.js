@@ -8,6 +8,7 @@ export function useDocuAutosave({
 	contentCount,
 	currentIr,
 	appliedName,
+	baseModified,
 	loadIr,
 	isRestoring,
 	getProcessContext,
@@ -75,6 +76,7 @@ export function useDocuAutosave({
 					confirm: 1,
 					process: getProcessContext()?.process || undefined,
 					list_in_process: listingAnswer.value ?? undefined,
+					base_modified: baseModified.value || undefined,
 				},
 			});
 			if (res?.status === "needs_listing_decision") {
@@ -91,6 +93,7 @@ export function useDocuAutosave({
 			}
 			if (res?.name) {
 				appliedName.value = res.name;
+				baseModified.value = res.modified || "";
 				emit("applied", res.name); // write the DocType name back onto the shape
 			}
 			saveNotes.value = (res?.notes || []).join(" ");

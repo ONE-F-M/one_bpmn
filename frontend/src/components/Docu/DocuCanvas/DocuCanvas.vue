@@ -103,6 +103,7 @@ const autosave = useDocuAutosave({
 	contentCount: tree.contentCount,
 	currentIr: ir.currentIr,
 	appliedName: ir.appliedName,
+	baseModified: ir.baseModified,
 	loadIr: ir.loadIr,
 	isRestoring: history.isRestoring,
 	getProcessContext: () => props.processContext,
