@@ -1,6 +1,7 @@
 <script setup>
-import { inject, toRef } from "vue";
+import { inject, ref, toRef } from "vue";
 import { Icon } from "@iconify/vue";
+import KeyboardShortcutsModal from "@/components/Modals/KeyboardShortcutsModal/KeyboardShortcutsModal.vue";
 import FormattingToolbar from "@/components/Editor/FormattingToolbar/FormattingToolbar.vue";
 import { EDITOR_KEY } from "@/composables/Editor/useEditorState";
 
@@ -24,6 +25,7 @@ const {
 	toolbarEl,
 	undo,
 } = ed;
+const showShortcuts = ref(false);
 </script>
 
 <template>
@@ -162,7 +164,18 @@ const {
 				<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
 				<span class="bpmn-toolbar-label hidden sm:inline">ProsAlly</span>
 			</button>
+
+			<!-- Keyboard shortcuts reference (available while viewing and editing) -->
+			<button
+				:title="__('Keyboard Shortcuts')"
+				:aria-label="__('Keyboard Shortcuts')"
+				class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors shrink-0"
+				@click="showShortcuts = true"
+			>
+				<Icon icon="lucide:keyboard" class="w-4 h-4" />
+			</button>
 		</div>
+		<KeyboardShortcutsModal v-model="showShortcuts" />
 	</div>
 </template>
 
