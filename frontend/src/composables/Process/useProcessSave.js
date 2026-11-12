@@ -3,7 +3,7 @@ import { onBeforeRouteLeave } from "vue-router";
 import { serverMessage } from "@/utils/serverMessage";
 
 export function useProcessSave(pc) {
-		props,
+	const {
 		editorRef,
 		diagrams,
 		activeDiagramName,
