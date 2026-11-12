@@ -16,6 +16,7 @@ export function useDocuIr({ tree, settings }) {
 
 	const applyError = ref("");
 	const appliedName = ref("");
+	const baseModified = ref(""); // the DocType's modified stamp as last read; the server refuses a save over a newer one
 
 	function loadIr(ir) {
 		if (!ir) return;
@@ -76,11 +77,14 @@ export function useDocuIr({ tree, settings }) {
 				url: `${DOCU_API}get_doctype_schema`,
 				params: { doctype: dt },
 			});
-			if (res?.exists && res.doctype_ir) loadIr(res.doctype_ir);
+			if (res?.exists && res.doctype_ir) {
+				loadIr(res.doctype_ir);
+				baseModified.value = res.modified || "";
+			}
 		} catch {
 			/* new doctype — nothing to load */
 		}
 	}
 
-	return { applyError, appliedName, loadIr, settingsPayload, currentIr, loadSchema };
+	return { applyError, appliedName, baseModified, loadIr, settingsPayload, currentIr, loadSchema };
 }

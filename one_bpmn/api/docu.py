@@ -26,6 +26,7 @@ import json
 import frappe
 
 from frappe import _
+from frappe.utils import get_datetime
 
 from one_bpmn.ai_agent_registry.definitions.docu.tools import (
 	diff_ir,
@@ -148,7 +149,7 @@ def get_doctype_schema(doctype: str) -> dict:
 		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)
 	with as_user(_docu_user()):
 		ir = _read_doctype_ir(doctype)
-	return {"exists": True, "doctype_ir": ir}
+	return {"exists": True, "doctype_ir": ir, "modified": str(frappe.db.get_value("DocType", doctype, "modified"))}
 
 
 def _fld_label(f: dict) -> str:
@@ -257,7 +258,8 @@ def preview_doctype(ir: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
-def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in_process: str | int | None = None) -> dict:
+def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in_process: str | int | None = None,
+                  base_modified: str | None = None) -> dict:
 	"""Create or update a real DocType from a Docu IR.
 
 	- new name              → create a custom DocType (table auto-syncs on insert)
@@ -271,6 +273,9 @@ def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in
 	existing custom DocType (which drops their stored data). The client calls
 	``preview_doctype`` first, shows the user what will happen, then re-calls with
 	``confirm=1``.
+
+	``base_modified`` is the DocType's ``modified`` the client last read; when it no
+	longer matches, the form was edited elsewhere and the save is refused.
 	"""
 	ir_dict = _parse(ir, None)
 	if not isinstance(ir_dict, dict):
@@ -303,12 +308,26 @@ def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in
 	if not _may_change_forms():
 		frappe.throw(_("You are not allowed to create or change forms through Docu."), frappe.PermissionError)
 
+	_refuse_stale_save(_target, base_modified)
 	result = _apply_ir_now(ir_dict, verdict["warnings"], confirm)
 	result["status"] = "applied"
+	result["modified"] = str(frappe.db.get_value("DocType", _target, "modified"))
 	if list_target:
 		_list_doctype_in_process(_target, list_target)
 		result["listed_in_process"] = list_target
 	return result
+
+
+def _refuse_stale_save(name: str, base_modified: str | None) -> None:
+	"""Throw when the DocType was edited after the client read it, so a stale copy cannot overwrite the edit."""
+	if not base_modified:
+		return
+	live = frappe.db.get_value("DocType", name, "modified")
+	if live and get_datetime(live) != get_datetime(base_modified):
+		frappe.throw(
+			_("{0} was changed after you opened it. Reload it to see the changes; saving now would overwrite them.").format(name),
+			title=_("Form changed"),
+		)
 
 
 def _apply_ir_now(ir_dict: dict, warnings: list, confirm=0) -> dict:
