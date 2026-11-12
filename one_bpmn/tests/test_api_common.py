@@ -112,8 +112,8 @@ class TestApiPermissions(FrappeTestCase):
 			self.assertEqual(a2a_admin.get_permissions(), {"administer": False, "read": False})
 
 	def test_a_system_manager_gets_the_clarification_options(self):
-		self.assertEqual(
-			set(clarifications.clarification_filter_options()),
-			{"agents", "people", "doctypes", "statuses"},
-		)
+		with patch("one_bpmn.api.clarifications.distinct", return_value=["x"]) as fake:
+			options = clarifications.clarification_filter_options()
+		self.assertEqual(options, {"agents": ["x"], "people": ["x"], "doctypes": ["x"], "statuses": ["x"]})
+		self.assertEqual(fake.call_count, 4)
 		self.assertTrue(a2a_admin.get_permissions()["administer"])
