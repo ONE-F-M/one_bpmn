@@ -72,9 +72,8 @@ class TestSiteUpdateCountdown(FrappeTestCase):
 			self.assertFalse(site_update.get_site_update_countdown()["active"])
 
 	def test_start_and_cancel_are_for_system_manager_only(self):
-		with patch.object(frappe, "get_roles", return_value=["Guest", "All"]), patch.object(
-			frappe, "publish_realtime"
-		) as publish:
+		frappe.set_user("Guest")  # Administrator always passes only_for, so use a user without the role
+		with patch.object(frappe, "publish_realtime") as publish:
 			with self.assertRaises(frappe.PermissionError):
 				site_update.start_site_update_countdown()
 			with self.assertRaises(frappe.PermissionError):
