@@ -24,6 +24,7 @@ import os
 import frappe
 from frappe import _
 
+from one_bpmn.api.common import parse_json_or_passthrough
 from one_bpmn.api.editability import _call_production_api, _is_ba_instance
 
 
@@ -74,12 +75,6 @@ _META_KEYS = {
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _parse(value):
-	if isinstance(value, (dict, list)):
-		return value
-	return frappe.parse_json(value) if value else {}
 
 
 def _clean(record: dict) -> dict:
@@ -209,14 +204,14 @@ def sync_workflow_objects(model_name: str) -> dict:
 def snapshot_workflow_objects(targets: str) -> dict:
 	"""Return canonical records for the requested workflow objects (Production)."""
 	frappe.only_for("System Manager")
-	return _build_workflow_snapshot(_parse(targets))
+	return _build_workflow_snapshot(parse_json_or_passthrough(targets, {}))
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_workflow_objects(payload: str) -> dict:
 	"""Create/overwrite the supplied workflow objects (Production)."""
 	frappe.only_for("System Manager")
-	payload = _parse(payload)
+	payload = parse_json_or_passthrough(payload, {})
 	results = {"created": [], "updated": [], "failed": []}
 	for dt in _APPLY_ORDER:
 		for rec in payload.get(dt, []) or []:
@@ -748,7 +743,7 @@ def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dic
 def snapshot_doctype_schema(doctypes: str) -> dict:
 	"""Return Custom Fields + Property Setters + DocFields per DocType (Production)."""
 	frappe.only_for("System Manager")
-	return _build_doctype_snapshot(_parse(doctypes) or [])
+	return _build_doctype_snapshot(parse_json_or_passthrough(doctypes, {}) or [])
 
 
 def app_for_doctype(dt: str) -> str | None:

@@ -12,6 +12,7 @@ from frappe.utils import cint, escape_html, now_datetime
 
 from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.ai_agent_security.rate_limit import RateLimited
+from one_bpmn.api.common import shape_reply
 from one_bpmn.utils.session import as_user
 
 
@@ -852,20 +853,11 @@ def shape_logix_reply(result: dict) -> dict:
 	The purpose-built map returns structured keys already — then this is a
 	no-op. A generic-template map returns the contract as text; parse it so
 	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
-	if result.get("modified_script") or result.get("intent"):
-		return result
-	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
-
-	raw = result.get("response") or ""
-	parsed = extract_json(raw if isinstance(raw, str) else "")
-	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("modified_script")):
-		return result
-	shaped = dict(result)
-	shaped["response"] = str(parsed.get("response") or "").strip() or raw
-	for key in ("intent", "modified_script", "suggested_name", "options", "apply_target"):
-		if parsed.get(key):
-			shaped[key] = parsed[key]
-	return shaped
+	return shape_reply(
+		result,
+		("intent", "modified_script"),
+		("intent", "modified_script", "suggested_name", "options", "apply_target"),
+	)
 
 
 def build_prosally_turn_context(context: dict) -> dict:
@@ -921,22 +913,11 @@ def build_prosally_turn_context(context: dict) -> dict:
 def shape_prosally_reply(result: dict) -> dict:
 	"""Lift the ProsAlly JSON contract out of a text reply (reply shaper);
 	no-op when the purpose-built map already returned structured keys."""
-	if result.get("bpmn_xml") or result.get("pending_xml") or result.get("intent"):
-		return result
-	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
-
-	raw = result.get("response") or ""
-	parsed = extract_json(raw if isinstance(raw, str) else "")
-	if not isinstance(parsed, dict) or not (
-		parsed.get("intent") or parsed.get("bpmn_xml") or parsed.get("pending_xml")
-	):
-		return result
-	shaped = dict(result)
-	shaped["response"] = str(parsed.get("response") or "").strip() or raw
-	for key in ("intent", "bpmn_xml", "pending_xml", "options", "action_intent"):
-		if parsed.get(key):
-			shaped[key] = parsed[key]
-	return shaped
+	return shape_reply(
+		result,
+		("intent", "bpmn_xml", "pending_xml"),
+		("intent", "bpmn_xml", "pending_xml", "options", "action_intent"),
+	)
 
 
 def _register_agui_hooks():

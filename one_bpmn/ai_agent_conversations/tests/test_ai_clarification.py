@@ -15,6 +15,8 @@ not the silent one.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
@@ -782,9 +784,7 @@ class TestTheClarificationMonitor(FrappeTestCase):
 		from one_bpmn.api import clarifications as clarification_api
 		from one_bpmn.a2a.tests.test_a2a_admin_api import make_nobody
 
-		nobody = make_nobody()
-		frappe.set_user(nobody.name)
-		try:
+		with self.set_user(make_nobody().name), patch.dict(frappe.local.flags, {"in_test": False}):
 			for call, kwargs in (
 				(clarification_api.list_clarifications, {}),
 				(clarification_api.clarification_detail, {"name": "x"}),
@@ -792,8 +792,6 @@ class TestTheClarificationMonitor(FrappeTestCase):
 			):
 				with self.assertRaises(frappe.PermissionError):
 					call(**kwargs)
-		finally:
-			frappe.set_user("Administrator")
 
 
 class TestTheQuestionIsSignedByTheAgent(FrappeTestCase):

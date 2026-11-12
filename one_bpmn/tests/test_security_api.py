@@ -172,7 +172,7 @@ class TestSecurityApi(FrappeTestCase):
 	# AC 3 — the pack is System-Manager-writable, readable by others
 	# ------------------------------------------------------------------
 	def test_pattern_writes_are_refused_without_the_role(self):
-		with patch.object(S, "_can_edit_patterns", return_value=False):
+		with patch("frappe.only_for", side_effect=frappe.PermissionError):
 			with self.assertRaises(frappe.PermissionError):
 				S.save_pattern({"pattern_name": f"{PREFIX} rule", "pattern": "x"})
 			with self.assertRaises(frappe.PermissionError):
