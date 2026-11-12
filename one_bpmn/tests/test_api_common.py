@@ -110,21 +110,18 @@ class TestApiPermissions(FrappeTestCase):
 		frappe.set_user("Administrator")
 
 	def test_a_plain_user_is_refused_the_clarification_options(self):
-		self.set_user(PLAIN_USER)
-		with self.assertRaises(frappe.PermissionError):
+		with self.set_user(PLAIN_USER), self.assertRaises(frappe.PermissionError):
 			clarifications.clarification_filter_options()
 
 	def test_a_plain_user_is_refused_an_a2a_admin_endpoint(self):
-		self.set_user(PLAIN_USER)
-		with self.assertRaises(frappe.PermissionError):
+		with self.set_user(PLAIN_USER), self.assertRaises(frappe.PermissionError):
 			a2a_admin.list_clients()
 
 	def test_a_plain_user_gets_no_a2a_admin_permissions(self):
-		self.set_user(PLAIN_USER)
-		self.assertEqual(a2a_admin.get_permissions(), {"administer": False, "read": False})
+		with self.set_user(PLAIN_USER):
+			self.assertEqual(a2a_admin.get_permissions(), {"administer": False, "read": False})
 
 	def test_a_system_manager_gets_the_clarification_options(self):
-		self.set_user("Administrator")
 		self.assertEqual(
 			set(clarifications.clarification_filter_options()),
 			{"agents", "people", "doctypes", "statuses"},
