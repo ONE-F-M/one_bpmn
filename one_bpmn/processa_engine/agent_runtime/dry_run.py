@@ -84,7 +84,7 @@ def dry_run_task(
 
 	# Importing the executor modules registers their backends.
 	from one_bpmn.processa_engine.agent_runtime import antigravity, direct_api
-	from one_bpmn.processa_engine.dispatch.ai_agent import executor_config
+	from one_bpmn.processa_engine.dispatch.executor_settings import executor_config
 
 	task_cfg = _task_config(bpmn_xml, bpmn_id, form)
 	system_prompt, user_prompt, jinja_ctx = _prompts(task_cfg, sample_variables, sample_message)

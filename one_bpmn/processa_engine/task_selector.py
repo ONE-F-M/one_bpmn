@@ -7,8 +7,8 @@ It replaces the diagram-order decision of the dispatch loop and activates at mos
 import frappe
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.dispatch.ai_agent import terminal_tools_for
 from one_bpmn.processa_engine.dispatch.common import cfg_truthy, template_renderer
+from one_bpmn.processa_engine.dispatch.executor_settings import terminal_tools_for
 from one_bpmn.processa_engine.runtime.ai_jobs import ai_parking_active, queue_parked_ai_job
 from one_bpmn.processa_engine.runtime.dispatch import log_ai_task_selected
 
