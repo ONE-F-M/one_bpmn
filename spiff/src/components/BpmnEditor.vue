@@ -111,6 +111,16 @@
 					{{ saveStatusText }}
 				</div>
 
+				<!-- Keyboard Shortcuts quick reference (available in read-only mode too) -->
+				<button
+					@click="showShortcutsModal = true"
+					title="Keyboard Shortcuts"
+					aria-label="Keyboard Shortcuts"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors shrink-0"
+				>
+					<Icon icon="lucide:keyboard" class="w-4 h-4" />
+				</button>
+
 				<!-- ProsAlly Toggle Button — hidden while read-only, since any
 				     diagram it generates would be discarded by the change guard. -->
 				<button
@@ -1007,6 +1017,8 @@
 			@applied="onDocuApplied"
 			@close="docuPanel.show = false"
 		/>
+
+		<KeyboardShortcutsModal v-model="showShortcutsModal" />
 	</div>
 </template>
 
@@ -1027,6 +1039,7 @@ import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { watchAgentConfigLint } from "@/composables/useAgentConfigLintState";
@@ -1531,6 +1544,7 @@ const panelReleased = computed(() => {
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
 const showMoreTools = ref(false);
+const showShortcutsModal = ref(false);
 const showProsAllyPanel = ref(false);
 const prosAllyPanel = ref(null);
 // Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
