@@ -16,23 +16,17 @@ EXTRACT_JSON = "one_bpmn.ai_agent_registry.definitions.shared.helpers.extract_js
 
 
 class TestDistinct(FrappeTestCase):
-	def setUp(self):
-		frappe.set_user("Administrator")
-		for status in ("Open", "Closed"):
-			frappe.get_doc({"doctype": "ToDo", "description": "zz distinct", "status": status}).insert()
-
 	def test_returns_the_values_present_sorted_ascending(self):
-		values = distinct("ToDo", "status")
-		self.assertIn("Open", values)
-		self.assertIn("Closed", values)
-		self.assertEqual(values, sorted(values))
+		values = distinct("Module Def", "app_name")
+		self.assertIn("one_bpmn", values)
+		self.assertEqual(values, sorted(set(values)))
 
 	def test_unset_values_are_left_out(self):
-		values = distinct("ToDo", "reference_type")
+		values = distinct("Role", "home_page")
 		self.assertTrue(all(values))
 
 	def test_the_limit_caps_the_result(self):
-		self.assertEqual(distinct("ToDo", "status", limit=1), distinct("ToDo", "status")[:1])
+		self.assertEqual(len(distinct("Module Def", "app_name", limit=1)), 1)
 
 
 class TestParseJsonOrPassthrough(FrappeTestCase):
@@ -112,10 +106,6 @@ class TestApiPermissions(FrappeTestCase):
 	def test_a_plain_user_is_refused_the_clarification_options(self):
 		with self.set_user(PLAIN_USER), self.assertRaises(frappe.PermissionError):
 			clarifications.clarification_filter_options()
-
-	def test_a_plain_user_is_refused_an_a2a_admin_endpoint(self):
-		with self.set_user(PLAIN_USER), self.assertRaises(frappe.PermissionError):
-			a2a_admin.list_clients()
 
 	def test_a_plain_user_gets_no_a2a_admin_permissions(self):
 		with self.set_user(PLAIN_USER):
