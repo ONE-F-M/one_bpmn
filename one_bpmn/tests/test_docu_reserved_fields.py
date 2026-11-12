@@ -16,7 +16,7 @@ _RESERVED_ON_TARGET = "amended_from"
 def _ir(*fieldnames):
 	return {
 		"doctype_name": "Pathfinder Log",
-		"module": "ONE BPMN",
+		"module": "Processa Engine",
 		"fields": [
 			{"fieldname": f, "label": f.replace("_", " ").title(), "fieldtype": "Data"}
 			for f in fieldnames

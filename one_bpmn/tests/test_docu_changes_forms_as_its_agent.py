@@ -50,7 +50,7 @@ class TestDocuChangesFormsAsItsAgent(FrappeTestCase):
 	def _apply(self):
 		ir = {
 			"doctype_name": DT,
-			"module": "ONE BPMN",
+			"module": "Processa Engine",
 			"fields": [{"fieldname": "subject", "fieldtype": "Data", "label": "Subject"}],
 		}
 		return apply_doctype(json.dumps(ir), confirm=1)

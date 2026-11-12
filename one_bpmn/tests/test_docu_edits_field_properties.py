@@ -91,7 +91,7 @@ class TestCustomDocTypeIsEditedInPlace(FrappeTestCase):
 			{
 				"doctype": "DocType",
 				"name": CUSTOM_DT,
-				"module": "ONE BPMN",
+				"module": "Processa Engine",
 				"custom": 1,
 				"fields": [
 					{"fieldname": "needs_cover", "fieldtype": "Check", "label": "Needs Cover"},
@@ -131,7 +131,7 @@ class TestWritePermissionOnTheTarget(FrappeTestCase):
 			{
 				"doctype": "DocType",
 				"name": CUSTOM_DT,
-				"module": "ONE BPMN",
+				"module": "Processa Engine",
 				"custom": 1,
 				"fields": [
 					{"fieldname": "needs_cover", "fieldtype": "Check", "label": "Needs Cover"},

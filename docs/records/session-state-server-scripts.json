@@ -16,7 +16,7 @@
    "allow_guest": 0,
    "event_frequency": "All",
    "cron_format": "",
-   "module": "ONE BPMN",
+   "module": "AI Agent Registry",
    "disabled": 0
   },
   {
@@ -29,7 +29,7 @@
    "allow_guest": 0,
    "event_frequency": "All",
    "cron_format": "",
-   "module": "ONE BPMN",
+   "module": "AI Agent Registry",
    "disabled": 0
   },
   {
@@ -172,7 +172,7 @@
    "allow_guest": 0,
    "event_frequency": "All",
    "cron_format": "",
-   "module": "ONE BPMN",
+   "module": "AI Agent Registry",
    "disabled": 0
   },
   {
@@ -185,7 +185,7 @@
    "allow_guest": 0,
    "event_frequency": "All",
    "cron_format": "",
-   "module": "ONE BPMN",
+   "module": "AI Agent Registry",
    "disabled": 0
   },
   {
