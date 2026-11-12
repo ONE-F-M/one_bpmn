@@ -103,6 +103,20 @@ class TestDetection(FrappeTestCase):
 		self.assertIn("Thanks", after)
 		self.assertNotIn("```", xml)
 
+	def test_escaped_message_is_extracted_as_xml(self):
+		xml, _before, _after = bx.extract_xml("&lt;bpmn:startEvent id=&quot;S&quot;/&gt;&lt;bpmn:endEvent id=&quot;E&quot;/&gt;")
+		self.assertEqual(xml, '<bpmn:startEvent id="S"/><bpmn:endEvent id="E"/>')
+
+	def test_character_references_in_raw_xml_are_left_for_the_parser(self):
+		body = PROCESS.replace('name="Review request"', 'name="Review &#38; sign"').replace(
+			'name="Notify"', 'name="Notify&#10;requester"'
+		)
+		message = "check this xml\n" + _document(body)
+		self.assertTrue(bx.is_bpmn_xml(message))
+		xml, _before, _after = bx.extract_xml(message)
+		self.assertIn("&#38;", xml)
+		self.assertTrue(bx.analyze_bpmn_xml(xml)["ok"])
+
 
 class TestStructuralParsing(FrappeTestCase):
 	"""AC1: tasks, sequence flows, catch/throw events and gateways are read directly."""
