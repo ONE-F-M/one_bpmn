@@ -438,6 +438,67 @@ def add_document_sources(text: str, intent: str | None, turn: dict | None) -> st
 	return text.rstrip() + "\n\n" + document_sources_line(documents, _("Documents checked"))
 
 
+def redirect_output(context_docname: str, instance=None) -> dict:
+    """The Redirect stage: answer from the company documents when they hold the answer, else decline politely.
+
+    Shared by the ProsAlly - Tool Redirect script and ProsAlly - Tool Finalize, so both write the same reply.
+    Closes the turn and returns the output it wrote.
+    """
+    turn = get_turn(context_docname)
+    cfg = get_agent_config(AGENT_ID) or {}
+    subs = cfg.get("sub_prompts") or {}
+    msg = (subs.get("redirect") or {}).get(
+        "prompt",
+        "I'm here to help with process modelling. I'm not able to help with that request.",
+    )
+    output = dms_answer_output(context_docname, turn.get("user_text") or "", instance)
+    if not output:
+        output = {"intent": "IRRELEVANT", "action_intent": None, "response": msg, "options": []}
+    update_turn(context_docname, output=output, done=True)
+    return output
+
+
+def clarify_output(context_docname: str) -> dict:
+    """The Clarify stage: ask one focused question when the request is ambiguous or incomplete.
+
+    Shared by the ProsAlly - Tool Clarify script and ProsAlly - Tool Finalize, so both write the same reply.
+    Closes the turn and returns the output it wrote.
+    """
+    turn = get_turn(context_docname)
+    cfg = get_agent_config(AGENT_ID) or {}
+    cfg.setdefault("agent_id", AGENT_ID)
+    subs = cfg.get("sub_prompts") or {}
+    adapter = get_llm_adapter_from_settings(cfg)
+
+    process_name = turn.get("process_name", "")
+    message = turn.get("user_text", "")
+    intent_reason = turn.get("intent_reason", "")
+    hist = format_history((turn.get("chat_history", []) or [])[-10:])
+
+    parts = []
+    if process_name:
+        parts.append("Process: " + process_name)
+    parts.append("Classification reason: " + (intent_reason or ""))
+    if hist:
+        parts.append("Conversation so far:\n" + hist)
+    parts.append("User message: " + message)
+    prompt = "\n\n".join(parts)
+
+    system = (subs.get("clarifier") or {}).get("prompt") or ""
+    raw = run_sync(adapter.complete(system=system, user=prompt)).text
+    data = extract_json(raw) if raw else None
+
+    question = "Could you tell me more about the process you'd like to model?"
+    options = []
+    if data:
+        question = data.get("question") or question
+        options = data.get("options") or []
+
+    output = {"intent": "CLARIFY", "action_intent": None, "response": question, "options": options}
+    update_turn(context_docname, output=output, done=True)
+    return output
+
+
 def process_links_block(turn: dict | None) -> str:
 	"""The links the get_process_links tool found this turn, with the rule for editing only this map; "" when none."""
 	links = (turn or {}).get("process_links")
