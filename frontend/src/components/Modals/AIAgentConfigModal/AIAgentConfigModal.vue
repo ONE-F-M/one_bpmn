@@ -14,7 +14,18 @@
 				</div>
 
 				<div class="modal-body">
-					<fieldset class="field-gate" :disabled="readonly">
+					<TabButtons
+						v-if="!isSelector"
+						v-model="activeTab"
+						:buttons="tabButtons"
+						class="mb-3"
+					/>
+					<AgentConfigPreview v-if="activeTab === 'preview'" />
+					<fieldset
+						v-show="activeTab === 'configure'"
+						class="field-gate"
+						:disabled="readonly"
+					>
 						<AgentConfigLinkedAgent />
 						<AgentConfigCreatePanel />
 						<AgentConfigRunSettings />
@@ -45,9 +56,9 @@
 </template>
 
 <script setup>
-import { provide } from "vue";
+import { provide, ref } from "vue";
 import { Icon } from "@iconify/vue";
-import { Dialog } from "frappe-ui";
+import { Dialog, TabButtons } from "frappe-ui";
 import AgentConfigLinkedAgent from "@/components/AgentConfig/AgentConfigLinkedAgent/AgentConfigLinkedAgent.vue";
 import AgentConfigCreatePanel from "@/components/AgentConfig/AgentConfigCreatePanel/AgentConfigCreatePanel.vue";
 import AgentConfigRunSettings from "@/components/AgentConfig/AgentConfigRunSettings/AgentConfigRunSettings.vue";
@@ -55,6 +66,7 @@ import AgentConfigStaticContext from "@/components/AgentConfig/AgentConfigStatic
 import AgentConfigScreening from "@/components/AgentConfig/AgentConfigScreening/AgentConfigScreening.vue";
 import AgentConfigMemory from "@/components/AgentConfig/AgentConfigMemory/AgentConfigMemory.vue";
 import AgentConfigAssistant from "@/components/AgentConfig/AgentConfigAssistant/AgentConfigAssistant.vue";
+import AgentConfigPreview from "@/components/AgentConfig/AgentConfigPreview/AgentConfigPreview.vue";
 import {
 	createAgentConfigContext,
 	AGENT_CONFIG_KEY,
@@ -67,6 +79,7 @@ import { useAgentConfigCreate } from "@/composables/AgentConfig/useAgentConfigCr
 import { useAgentConfigAssistant } from "@/composables/AgentConfig/useAgentConfigAssistant";
 import { useAgentConfigLoad } from "@/composables/AgentConfig/useAgentConfigLoad";
 import { useAgentConfigSave } from "@/composables/AgentConfig/useAgentConfigSave";
+import { useAgentConfigPreview } from "@/composables/AgentConfig/useAgentConfigPreview";
 
 const props = defineProps({
 	element: { type: Object, required: true },
@@ -81,6 +94,8 @@ const props = defineProps({
 	// and the assistant chat (which can also apply edits onto the form) is
 	// hidden entirely.
 	readonly: { type: Boolean, default: false },
+	// The BPMN Process Model being edited; preview and dry run check write permission on it.
+	modelName: { type: String, default: "" },
 });
 
 const emit = defineEmits(["close", "hide"]);
@@ -95,8 +110,15 @@ useAgentConfigCreate(ac);
 useAgentConfigAssistant(ac);
 useAgentConfigLoad(ac);
 useAgentConfigSave(ac);
+useAgentConfigPreview(ac);
 
 const { isSelector, notice, save } = ac;
+
+const activeTab = ref("configure");
+const tabButtons = [
+	{ label: "Configure", value: "configure" },
+	{ label: "Preview and dry run", value: "preview" },
+];
 </script>
 
 <style scoped src="./AIAgentConfigModal.css"></style>
