@@ -98,13 +98,18 @@ class TestApiPermissions(FrappeTestCase):
 					"send_welcome_email": 0,
 					"enabled": 1,
 				}
-			).insert(ignore_permissions=True)
+			).insert()
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
 	def test_a_plain_user_is_refused_the_clarification_options(self):
-		with self.set_user(PLAIN_USER), self.assertRaises(frappe.PermissionError):
+		# frappe.only_for returns early while in_test is set, so the flag is cleared here.
+		with (
+			self.set_user(PLAIN_USER),
+			patch.dict(frappe.local.flags, {"in_test": False}),
+			self.assertRaises(frappe.PermissionError),
+		):
 			clarifications.clarification_filter_options()
 
 	def test_a_plain_user_gets_no_a2a_admin_permissions(self):

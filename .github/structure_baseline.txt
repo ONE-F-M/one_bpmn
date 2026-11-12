@@ -97,9 +97,9 @@ size one_bpmn/ai_agent_observability/observability.py 1301
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217
 size one_bpmn/api/a2a.py 1241
 size one_bpmn/api/docu.py 1494
-size one_bpmn/api/production_review.py 871
-size one_bpmn/api/security.py 895
-size one_bpmn/api/server_scripts.py 954
+size one_bpmn/api/production_review.py 866
+size one_bpmn/api/security.py 868
+size one_bpmn/api/server_scripts.py 935
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size one_bpmn/one_bpmn/patches/v1_0/seed_google_connectors.py 844
@@ -109,7 +109,7 @@ size one_bpmn/a2a/tests/test_agent_delegation.py 1426
 size one_bpmn/ai_agent_security/tests/test_ai_security_event.py 856
 size one_bpmn/ai_agent_security/tests/test_rate_limit_and_lock.py 1359
 size one_bpmn/tests/test_ai_agent_memory_dispatch.py 1030
-size one_bpmn/ai_agent_conversations/tests/test_ai_clarification.py 856
+size one_bpmn/ai_agent_conversations/tests/test_ai_clarification.py 854
 size one_bpmn/tests/test_connector_agent.py 957
 size one_bpmn/ai_agent_memory/tests/test_memory_tools.py 867
 size frontend/src/components/Editor/FormattingToolbar/FormattingToolbar.vue 763

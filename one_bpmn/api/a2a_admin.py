@@ -552,7 +552,9 @@ def update_remote_agent(name: str, **fields) -> dict:
 
 
 @frappe.whitelist()
-def create_client(client_name: str, description: str = None, allowed_agents=None) -> dict:
+def create_client(
+	client_name: str, description: str = None, allowed_agents: str | list | None = None
+) -> dict:
 	"""Register a caller. Draft until approved, because approval is what issues
 	its credentials."""
 	frappe.only_for("System Manager")
@@ -573,7 +575,7 @@ def create_client(client_name: str, description: str = None, allowed_agents=None
 
 
 @frappe.whitelist()
-def set_client_agents(name: str, allowed_agents=None) -> dict:
+def set_client_agents(name: str, allowed_agents: str | list | None = None) -> dict:
 	"""Replace which agents a caller may reach. Takes effect immediately — the
 	door reads this list on every call."""
 	frappe.only_for("System Manager")

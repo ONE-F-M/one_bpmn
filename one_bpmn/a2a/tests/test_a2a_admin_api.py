@@ -9,6 +9,8 @@ asked to do.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -56,7 +58,10 @@ class TestA2AAdminPermissions(FrappeTestCase):
 				(a2a_admin.set_client_approval, {"name": "x", "approval_status": "Approved"}),
 				(a2a_admin.get_client_credentials, {"name": "x"}),
 			):
-				with self.assertRaises(frappe.PermissionError):
+				with (
+					patch.dict(frappe.local.flags, {"in_test": False}),
+					self.assertRaises(frappe.PermissionError),
+				):
 					call(**kwargs)
 
 	def test_admin_sees_administer_true(self):
@@ -134,7 +139,10 @@ class TestA2AAgentCatalogue(FrappeTestCase):
 	def test_catalogue_is_admin_only(self):
 		nobody = make_nobody()
 		with self.set_user(nobody.name):
-			with self.assertRaises(frappe.PermissionError):
+			with (
+				patch.dict(frappe.local.flags, {"in_test": False}),
+				self.assertRaises(frappe.PermissionError),
+			):
 				a2a_admin.list_agent_cards()
 
 
@@ -241,7 +249,10 @@ class TestRegisteringFromProcessa(FrappeTestCase):
 				(a2a_admin.create_client, {"client_name": "x"}),
 				(a2a_admin.set_client_agents, {"name": "x"}),
 			):
-				with self.assertRaises(frappe.PermissionError):
+				with (
+					patch.dict(frappe.local.flags, {"in_test": False}),
+					self.assertRaises(frappe.PermissionError),
+				):
 					call(**kwargs)
 
 
