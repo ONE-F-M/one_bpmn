@@ -21,12 +21,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, get_url
 
+from one_bpmn.api.common import distinct
+
 MAX_PAGE_LENGTH = 200
-
-
-def _require_admin() -> None:
-	if "System Manager" not in frappe.get_roles():
-		frappe.throw(_("Only System Managers may administer A2A."), frappe.PermissionError)
 
 
 @frappe.whitelist()
@@ -45,7 +42,7 @@ def reconciler_status() -> dict:
 	the same symptom and different fixes, and until now telling them apart meant
 	guessing.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	from one_bpmn.a2a.reconciler_health import reconciler_health
 
 	return reconciler_health()
@@ -53,7 +50,7 @@ def reconciler_status() -> dict:
 
 @frappe.whitelist()
 def list_remote_agents() -> list[dict]:
-	_require_admin()
+	frappe.only_for("System Manager")
 	return frappe.get_all(
 		"A2A Remote Agent",
 		fields=[
@@ -79,7 +76,7 @@ def list_remote_agents() -> list[dict]:
 
 @frappe.whitelist()
 def list_clients() -> list[dict]:
-	_require_admin()
+	frappe.only_for("System Manager")
 	clients = frappe.get_all(
 		"A2A Client",
 		fields=[
@@ -118,7 +115,7 @@ def list_tasks(
 	silently dropped the filter and listed everything, which read as a broken
 	filter rather than an unsupported one.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	filters: dict = {}
 	if direction in ("Inbound", "Outbound", "Internal"):
 		filters["direction"] = direction
@@ -235,7 +232,7 @@ def list_delegations(
 	The two name filters match on a fragment — nobody types AD-01234 from
 	memory, and a name fragment is how you find the run you were just looking at.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	filters: dict = {}
 	if a2a_task:
 		filters["a2a_task"] = ["like", f"%{a2a_task}%"]
@@ -277,7 +274,7 @@ def delegation_detail(name: str) -> dict:
 	``reference_title`` — what the document is called, so the modal names the
 	work rather than only its id.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	row = frappe.db.get_value("Agent Delegation", name, DELEGATION_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Delegation {0} not found.").format(name), frappe.DoesNotExistError)
@@ -314,7 +311,7 @@ def cancel_delegation(name: str, reason: str = "") -> dict:
 
 	There is deliberately no tool shape for this and no agent-facing path: an
 	agent able to cancel its own hand-offs could cancel its way out of a limit
-	it had been given. _require_admin() is the whole access rule, and it is the
+	it had been given. frappe.only_for("System Manager") is the whole access rule, and it is the
 	same rule that already governs everything else on this screen.
 
 	Returns what actually happened rather than a bare success, because "the
@@ -322,7 +319,7 @@ def cancel_delegation(name: str, reason: str = "") -> dict:
 	running cannot be interrupted" are different outcomes and the person
 	cancelling needs to know which one they got.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	from one_bpmn.a2a import delegation
 
 	return delegation.cancel(name, reason=reason)
@@ -343,7 +340,7 @@ def redelegate_delegation(name: str, acknowledged: int | bool = False) -> dict:
 	have judged it — but they are not allowed to walk into the same wall without
 	being told.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	from one_bpmn.a2a import delegation
 
 	return delegation.redelegate(name, acknowledged=bool(cint(acknowledged)))
@@ -357,23 +354,12 @@ def delegation_filter_options() -> dict:
 	options: a status nothing has ever reached, or a doctype nothing has ever
 	been delegated about, is a dead entry in a dropdown.
 	"""
-	_require_admin()
-
-	def distinct(fieldname: str) -> list[str]:
-		rows = frappe.get_all(
-			"Agent Delegation",
-			filters={fieldname: ["is", "set"]},
-			fields=[fieldname],
-			group_by=fieldname,
-			order_by=f"{fieldname} asc",
-			limit=MAX_PAGE_LENGTH,
-		)
-		return [r[fieldname] for r in rows if r.get(fieldname)]
+	frappe.only_for("System Manager")
 
 	return {
-		"statuses": distinct("status"),
-		"doctypes": distinct("reference_doctype"),
-		"workers": distinct("worker_agent"),
+		"statuses": distinct("Agent Delegation", "status"),
+		"doctypes": distinct("Agent Delegation", "reference_doctype"),
+		"workers": distinct("Agent Delegation", "worker_agent"),
 		# The task monitor's agent filter comes from the same idea: only agents
 		# that have actually been handed work appear.
 		"task_agents": [
@@ -403,7 +389,7 @@ def list_agent_cards() -> list[dict]:
 	Cards are built here rather than read from anywhere, for the same reason
 	the endpoint builds them: there is no stored copy to drift.
 	"""
-	_require_admin()
+	frappe.only_for("System Manager")
 	from one_bpmn.a2a.card import RPC_PATH, build_agent_card
 
 	rows = []
@@ -456,7 +442,7 @@ def _clients_that_may_reach(agent_configuration: str) -> list[str]:
 @frappe.whitelist()
 def fetch_remote_card(name: str) -> dict:
 	"""Fetch and cache a remote's card — what an approver reviews."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	return frappe.get_doc("A2A Remote Agent", name).fetch_card()
 
 
@@ -464,7 +450,7 @@ def fetch_remote_card(name: str) -> dict:
 def set_remote_approval(name: str, approval_status: str) -> dict:
 	"""Approve, revoke or re-draft a remote entry. The controller owns the
 	rules (a card is required to approve, stamps, endpoint resets)."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	if approval_status not in ("Draft", "Approved", "Revoked"):
 		frappe.throw(_("Unknown approval status '{0}'.").format(approval_status))
 	doc = frappe.get_doc("A2A Remote Agent", name)
@@ -477,7 +463,7 @@ def set_remote_approval(name: str, approval_status: str) -> dict:
 def set_client_approval(name: str, approval_status: str) -> dict:
 	"""Approve a caller (issuing its service user and key) or revoke it
 	(disabling that user immediately, affecting no other caller)."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	if approval_status not in ("Draft", "Approved", "Revoked"):
 		frappe.throw(_("Unknown approval status '{0}'.").format(approval_status))
 	doc = frappe.get_doc("A2A Client", name)
@@ -490,7 +476,7 @@ def set_client_approval(name: str, approval_status: str) -> dict:
 @frappe.whitelist()
 def get_client_credentials(name: str) -> dict:
 	"""The caller's API key and secret, for handing over out of band."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	return frappe.get_doc("A2A Client", name).get_credentials()
 
 
@@ -532,7 +518,7 @@ def _clean_endpoint(url: str) -> str:
 def create_remote_agent(agent_name: str, endpoint_url: str, **fields) -> dict:
 	"""Register a remote agent. It starts in Draft: fetching its card and
 	approving it are separate, deliberate steps."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	agent_name = (agent_name or "").strip()
 	if not agent_name:
 		frappe.throw(_("A name is required."), title=_("Remote Agent"))
@@ -554,7 +540,7 @@ def create_remote_agent(agent_name: str, endpoint_url: str, **fields) -> dict:
 def update_remote_agent(name: str, **fields) -> dict:
 	"""Edit a registered remote. Changing the endpoint sends it back to Draft —
 	the controller does that, not this endpoint."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	doc = frappe.get_doc("A2A Remote Agent", name)
 	if "endpoint_url" in fields:
 		fields["endpoint_url"] = _clean_endpoint(fields["endpoint_url"])
@@ -569,7 +555,7 @@ def update_remote_agent(name: str, **fields) -> dict:
 def create_client(client_name: str, description: str = None, allowed_agents=None) -> dict:
 	"""Register a caller. Draft until approved, because approval is what issues
 	its credentials."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	client_name = (client_name or "").strip()
 	if not client_name:
 		frappe.throw(_("A name is required."), title=_("A2A Client"))
@@ -590,7 +576,7 @@ def create_client(client_name: str, description: str = None, allowed_agents=None
 def set_client_agents(name: str, allowed_agents=None) -> dict:
 	"""Replace which agents a caller may reach. Takes effect immediately — the
 	door reads this list on every call."""
-	_require_admin()
+	frappe.only_for("System Manager")
 	doc = frappe.get_doc("A2A Client", name)
 	doc.allowed_agents = []
 	for agent in _agent_list(allowed_agents):
