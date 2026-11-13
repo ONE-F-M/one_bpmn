@@ -18,18 +18,18 @@ on:
     branches: [staging, test-production, version-15]
     paths:
       # The agent layer itself
-      - 'one_bpmn/agents/**'
+      - 'processa/agents/**'
       # Its records: agents, skills, evals, runs, steps, tool calls
-      - 'one_bpmn/one_bpmn/doctype/ai_*/**'
-      - 'one_bpmn/processa_engine/doctype/bpmn_process_model/**'
+      - 'processa/ai_agent_*/doctype/ai_*/**'
+      - 'processa/processa_engine/doctype/bpmn_process_model/**'
       # The endpoints and gates evals run through
-      - 'one_bpmn/api/evals.py'
-      - 'one_bpmn/processa_engine/compiler/**'
-      - 'one_bpmn/api/deploy.py'
-      - 'one_bpmn/commands/**'
+      - 'processa/api/evals.py'
+      - 'processa/processa_engine/compiler/**'
+      - 'processa/api/deploy.py'
+      - 'processa/commands/**'
       # Suites and cases arrive as patches
-      - 'one_bpmn/patches.txt'
-      - 'one_bpmn/one_bpmn/patches/**'
+      - 'processa/patches.txt'
+      - 'processa/patches/**'
       - '.github/workflows/ai-evals.yml'
   schedule:
     # 02:30 UTC, after the retention and rate jobs have run.
@@ -108,9 +108,9 @@ jobs:
           bench set-redis-cache-host 127.0.0.1:13000
           bench set-redis-queue-host 127.0.0.1:11000
           bench set-redis-socketio-host 127.0.0.1:12000
-          bench get-app one_bpmn "$GITHUB_WORKSPACE"
+          bench get-app processa "$GITHUB_WORKSPACE"
           bench new-site --db-root-password root --admin-password admin --mariadb-root-password root test_site
-          bench --site test_site install-app one_bpmn
+          bench --site test_site install-app processa
           bench --site test_site set-config allow_tests true
       - name: Seed the suites this check runs
         # Installing an app records every patch as applied WITHOUT running it
@@ -119,7 +119,7 @@ jobs:
         # the wrong reason. The seed is therefore explicit here.
         run: |
           cd ~/frappe-bench
-          bench --site test_site execute one_bpmn.one_bpmn.patches.v1_0.seed_ci_smoke_eval_suite.execute
+          bench --site test_site execute processa.patches.v1_0.seed_ci_smoke_eval_suite.execute
       - name: Run the Smoke suites
         # Deterministic on purpose: this step must not need a provider key, and
         # must not be able to spend money. --allow-unchecked is deliberately
@@ -210,9 +210,9 @@ jobs:
           bench set-redis-cache-host 127.0.0.1:13000
           bench set-redis-queue-host 127.0.0.1:11000
           bench set-redis-socketio-host 127.0.0.1:12000
-          bench get-app one_bpmn "$GITHUB_WORKSPACE"
+          bench get-app processa "$GITHUB_WORKSPACE"
           bench new-site --db-root-password root --admin-password admin --mariadb-root-password root test_site
-          bench --site test_site install-app one_bpmn
+          bench --site test_site install-app processa
       - name: Run the Nightly suites
         if: steps.key.outputs.present == 'true'
         env:

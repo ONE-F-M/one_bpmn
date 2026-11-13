@@ -46,19 +46,19 @@ jobs:
             NAME="$(basename "$BENCH")"
             # facerec and redis run on this server too and are left alone.
             WORKERS="$NAME-workers: $NAME-bpmn-workers:"
-            # One deploy at a time per bench, across one_fm, one_bpmn and frappe_agile.
+            # One deploy at a time per bench, across one_fm, processa and frappe_agile.
             exec 9>"$BENCH/config/deploy.lock"
             flock -w 1500 9
 
-            cd $BENCH/apps/one_bpmn
+            cd $BENCH/apps/processa
             git pull upstream version-15
             cd $BENCH
             trap 'status=$?; if [ $status -ne 0 ]; then sudo supervisorctl start $WORKERS; sudo supervisorctl restart $NAME-web:; fi' EXIT
-            cd $BENCH/apps/one_bpmn/frontend
+            cd $BENCH/apps/processa/frontend
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
             # Remove old build output that would shadow www/processa.html
-            rm -rf ../one_bpmn/public/processa ../one_bpmn/www/processa
+            rm -rf ../processa/public/processa ../processa/www/processa
             yarn build
             cd $BENCH
 
@@ -67,7 +67,7 @@ jobs:
             # A scheduler orphaned by an earlier stop holds the lock supervisor's scheduler needs; [s] keeps pkill off this script.
             pkill -f "$BENCH/env/bin/python -m frappe.utils.bench_helper frappe [s]chedule" || true
             bench migrate
-            bench build --app one_bpmn
+            bench build --app processa
             bench clear-cache
             sudo supervisorctl start $WORKERS
             sudo supervisorctl restart $NAME-web:
