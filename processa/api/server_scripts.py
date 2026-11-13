@@ -1,0 +1,935 @@
+# Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
+# For license information, please see license.txt
+
+import json
+import re
+
+import time
+
+import frappe
+from frappe import _
+from frappe.utils import cint, escape_html, now_datetime
+
+from processa.processa_engine.agent_runtime import turn_signal
+from processa.ai_agent_security.rate_limit import RateLimited
+from processa.api.common import shape_reply
+from processa.utils.session import as_user
+
+
+# ============================================
+# Server Script API
+# Uses ignore_permissions so Process Owners without the Script Manager role
+# can still list/create Server Scripts via the BPMN editor.
+# Creation is guarded to System Manager or Script Manager only.
+# ============================================
+
+
+def _derive_api_method(script_name: str) -> str:
+	"""Convert a script name to a valid Frappe API method identifier."""
+	method = script_name.lower()
+	method = re.sub(r"[^a-z0-9\s_]", "", method)
+	method = re.sub(r"\s+", "_", method)
+	method = re.sub(r"_+", "_", method).strip("_")
+	return method or "script"
+
+
+# Matches the per-call ceiling of an AI Agent Task, so the request gives up
+# when the work itself would.
+CHAT_TURN_WAIT_SECONDS = 300
+# How long a delivery keeps trying while the map loops back to its wait gateway.
+# The gap is well under a second; this is slack, not a budget to spend.
+REARM_WAIT_SECONDS = 20
+_REARM_POLL_SECONDS = 0.25
+# Error codes where the model call itself was refused, as opposed to the run stopping on its own limits.
+PROVIDER_ERROR_CODES = (
+	"FAILED_MODEL_CALL",
+	"PROVIDER_NOT_FOUND",
+	"PROVIDER_DISABLED",
+	"MODEL_NOT_CONFIGURED",
+)
+
+
+def _latest_bot_message(conversation_name: str):
+	"""The newest Bot reply in this conversation, as a one-row list.
+
+	``name`` is selected because the reply has to be identifiable afterwards
+	a rating or a report needs something durable to point at.
+	"""
+	return frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name", "text", "metadata"],
+		order_by="creation desc",
+		limit=1,
+	)
+
+
+def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before: str | None):
+	"""Wait for the parked turn to produce its reply, or give up.
+
+	Two commits, both load-bearing. The first releases this request's
+	transaction: the job is enqueued after commit, so without it the worker is
+	never started and the wait is certain to time out. The second starts a fresh
+	read snapshot, because a transaction that opened before the worker committed
+	would keep answering with the rows it saw then, however long it waited.
+	"""
+	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
+		# Parking is off in tests, so the reply is already there and a wait
+		# would block on a worker that never runs.
+		return None
+
+	# The worker reads this turn on its own connection.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
+	turn_signal.wait(inst_name, CHAT_TURN_WAIT_SECONDS)
+	# REPEATABLE READ pins a snapshot at the first read, so without this
+	# the request keeps reading the rows from before the wait.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
+
+	rows = _latest_bot_message(conversation_name)
+	if rows and rows[0]["name"] != reply_before:
+		return rows
+	return None
+
+
+def _redeliver_until_armed(inst_name: str, payload: dict) -> bool:
+	"""Deliver again until a task actually catches the message. True when one did.
+
+	``receive_message`` is quiet about a message nobody was waiting for, so the
+	caller went on to wait out the whole turn timeout for a reply that could
+	never come — five minutes of "Thinking…" for the second message of a
+	conversation. The gap is real and short: the engine writes the reply, the
+	turn is reported, and only then does the map loop back to its wait gateway.
+
+	Each attempt commits first. The engine re-arms the instance on the worker's
+	connection, and this request's read snapshot would otherwise keep showing
+	the state it read before the wait.
+	"""
+	deadline = time.monotonic() + REARM_WAIT_SECONDS
+	while time.monotonic() < deadline:
+		time.sleep(_REARM_POLL_SECONDS)
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") not in ("Active", "Queued"):
+			return False
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		try:
+			instance.receive_message("ChatConversation_Message_Action", payload=payload)
+		except frappe.ValidationError:
+			return False
+		except Exception:
+			frappe.log_error(title="BPMN chat redelivery failed", message=frappe.get_traceback())
+			return False
+		if instance.flags.get("bpmn_message_caught"):
+			return True
+	return False
+
+
+def _delegate_to_bpmn_instance(
+	conversation_name: str, message: str, context: dict, wait: bool = True
+):
+	"""Hand a chat turn to the BPMN Process Instance driving this conversation.
+
+	The process map performs ALL the work: its ``Save User Message`` task persists
+	the user message, ``Call Agent`` runs the agent, ``Save Response`` persists the
+	reply. This function only delivers the ``ChatConversation_Message_Action``
+	trigger (carrying the user text + editor context) to the instance parked at its
+	"Waiting for User Message" gateway, then reads back the reply the map produced
+	so it can be returned over HTTP.
+
+	Returns ``None`` when no instance is driving the conversation (or it is not
+	currently waiting) — the orchestration is the only execution path, so callers
+	surface an error rather than running the agent themselves.
+	"""
+	import json
+
+	inst = frappe.db.get_value(
+		"BPMN Process Instance",
+		{
+			"context_doctype": "Chat Conversation",
+			"context_docname": conversation_name,
+			"status": ["in", ["Active", "Queued"]],
+		},
+		["name", "status"],
+		as_dict=True,
+	)
+	if not inst:
+		return None
+	inst_name = inst.name
+
+	# A brand-new conversation spawns its BPMN instance via a doc-event hook that
+	# enqueues the first engine pass on the bpmn_ai_agent worker (async). The very
+	# first chat turn arrives in THIS request — before the worker has promoted the
+	# instance from "Queued" to "Active" — so the wait gateway isn't armed yet and
+	# the message can't be delivered. Start it inline here to close that race. This
+	# is idempotent with the background job: start_queued_instance() locks the row
+	# (for_update) and no-ops when the status is no longer "Queued", so whichever
+	# runs first wins and the other returns immediately.
+	if inst.status == "Queued":
+		try:
+			from processa.processa_engine.triggers import start_queued_instance
+
+			start_queued_instance(inst_name)
+		except Exception:
+			frappe.log_error(title="BPMN inline start failed", message=frappe.get_traceback())
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") != "Active":
+			# Start failed (Errored) or is still being started elsewhere — the
+			# caller surfaces the "reopen the chat" message rather than guessing.
+			return None
+
+	# What the conversation looked like BEFORE this turn, so we can tell what
+	# this turn actually produced. Without it the read-back below cannot
+	# distinguish "the map replied" from "the map produced nothing and the last
+	# reply is still the newest row" — and the second case silently re-served a
+	# previous answer as though it were this turn's.
+	# Read it on a FRESH snapshot. A turn that queued behind another opened its
+	# transaction before that turn had committed, so under REPEATABLE READ it
+	# still sees the conversation as it was when it arrived: the reply saved
+	# while it waited looks new, and the wait below hands the previous
+	# question's answer back as this one's.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
+	_before = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	reply_before = _before[0]["name"] if _before else None
+	turn_started = now_datetime()
+
+	payload = {
+		"user_text": message,
+		"sender": frappe.session.user,
+	}
+	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
+
+	# The AI work parks on the bpmn_ai_agent worker, so the engine pass
+	# returns once the job is queued and the wait below covers the turn.
+	turn_signal.clear(inst_name)
+	try:
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		instance.receive_message("ChatConversation_Message_Action", payload=payload)
+	except RateLimited:
+		# A throttle or a conversation freeze is a decision, not a dead instance.
+		# It is raised deep inside the map — the "Save User Message" task inserts
+		# the Chat Message, whose before_insert hook enforces the limit — and
+		# RateLimited subclasses ValidationError, so without this it was caught
+		# just below, turned into None, and the caller then reported "the process
+		# is not running for this conversation. Please reopen the chat." The user
+		# was told to reopen a chat that was working perfectly, and the real
+		# reason never reached them. Every map-driven agent came through here, so
+		# one re-raise fixes all of them.
+		raise
+	except frappe.ValidationError:
+		# The engine reports a failed task as a ValidationError too.
+		_raise_if_turn_failed(inst_name, turn_started)
+		return None
+	except Exception:
+		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
+		_raise_if_turn_failed(inst_name, turn_started)
+		return None
+
+	if not instance.flags.get("bpmn_message_caught"):
+		if not _redeliver_until_armed(inst_name, payload):
+			return None
+
+	# Read back the bot message the instance produced during Call Agent → Save Response.
+	#
+	# `name` is selected because the reply has to be identifiable afterwards
+	# (WI-001641). Without it the row's id never left this function, the AG-UI
+	# stream minted a throwaway uuid for the message instead, and nothing the
+	# user later says about a specific reply — a rating, a report — had anything
+	# durable to point at.
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		if not wait:
+			# The caller relays progress itself and collects the reply through
+			# collect_chat_turn_reply.
+			return {
+				"pending": True,
+				"instance": inst_name,
+				"conversation": conversation_name,
+				"reply_before": reply_before,
+				"turn_started": turn_started,
+			}
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
+	if not rows or rows[0]["name"] == reply_before:
+		# This turn produced no reply of its own. Before reporting a dead
+		# process, check whether it PARKED: a designer-marked human tool
+		# suspends the run mid-turn. The instance is alive and correct — it is
+		# waiting for a person. Reported as "the process is not running, please
+		# reopen the chat" it read as a fault, and the caller's retry-then-re-arm
+		# recovery spawned a fresh process instance for every attempt
+		# (found under WI-001645).
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
+		_raise_if_turn_failed(inst_name, turn_started)
+		return None
+
+	return _note_turn_failure(_shape_reply(rows, inst_name), inst_name, turn_started)
+
+
+def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
+	"""Read what a turn delivered with ``wait=False`` produced.
+
+	The streaming surface delivers the message, relays the worker's progress
+	while the turn runs, then calls this. Splitting delivery from collection is
+	what lets the connection report a running tool, because a function that
+	blocks cannot also yield.
+
+	``task_output`` is the AI task's own output, sent by the worker as it wrote
+	it. When it is there it IS the answer, and the Chat Message row is read only
+	to name the reply. Without it the row is the answer, as it always was.
+	"""
+	inst_name = handle["instance"]
+	conversation_name = handle["conversation"]
+	reply_before = handle.get("reply_before")
+
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
+	if not rows or rows[0]["name"] == reply_before:
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
+		_raise_if_turn_failed(inst_name, handle["turn_started"])
+		# A map that persists no Bot message still has a reply to give.
+		return _reply_from_task_output(task_output, inst_name) if task_output else None
+	return _note_turn_failure(_shape_reply(rows, inst_name, task_output), inst_name, handle["turn_started"])
+
+
+def _reply_from_task_output(task_output, inst_name: str) -> dict | None:
+	"""The AI task's output as a reply, for a turn that saved no message."""
+	result = dict(task_output) if isinstance(task_output, dict) else {"response": str(task_output)}
+	if not (result.get("response") or "").strip():
+		return None
+	result["bpmn_driven"] = True
+	return result
+
+
+def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
+	"""Turn what this turn produced into the caller's result.
+
+	``task_output`` wins over the message metadata when the worker sent it: it
+	is the AI task's own output rather than a copy of it read back from a row
+	that was only assumed to belong to this turn.
+	"""
+	meta = {}
+	if rows[0].get("metadata"):
+		try:
+			meta = json.loads(rows[0]["metadata"])
+		except Exception:
+			meta = {}
+
+	agent_result = task_output if isinstance(task_output, dict) else meta.get("agent_result")
+	result = dict(agent_result) if isinstance(agent_result, dict) else {}
+	if not isinstance(task_output, dict) and isinstance(task_output, str) and task_output.strip():
+		result.setdefault("response", task_output)
+	# The Chat Message text is what the map actually said, so it wins over a
+	# BLANK response in agent_result. setdefault treated "" as an answer, and a
+	# map that reports its reply only on the message — every Logix branch that
+	# goes through a tool does — had its reply thrown away in favour of the
+	# empty string sitting beside it. The user got silence over a perfectly
+	# good answer already saved in the conversation.
+	if not (result.get("response") or "").strip():
+		result["response"] = rows[0]["text"]
+	if not result.get("intent"):
+		result["intent"] = meta.get("intent")
+	result["bpmn_driven"] = True
+	result["message_name"] = rows[0]["name"]
+
+	# The AI Agent Run this turn produced, so cost and latency can be joined to
+	# whatever the user says about the reply. Derived here rather than threaded
+	# through the map: the map's Server Scripts travel by Processa export, and a
+	# read that the engine already makes cheap is not worth an export dependency.
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if run:
+		result["agent_run"] = run[0]["name"]
+	return result
+
+
+def _raise_if_turn_failed(inst_name: str, turn_started) -> None:
+	"""Throw what went wrong with this turn's agent run, when it errored or is still running."""
+	run = _latest_turn_run(inst_name, turn_started)
+	if run and run.status in ("Error", "Running"):
+		frappe.throw(_turn_failure_message(run), title=_("Agent turn failed"))
+
+
+def _note_turn_failure(result: dict, inst_name: str, turn_started) -> dict:
+	"""Add the failed run's reason to a reply the map saved anyway, on the result and the saved message."""
+	run = _latest_turn_run(inst_name, turn_started)
+	if not run or run.status != "Error":
+		return result
+	result["error_code"] = run.error_code
+	if result.get("intent") == "ERROR":
+		return result
+	result["response"] = f"{result.get('response') or ''}\n\n{_turn_failure_message(run)}".strip()
+	if result.get("message_name"):
+		frappe.db.set_value("Chat Message", result["message_name"], "text", result["response"])
+	return result
+
+
+def _latest_turn_run(inst_name: str, turn_started):
+	"""The newest top-level AI Agent Run this turn started on the instance, or None."""
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name, "parent_run": ["is", "not set"], "creation": [">=", turn_started]},
+		fields=["name", "status", "error_code", "error_message"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return runs[0] if runs else None
+
+
+def _turn_failure_message(run) -> str:
+	"""A user-facing sentence for a run that errored or is still running."""
+	if run.status == "Running":
+		return _(
+			"The agent is still working on this message. Reload the conversation in a few minutes to see its reply."
+		)
+	return _stopped_reason(run.error_code, run.error_message)
+
+
+def turn_failure_text(error_code: str, error_message: str | None) -> str:
+	"""The reply a chat map's Save Response posts when its agent task failed with this code."""
+	if error_code in PROVIDER_ERROR_CODES:
+		reason = str(error_message or error_code).strip().rstrip(".")
+		return _("The AI provider rejected the request: {0}. Please try again in a few minutes.").format(
+			escape_html(reason[:300])
+		)
+	return _stopped_reason(error_code, error_message)
+
+
+def _stopped_reason(error_code: str | None, error_message: str | None) -> str:
+	if error_code == "TURN_CAP_REACHED":
+		return _("The agent hit its tool-call limit before it finished. Try a smaller request.")
+	if error_code == "TIMEOUT":
+		return _("The model timed out before it answered. Please try again.")
+	if error_code == "BUDGET_EXCEEDED":
+		return _("The agent stopped because this request went over its budget. Try a smaller request.")
+	return _("The agent could not answer ({0}): {1}").format(
+		error_code or _("unknown error"), escape_html((error_message or "")[:300])
+	)
+
+
+def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
+	"""A reply describing the human step this turn is waiting on, or None.
+
+	Says what is pending and who has it, so the person in the chat knows the
+	work was not lost and does not sit re-sending the message.
+	"""
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name, "status": "Suspended"},
+		fields=["name", "pending_human_task"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not run:
+		return None
+
+	waiting = frappe.db.get_value("BPMN Process Instance", inst_name, "waiting_for_human") or ""
+	task = frappe.get_all(
+		"BPMN Active Task",
+		filters={"parent": inst_name, "status": "Waiting", "task_type": "AI Human Task"},
+		fields=["task_name", "assigned_user", "assigned_role"],
+		order_by="creation desc",
+		limit=1,
+	)
+	label = (task[0]["task_name"] if task else "") or waiting or _("a human step")
+	who = ""
+	if task:
+		who = task[0]["assigned_user"] or task[0]["assigned_role"] or ""
+
+	text = _("This needs a person to complete a step before I can continue: {0}.").format(label)
+	if who:
+		text += " " + _("It is waiting with {0}.").format(who)
+	text += " " + _("Your message is saved — I will carry on once it is released.")
+
+	return {
+		"response": text,
+		"bpmn_driven": True,
+		"awaiting_human": True,
+		"agent_run": run[0]["name"],
+	}
+
+
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None, wait: bool = True):
+	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
+	to hand a chat turn to the BPMN Process Instance driving a conversation.
+
+	Delivers ``ChatConversation_Message_Action`` to the instance parked at its
+	"Waiting for User Message" gateway and returns the result the map produced
+	(``response`` plus ``bpmn_driven=True``). Returns ``None`` when no instance
+	is driving the conversation, so callers can fall back to their own pipeline.
+
+	Pass ``context["message_name"]`` when the caller already persisted the user
+	Chat Message — the map's "Save User Message" task then reuses it instead of
+	inserting a duplicate.
+	"""
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {}, wait=wait)
+
+
+@frappe.whitelist()
+def create_server_script(
+	script_name: str,
+	script_type: str,
+	script: str,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = 0,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	if not script_name or not script_type or not script:
+		frappe.throw(_("Script name, type, and content are required"))
+
+	if not frappe.has_permission("Server Script", "create") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to create Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	doc = frappe.new_doc("Server Script")
+	doc.__newname = script_name
+	doc.script_type = script_type
+	doc.script = script
+	doc.disabled = doc.processa_pending_review = 1  # a System Manager reviews and enables it
+	if reference_doctype:
+		doc.reference_doctype = reference_doctype
+	if doctype_event:
+		doc.doctype_event = doctype_event
+	# For API scripts, always set an api_method so Processa can reach it via REST
+	if script_type == "API":
+		resolved_method = api_method or _derive_api_method(script_name)
+		doc.api_method = resolved_method
+	elif api_method:
+		doc.api_method = api_method
+	if allow_guest:
+		doc.allow_guest = int(allow_guest)
+	if event_frequency:
+		doc.event_frequency = event_frequency
+	if cron_format:
+		doc.cron_format = cron_format
+	if module:
+		doc.module = module
+
+	with as_user("Administrator"):
+		if frappe.db.exists("Server Script", script_name):
+			# Script already exists — update in place instead of re-inserting
+			doc = frappe.get_doc("Server Script", script_name)
+			doc.script_type = script_type
+			doc.script = script
+			doc.disabled = doc.processa_pending_review = 1
+			if reference_doctype is not None:
+				doc.reference_doctype = reference_doctype
+			if doctype_event is not None:
+				doc.doctype_event = doctype_event
+			if script_type == "API":
+				resolved_method = api_method or _derive_api_method(script_name)
+				doc.api_method = resolved_method
+			elif api_method is not None:
+				doc.api_method = api_method
+			if allow_guest is not None:
+				doc.allow_guest = int(allow_guest)
+			if event_frequency is not None:
+				doc.event_frequency = event_frequency
+			if cron_format is not None:
+				doc.cron_format = cron_format
+			if module is not None:
+				doc.module = module
+			doc.save(ignore_permissions=True)
+		else:
+			doc.insert(ignore_permissions=True)
+
+	method = getattr(doc, "api_method", None) or ""
+	return {
+		"name":        doc.name,
+		"script_type": doc.script_type,
+		"api_method":  method,
+		"api_url":     f"/api/method/{method}" if method else "",
+	}
+
+
+@frappe.whitelist()
+def update_server_script(
+	script_name: str,
+	script: str,
+	script_type: str = None,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = None,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	"""Replace the script body (and optionally metadata) of an existing Server Script."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to update Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		doc.script = script
+		doc.disabled = doc.processa_pending_review = 1
+		if script_type:
+			doc.script_type = script_type
+		if reference_doctype is not None:
+			doc.reference_doctype = reference_doctype
+		if doctype_event is not None:
+			doc.doctype_event = doctype_event
+		if api_method is not None:
+			doc.api_method = api_method
+		if allow_guest is not None:
+			doc.allow_guest = int(allow_guest)
+		if event_frequency is not None:
+			doc.event_frequency = event_frequency
+		if cron_format is not None:
+			doc.cron_format = cron_format
+		if module is not None:
+			doc.module = module
+		with as_user("Administrator"):
+			doc.save(ignore_permissions=True)
+		method = doc.api_method or ""
+		return {
+			"name":        doc.name,
+			"script_type": doc.script_type,
+			"api_method":  method,
+			"api_url":     f"/api/method/{method}" if method else "",
+		}
+	except frappe.DoesNotExistError:
+		frappe.throw(_("Server Script '{0}' not found.").format(script_name))
+	except Exception:
+		frappe.log_error(title="Update Server Script Error", message=frappe.get_traceback())
+		frappe.throw(_("Failed to update Server Script."))
+
+
+@frappe.whitelist()
+def get_script_names() -> list:
+	"""The names a Server Script receives without importing them, and which runner provides each."""
+	if not frappe.has_permission("Server Script", "read"):
+		frappe.throw(_("Not permitted to read Server Scripts"), frappe.PermissionError)
+	from processa.ai_agent_skills.tools.shape_tools import SCRIPT_NAMES
+
+	return [
+		{"name": name, "meaning": _(meaning), "script_task": script_task, "tool": tool}
+		for name, meaning, script_task, tool in SCRIPT_NAMES
+	]
+
+
+@frappe.whitelist()
+def check_server_script_exists(script_name: str) -> dict:
+	"""Check if a Server Script document with the given name exists."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return {"exists": bool(frappe.db.exists("Server Script", script_name))}
+
+
+@frappe.whitelist()
+def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
+	"""Execute a Server Script the way the BPMN engine runs a Script Task and
+	return a plain-English pass/fail result.
+
+	Logix scripts are written against the engine's injected-variable contract
+	(doc / task_data / result; form_dict always empty — see
+	fix_logix_script_task_injected_vars), so the earlier execute_method()
+	replay failed EVERY check with a NameError on `doc` before the script's
+	logic ever ran. The namespace below mirrors engine._run_server_script;
+	the one deliberate difference is the savepoint — a check is a dry run,
+	so its writes are rolled back instead of landing a real record per click.
+	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		import json as _json
+		test_inputs = _json.loads(inputs) if isinstance(inputs, str) else (inputs or {})
+		if not isinstance(test_inputs, dict):
+			test_inputs = {}
+
+		script_doc = frappe.get_doc("Server Script", script_name)
+		if script_doc.script_type != "API":
+			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
+
+		from processa.processa_engine.engine import check_server_script
+		check_server_script(script_doc)
+
+		context_doctype = str(test_inputs.get("context_doctype") or "")
+		context_docname = str(test_inputs.get("context_docname") or "")
+		doc_obj = frappe._dict()
+		if context_doctype and context_docname:
+			try:
+				doc_obj = frappe.get_doc(context_doctype, context_docname)
+			except Exception:
+				doc_obj = frappe._dict()
+		# A case may carry sample field values instead of a real record —
+		# inputs["doc"] becomes the context document, so negative paths
+		# ("employee missing") are testable without seeding the site.
+		if isinstance(test_inputs.get("doc"), dict):
+			doc_obj = frappe._dict(test_inputs["doc"])
+
+		task_data = {k: v for k, v in test_inputs.items() if k != "doc"}
+		result_dict = {}
+		# ONE namespace for globals and locals, same as the engine — separate
+		# dicts break scripts whose top-level functions call each other.
+		exec_ns = {"frappe": frappe, "__builtins__": __builtins__}
+		exec_ns.update(task_data)
+		exec_ns.update(
+			{
+				"frappe": frappe,
+				"task_data": dict(task_data),
+				"context_doctype": context_doctype,
+				"context_docname": context_docname,
+				"result": result_dict,
+				"doc": doc_obj,
+			}
+		)
+
+		frappe.db.savepoint("logix_check")
+		try:
+			exec(script_doc.script, exec_ns)  # noqa: S102
+			summary = "It worked — the script ran without any problems."
+			if result_dict:
+				# Describe the result in plain English without exposing key names
+				count = len(result_dict)
+				summary = f"It worked — the script completed and sent back {count} piece{'s' if count != 1 else ''} of information."
+			return {"passed": True, "result": result_dict, "summary": summary}
+
+		except Exception as exc:
+			error_msg = str(exc)
+			# frappe.throw() raises ValidationError — this is often an *expected* negative result
+			is_validation = "ValidationError" in type(exc).__name__ or hasattr(exc, "http_status_code")
+			if is_validation:
+				return {
+					"passed": False,
+					"result": None,
+					"summary": f"The script stopped and said: \"{error_msg}\"",
+				}
+			return {
+				"passed": False,
+				"result": None,
+				"summary": "Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
+			}
+		finally:
+			# Dry run: whatever the script inserted or updated is undone.
+			frappe.db.rollback(save_point="logix_check")
+
+	except Exception:
+		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())
+		return {"passed": False, "result": None, "summary": "Could not run the test right now. Please try again in a moment."}
+
+
+@frappe.whitelist()
+def end_chat_conversation(conversation_name: str) -> dict:
+	"""Close a Logix/ProsAlly chat conversation when its panel is closed.
+
+	Marks the Chat Conversation as Closed and, if a BPMN Process Instance is
+	driving it, delivers ``ChatConversation_Close_Action`` so the diagram runs
+	its close branch (Cleanup → Conversation Ended) and the instance completes.
+
+	Safe to call repeatedly / with an unknown name — it never raises.
+	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not conversation_name:
+		return {"ok": False}
+
+	try:
+		from processa.ai_agent_conversations.chat_persistence import close_conversation
+		close_conversation(conversation_name)
+		return {"ok": True, "conversation_name": conversation_name}
+	except Exception:
+		frappe.log_error(title="end_chat_conversation error", message=frappe.get_traceback())
+		return {"ok": False}
+
+
+@frappe.whitelist()
+def toggle_server_script(script_name: str, disabled: int) -> dict:
+	"""Toggle the disabled status of a Server Script record."""
+	if not script_name:
+		frappe.throw(_("Script name is required"))
+
+	can_disable = cint(disabled) and frappe.has_permission("Server Script", "write")
+	if not can_disable and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the System Manager role to enable a Server Script, or Script Manager to disable one."),
+			frappe.PermissionError,
+		)
+
+	# Use set_value to bypass ServerScript validation logic which checks for
+	# exactly the 'Script Manager' role. The has_permission check above
+	# already proves the current user is authorized (e.g. System Manager).
+	frappe.db.set_value(
+		"Server Script",
+		script_name,
+		{"disabled": 1} if cint(disabled) else {"disabled": 0, "processa_pending_review": 0},
+		update_modified=True
+	)
+
+	return {"name": script_name, "disabled": int(disabled)}
+
+
+# ── Shared-endpoint integration (WI-001677, completed by WI-001679) ──────────
+# Logix and ProsAlly chat through the shared AG-UI endpoint; these hooks carry
+# the editor state their maps need. The process_logix_message / prosally_chat
+# aliases that used to sit above were deleted by WI-001679 — no caller was
+# left. The Server Script CRUD and test-runner endpoints in this module are
+# Logix TOOLING, not chat, and stay exactly where they are.
+def build_logix_turn_context(context: dict) -> dict:
+	"""Load the linked script's content for a Logix turn (context builder for
+	the AG-UI endpoint). The legacy process_logix_message did this inline —
+	permission-checked — before invoking; through the shared endpoint the
+	panel sends only the script NAME, and without the content the map's
+	prompt renders empty and the model asks the user to paste their script
+	(observed live, 2026-08-08).
+
+	The reply contract is appended on EVERY turn, linked script or not: the
+	agent's seeded system prompt does not carry it, and the CREATE-from-
+	scratch turn (no script linked yet) is exactly where the model must know
+	to answer in JSON — an early return here left it replying in prose, so
+	no onefm.script_diff card and no Apply button (observed live,
+	2026-08-09)."""
+	out = dict(context or {})
+	script = out.get("current_script") or ""
+	content = None
+	if script:
+		if not frappe.db.exists("Server Script", script):
+			out["current_script"] = ""
+		elif not frappe.has_permission("Server Script", "read", doc=script):
+			frappe.log_error(
+				title="Logix: script read denied for turn context",
+				message=f"user={frappe.session.user} script={script}",
+			)
+			out["current_script"] = ""
+		else:
+			content = frappe.get_doc("Server Script", script).script or ""
+			out["original_script_content"] = content
+
+	# Two map generations exist: the purpose-built Logix map renders the
+	# original_script_content variable directly, while a generic
+	# chat-template clone renders only {{ dialog_context }}. Folding the
+	# script and the reply contract into dialog_context serves both — the
+	# purpose-built map just sees it twice, harmlessly.
+	parts = []
+	if content is not None:
+		parts.append("CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```" % (script, content))
+	parts.append(
+		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"modified_script": "<the full updated script when intent is CREATE or MODIFY>", '
+		'"suggested_name": "<script name for CREATE>", '
+		'"options": ["..."] }. '
+		"Never claim you saved or applied anything — the designer applies your "
+		"proposal from a review card in the UI."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + "\n\n".join(parts)).strip()
+	return out
+
+
+def shape_logix_reply(result: dict) -> dict:
+	"""Lift the Logix JSON contract out of a text reply (reply shaper).
+
+	The purpose-built map returns structured keys already — then this is a
+	no-op. A generic-template map returns the contract as text; parse it so
+	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
+	return shape_reply(
+		result,
+		("intent", "modified_script"),
+		("intent", "modified_script", "suggested_name", "options", "apply_target"),
+	)
+
+
+def build_prosally_turn_context(context: dict) -> dict:
+	"""Fold the live canvas XML and the ProsAlly reply contract into
+	dialog_context (context builder, WI-001675) — same dual-generation
+	strategy as Logix: the purpose-built map renders its own variables, a
+	generic chat-template clone renders only {{ dialog_context }}."""
+	out = dict(context or {})
+	current_xml = out.get("current_xml") or ""
+
+	# WI-004172: BPMN 2.0 XML pasted into the chat is parsed here, on the
+	# server, and handed to the model as an analysis plus rules for reading it,
+	# so it is never mistaken for conversational text and never answered with a
+	# request to re-type the steps. The raw message arrives as _turn_message
+	# (agui/stream.py); a very large paste leaves as _message_override, without its
+	# bpmndi layout section.
+	pasted = out.pop("_turn_message", "") or ""
+	xml_input = None
+	if pasted:
+		try:
+			from processa.ai_agent_registry.definitions.prosally.helpers_xml_input import prepare_turn
+
+			xml_input = prepare_turn(pasted)
+		except Exception:
+			frappe.log_error(title="ProsAlly: pasted BPMN XML analysis failed", message=frappe.get_traceback())
+	xml_section = ""
+	if xml_input:
+		from processa.ai_agent_registry.definitions.prosally.helpers_xml_input import XML_INPUT_RULES
+
+		xml_section = xml_input["block"] + "\n\n" + XML_INPUT_RULES + "\n\n"
+		if xml_input["message_override"]:
+			out["_message_override"] = xml_input["message_override"]
+		if xml_input["direct_reply"]:
+			out["_direct_reply"] = xml_input["direct_reply"]
+
+	contract = (
+		xml_section
+		+ ("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")
+		+ "PROSALLY REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "BPMN_GENERATED"|"BPMN_MODIFIED"|"CONFIRM_REMOVAL"|"CONFIRM"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"bpmn_xml": "<the FULL updated BPMN XML when intent is BPMN_GENERATED or BPMN_MODIFIED>", '
+		'"pending_xml": "<the full XML awaiting approval when intent is CONFIRM_REMOVAL>", '
+		'"options": ["..."], "action_intent": "<the action a CONFIRM approves>" }. '
+		"Never claim you changed the canvas — the designer reviews your "
+		"proposal on a preview card and applies it from there."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + contract).strip()
+	return out
+
+
+def shape_prosally_reply(result: dict) -> dict:
+	"""Lift the ProsAlly JSON contract out of a text reply (reply shaper);
+	no-op when the purpose-built map already returned structured keys."""
+	return shape_reply(
+		result,
+		("intent", "bpmn_xml", "pending_xml"),
+		("intent", "bpmn_xml", "pending_xml", "options", "action_intent"),
+	)
+
+
+def _register_agui_hooks():
+	from processa.ai_agent_conversations.agui.stream import (
+		register_context_builder,
+		register_reply_shaper,
+	)
+
+	register_context_builder("logix_agent", build_logix_turn_context)
+	register_reply_shaper("logix_agent", shape_logix_reply)
+	register_context_builder("prosally_agent", build_prosally_turn_context)
+	register_reply_shaper("prosally_agent", shape_prosally_reply)
+
+
+_register_agui_hooks()

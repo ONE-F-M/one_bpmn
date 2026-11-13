@@ -11,7 +11,7 @@ export async function loadAgentConfigStates(names, { refresh = false } = {}) {
 		return false;
 	}
 	const states = await frappeRequest({
-		url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_lint_state",
+		url: "/api/method/processa.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_lint_state",
 		method: "POST",
 		params: { config_names: JSON.stringify(wanted) },
 	});

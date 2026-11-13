@@ -11,9 +11,9 @@ visible to a person as "why hasn't this happened yet":
 
 | job | what it notices |
 |---|---|
-| `one_bpmn.a2a.poller.poll_a2a_tasks` | a delegated worker finished; a deadline passed; a retry is due |
-| `one_bpmn.processa_engine.timers.process_timer_catch_events` | a waiting instance's timer elapsed |
-| `one_bpmn.processa_engine.timers.process_timer_start_events` | a timed process should start now |
+| `processa.a2a.poller.poll_a2a_tasks` | a delegated worker finished; a deadline passed; a retry is due |
+| `processa.processa_engine.timers.process_timer_catch_events` | a waiting instance's timer elapsed |
+| `processa.processa_engine.timers.process_timer_start_events` | a timed process should start now |
 
 All three run `* * * * *`.
 
@@ -46,7 +46,7 @@ somebody's bulk import. The jobs that *wake* those turns had no such protection.
 
 ## What this change does
 
-`one_bpmn/overrides/scheduled_job_type.py` overrides `get_queue_name()` for those
+`processa/overrides/scheduled_job_type.py` overrides `get_queue_name()` for those
 three methods only, returning `bpmn_clock`. Every other scheduled job on the site
 — Frappe's, ERPNext's, one_fm's — falls through to the original behaviour.
 
@@ -94,7 +94,7 @@ frappe.get_doc("Scheduled Job Type", "poller.poll_a2a_tasks").get_queue_name()
 ## Telling the three failures apart
 
 A starved reconciler, a stopped job, and a hung agent all look the same from the
-delegation list: things sitting in Working. `one_bpmn/a2a/reconciler_health.py`
+delegation list: things sitting in Working. `processa/a2a/reconciler_health.py`
 names the cause instead, and the A2A screen shows it above the lists it explains:
 
 | state | what it means |

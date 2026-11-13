@@ -325,7 +325,7 @@ const canSeeSecurity = ref(false)
 async function checkSecurityAccess() {
 	try {
 		const r = await frappeRequest({
-			url: "/api/method/one_bpmn.api.security.can_manage",
+			url: "/api/method/processa.api.security.can_manage",
 			method: "POST",
 		})
 		canSeeSecurity.value = Boolean(r && r.read_events)
@@ -339,7 +339,7 @@ const canSeeA2A = ref(false)
 async function checkA2AAccess() {
 	try {
 		const r = await frappeRequest({
-			url: "/api/method/one_bpmn.api.a2a_admin.get_permissions",
+			url: "/api/method/processa.api.a2a_admin.get_permissions",
 		})
 		canSeeA2A.value = Boolean(r && r.administer)
 	} catch (e) {
@@ -350,7 +350,7 @@ async function checkA2AAccess() {
 onMounted(() => {
 	checkSecurityAccess()
 	checkA2AAccess()
-	const saved = localStorage.getItem("one_bpmn_sidebar_collapsed")
+	const saved = localStorage.getItem("processa_sidebar_collapsed")
 	if (saved === "true") {
 		collapsed.value = true
 	}
@@ -358,7 +358,7 @@ onMounted(() => {
 
 function toggleCollapse() {
 	collapsed.value = !collapsed.value
-	localStorage.setItem("one_bpmn_sidebar_collapsed", String(collapsed.value))
+	localStorage.setItem("processa_sidebar_collapsed", String(collapsed.value))
 }
 </script>
 

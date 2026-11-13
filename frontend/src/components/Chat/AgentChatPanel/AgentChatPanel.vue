@@ -496,7 +496,7 @@ function scrollDown() {
 onMounted(async () => {
 	try {
 		surface.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.a2a.get_agent_surface",
+			url: "/api/method/processa.api.a2a.get_agent_surface",
 			params: { agent_id: props.agentId },
 		}) || {};
 	} catch {
@@ -506,7 +506,7 @@ onMounted(async () => {
 	if (conversationName.value) {
 		try {
 			const history = await frappeRequest({
-				url: "/api/method/one_bpmn.api.agui.conversation_history",
+				url: "/api/method/processa.api.agui.conversation_history",
 				params: { conversation: conversationName.value, limit: HISTORY_PAGE },
 			}) || [];
 			items.value.push(...restoredItems(history, true));
@@ -525,7 +525,7 @@ onMounted(async () => {
 				try {
 					ratings.value =
 						(await frappeRequest({
-							url: "/api/method/one_bpmn.api.feedback.get_conversation_ratings",
+							url: "/api/method/processa.api.feedback.get_conversation_ratings",
 							params: { conversation: conversationName.value },
 						})) || {};
 				} catch {
@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 	if (conversationName.value) {
 		// fire-and-forget: safe to call repeatedly, never raises (staging contract)
 		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_scripts.end_chat_conversation",
+			url: "/api/method/processa.api.server_scripts.end_chat_conversation",
 			params: { conversation_name: conversationName.value },
 		}).catch(() => {});
 	}
@@ -853,7 +853,7 @@ async function loadOlder() {
 	loadingOlder.value = true;
 	try {
 		const older = await frappeRequest({
-			url: "/api/method/one_bpmn.api.agui.conversation_history",
+			url: "/api/method/processa.api.agui.conversation_history",
 			params: {
 				conversation: conversationName.value,
 				limit: HISTORY_PAGE,

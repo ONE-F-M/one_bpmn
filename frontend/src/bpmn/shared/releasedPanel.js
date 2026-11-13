@@ -4,7 +4,7 @@
  * "Release Property Panel" lets an authorised user edit flow object properties
  * on a locked map. The rule is that a panel edit may change what a step DOES,
  * never what the map IS, and these are the carve-outs that enforce it:
- * one_bpmn/api/property_panel.py applies the same ones again on save, and its
+ * processa/api/property_panel.py applies the same ones again on save, and its
  * header explains each. Keep the two lists in step.
  *
  * Two callers here: the command-stack guard, which decides whether an edit is

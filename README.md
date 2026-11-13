@@ -21,10 +21,10 @@ A BPMN process **modeling and execution** platform for the Frappe Framework, pow
 
 ```bash
 # Get the app
-bench get-app one_bpmn <repository-url>
+bench get-app processa <repository-url>
 
 # Install on your site
-bench --site your-site.local install-app one_bpmn
+bench --site your-site.local install-app processa
 
 # Run database migrations
 bench --site your-site.local migrate
@@ -34,7 +34,7 @@ bench --site your-site.local migrate
 
 ```bash
 # Navigate to the Vue.js frontend directory
-cd apps/one_bpmn/frontend
+cd apps/processa/frontend
 
 # Install dependencies
 yarn install
@@ -44,7 +44,7 @@ yarn build
 
 # Copy assets to sites/assets
 cd ../../../
-bench build --app one_bpmn
+bench build --app processa
 
 # Clear cache
 bench --site your-site.local clear-cache
@@ -53,7 +53,7 @@ bench --site your-site.local clear-cache
 ### Development Mode
 
 ```bash
-cd apps/one_bpmn/frontend
+cd apps/processa/frontend
 yarn dev --host
 ```
 
@@ -66,11 +66,11 @@ Access at `http://localhost:8080/processa` (dev server).
 A high-level overview (not every file is listed):
 
 ```
-one_bpmn/                      # Frappe app (repo root)
-├── one_bpmn/                  # Python package
+processa/                      # Frappe app (repo root)
+├── processa/                  # Python package
 │   ├── api/                   # Whitelisted backend endpoints (domain submodules)
-│   ├── one_bpmn/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
-│   ├── one_bpmn/connectors/   # A2A connector handlers
+│   ├── processa/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
+│   ├── processa/connectors/   # A2A connector handlers
 │   ├── agents_sandbox/        # Agent sandbox doctypes, sandbox client, customization writers
 │   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
 │   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
@@ -101,7 +101,7 @@ one_bpmn/                      # Frappe app (repo root)
 
 ## Backend API Endpoints
 
-All endpoints are `@frappe.whitelist()` methods organized into domain submodules under `one_bpmn/api/`. Below is the endpoint surface by module.
+All endpoints are `@frappe.whitelist()` methods organized into domain submodules under `processa/api/`. Below is the endpoint surface by module.
 
 ### Process Model CRUD (`process_maps`)
 
@@ -284,26 +284,26 @@ Compiled process models run as **process instances** via the SpiffWorkflow engin
 ### After Making Changes
 
 ```bash
-cd apps/one_bpmn/frontend
+cd apps/processa/frontend
 yarn build
 cd ../../../
-bench build --app one_bpmn
+bench build --app processa
 bench --site your-site.local clear-cache
 ```
 
 ### Adding New Features
 
-- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
+- **API endpoint**: add to the appropriate submodule in `processa/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
 - **Vue component / view**: add under `frontend/src/components/` or `frontend/src/pages/` and register routes in `frontend/src/router.js`.
 - **bpmn-js module**: add under `frontend/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
 - **Moddle extension**: add under `frontend/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 
 ### Runtime Hooks
 
-`one_bpmn/hooks.py` registers:
+`processa/hooks.py` registers:
 
 - A universal `doc_events` BPMN trigger across all DocTypes (insert/update/submit/cancel/trash) so document lifecycle changes can drive workflows.
-- `scheduler_events` running every minute to process BPMN timer start events and timer catch events (`one_bpmn/processa_engine/timers.py`).
+- `scheduler_events` running every minute to process BPMN timer start events and timer catch events (`processa/processa_engine/timers.py`).
 
 ---
 
@@ -311,7 +311,7 @@ bench --site your-site.local clear-cache
 
 ### White Screen on /processa
 
-1. Run `bench build --app one_bpmn`
+1. Run `bench build --app processa`
 2. Clear cache: `bench --site your-site.local clear-cache`
 3. Hard refresh the browser (Ctrl+Shift+R)
 
@@ -390,12 +390,12 @@ Intent Classifier
 | `frontend/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI - messages, option buttons, rich-text input |
 | `frontend/src/utils/bpmnLayout.js` | Auto-layout - positions generated BPMN elements left-to-right |
 | `frontend/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
-| `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
-| `one_bpmn/ai_agent_conversations/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
+| `processa/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
+| `processa/ai_agent_conversations/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
 ### Agent Pipeline
 
-The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py`.
+The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `processa.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `processa/ai_agent_registry/definitions/prosally/tools_pipeline.py`.
 
 ### Auto-Layout (`bpmnLayout.js`)
 
@@ -478,7 +478,7 @@ MIT
 Run the full app test suite from bench:
 
 ```bash
-bench --site <site> run-tests --app one_bpmn --failfast
+bench --site <site> run-tests --app processa --failfast
 ```
 
 ## Contributing
@@ -491,9 +491,9 @@ See `AGENTS.md` for the full working rules.
 
 ## Architecture Overview
 
-- `one_bpmn/api/` - backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, lookups)
-- `one_bpmn/one_bpmn/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
-- `one_bpmn/tasks.py` — scheduled A2A, conversation, memory and model jobs
-- `one_bpmn/hooks.py` — universal document-event trigger and scheduler events
+- `processa/api/` - backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, lookups)
+- `processa/processa/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
+- `processa/tasks.py` — scheduled A2A, conversation, memory and model jobs
+- `processa/hooks.py` — universal document-event trigger and scheduler events
 - `frontend/` - the Vue.js frontend (bpmn-js editor + ProsAlly assistant)
-- `one_bpmn/agents/`: the AI agent runtime behind ProsAlly, Logix and the other agents
+- `processa/agents/`: the AI agent runtime behind ProsAlly, Logix and the other agents

@@ -88,7 +88,7 @@ async function fetchUsers(query = "") {
 	loading.value = true
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.lookups.get_system_users",
+			url: "/api/method/processa.api.lookups.get_system_users",
 			params: { query, limit: PAGE },
 		})
 		options.value = (response || []).map((u) => ({

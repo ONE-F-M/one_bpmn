@@ -38,7 +38,7 @@ export function useProcessDeploy(pc) {
 				params.model_name = activeDiagramName.value;
 			}
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.validate_bpmn_readiness",
+				url: "/api/method/processa.api.process_maps.validate_bpmn_readiness",
 				params,
 			});
 			const checklist = response.message || response;
@@ -107,7 +107,7 @@ export function useProcessDeploy(pc) {
 		readinessLoading.value = true;
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.update_call_activity_references",
+				url: "/api/method/processa.api.process_maps.update_call_activity_references",
 				method: "POST",
 				params: { references: JSON.stringify(refItems) },
 			});
@@ -173,7 +173,7 @@ export function useProcessDeploy(pc) {
 		deploying.value = true;
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.deploy.compile_process_model",
+				url: "/api/method/processa.api.deploy.compile_process_model",
 				method: "POST",
 				params: { model_name: activeDiagramName.value },
 			});
@@ -268,7 +268,7 @@ export function useProcessDeploy(pc) {
 		disabling.value = true;
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.deploy.disable_process_model",
+				url: "/api/method/processa.api.deploy.disable_process_model",
 				method: "POST",
 				params: { model_name: activeDiagramName.value },
 			});
@@ -313,7 +313,7 @@ export function useProcessDeploy(pc) {
 		nonExecutableBusy.value = true;
 		try {
 			await frappeRequest({
-				url: `/api/method/one_bpmn.api.deploy.${activating ? "activate" : "deactivate"}_non_executable_model`,
+				url: `/api/method/processa.api.deploy.${activating ? "activate" : "deactivate"}_non_executable_model`,
 				method: "POST",
 				params: { model_name: activeDiagramName.value },
 			});

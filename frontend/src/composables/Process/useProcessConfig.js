@@ -41,7 +41,7 @@ export function useProcessConfig(pc) {
 			// Check if diagram references any config records
 			try {
 				const resp = await frappeRequest({
-					url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+					url: "/api/method/processa.api.config_export_import.export_bpmn_config",
 					params: { xml_content: xml },
 				});
 				const data = resp.message || resp;
@@ -93,7 +93,7 @@ export function useProcessConfig(pc) {
 		// 2. Fetch full config data and download as JSON
 		try {
 			const resp = await frappeRequest({
-				url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+				url: "/api/method/processa.api.config_export_import.export_bpmn_config",
 				params: { xml_content: pc.pendingExportXml },
 			});
 			const data = resp.message || resp;
@@ -170,7 +170,7 @@ export function useProcessConfig(pc) {
 			});
 
 			const resp = await frappeRequest({
-				url: "/api/method/one_bpmn.api.config_export_import.import_bpmn_config",
+				url: "/api/method/processa.api.config_export_import.import_bpmn_config",
 				method: "POST",
 				params: { config_json: jsonText },
 			});
@@ -206,7 +206,7 @@ export function useProcessConfig(pc) {
 			// Call the backend import endpoint via frappeRequest for consistent
 			// CSRF handling, response parsing, and error surfacing.
 			const result = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.import_bpmn",
+				url: "/api/method/processa.api.process_maps.import_bpmn",
 				method: "POST",
 				params: {
 					xml_content: xmlContent,

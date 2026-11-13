@@ -250,7 +250,7 @@ async function load() {
 	loading.value = true;
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.versions.get_edit_history",
+			url: "/api/method/processa.api.versions.get_edit_history",
 			params: { model_name: props.modelName },
 		});
 		groups.value = res.message || res || [];
@@ -282,7 +282,7 @@ function onVersionClick(item) {
 
 async function fetchSnapshotXml(versionName) {
 	const res = await frappeRequest({
-		url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
+		url: "/api/method/processa.api.versions.get_snapshot_xml",
 		params: { version_name: versionName },
 	});
 	return res.message || res;
@@ -322,7 +322,7 @@ async function restoreVersion(versionName) {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.versions.restore_version",
+			url: "/api/method/processa.api.versions.restore_version",
 			params: { version_name: versionName },
 		});
 		const data = res.message || res;
@@ -346,7 +346,7 @@ async function submitName() {
 	savingName.value = true;
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.versions.name_version",
+			url: "/api/method/processa.api.versions.name_version",
 			params: { version_name: nameTarget.value.head, name: nameInput.value.trim() },
 		});
 		showNameDialog.value = false;

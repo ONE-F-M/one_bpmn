@@ -43,7 +43,7 @@ function syncToConfig(config, attr, value, onResult) {
 		key,
 		setTimeout(() => {
 			pending.delete(key);
-			createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape", params: { config_name: config, fields: JSON.stringify({ [attr]: value || "" }) } }).fetch()
+			createResource({ url: "processa.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape", params: { config_name: config, fields: JSON.stringify({ [attr]: value || "" }) } }).fetch()
 				.then(() => onResult && onResult(null))
 				.catch((e) => onResult && onResult(serverMessage(e)));
 		}, SYNC_DELAY_MS)
@@ -63,7 +63,7 @@ const SYNC_ERROR = new WeakMap();
 
 async function loadLivePrompt(config, bo) {
 	try {
-		const fields = await createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: config } }).fetch();
+		const fields = await createResource({ url: "processa.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: config } }).fetch();
 		LIVE_PROMPT.set(config, fields?.aiSystemPrompt || null);
 	} catch (err) {
 		LIVE_PROMPT.set(config, null);
@@ -127,7 +127,7 @@ export class DriftMarkers extends Component {
 		const config = getAttr(bo, "aiAgentConfig");
 		if (!config) return;
 		const shape = Object.fromEntries(DRIFT_ATTRS.map((attr) => [attr, getAttr(bo, attr)]));
-		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_shape_drift", params: {
+		createResource({ url: "processa.ai_agent_registry.provisioning.agent_config_resolver.get_shape_drift", params: {
 			config_name: config,
 			shape: JSON.stringify(shape),
 		} }).fetch()

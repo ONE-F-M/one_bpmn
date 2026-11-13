@@ -73,7 +73,7 @@ export function useEvalCaseEditor(ctx) {
 		showCaseEditor.value = true;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.get_eval_case",
+				url: "/api/method/processa.api.evals.get_eval_case",
 				method: "GET",
 				params: { name: c.name },
 			});
@@ -96,13 +96,13 @@ export function useEvalCaseEditor(ctx) {
 			const payload = caseFormPayload(caseForm, startsMidConversation.value);
 			if (caseMode.value === "edit") {
 				await frappeRequest({
-					url: "/api/method/one_bpmn.api.evals.update_eval_case",
+					url: "/api/method/processa.api.evals.update_eval_case",
 					method: "POST",
 					params: { name: caseForm.name, ...payload },
 				});
 			} else {
 				await frappeRequest({
-					url: "/api/method/one_bpmn.api.evals.create_eval_case",
+					url: "/api/method/processa.api.evals.create_eval_case",
 					method: "POST",
 					params: { suite: suiteName, ...payload },
 				});

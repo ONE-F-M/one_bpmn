@@ -14,7 +14,7 @@ export function useEmailFields(fieldtypes) {
 		if (!doctype) return
 		loading.value = true
 		try {
-			const data = await createResource({ url: "one_bpmn.api.lookups.get_email_fields", method: "GET", params: { doctype } }).fetch()
+			const data = await createResource({ url: "processa.api.lookups.get_email_fields", method: "GET", params: { doctype } }).fetch()
 			fields.value = flattenEmailFields(data, fieldtypes)
 		} finally {
 			loading.value = false

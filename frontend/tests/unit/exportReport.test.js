@@ -7,11 +7,11 @@ test("openReportExport opens the method with every filter and the format", () =>
 	const opened = []
 	globalThis.window = { open: (url, target) => opened.push([url, target]) }
 
-	openReportExport("one_bpmn.api.insights.export_latency_report", { from_date: "2026-11-05", group_by: "agent", fmt: "xlsx" })
+	openReportExport("processa.api.insights.export_latency_report", { from_date: "2026-11-05", group_by: "agent", fmt: "xlsx" })
 
 	assert.deepEqual(opened, [
 		[
-			"/api/method/one_bpmn.api.insights.export_latency_report?from_date=2026-11-05&group_by=agent&fmt=xlsx",
+			"/api/method/processa.api.insights.export_latency_report?from_date=2026-11-05&group_by=agent&fmt=xlsx",
 			"_blank",
 		],
 	])

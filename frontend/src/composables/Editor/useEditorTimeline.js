@@ -113,7 +113,7 @@ export function useEditorTimeline(ed) {
 
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
+				url: "/api/method/processa.api.canvas_comments.post_canvas_comment",
 				params: {
 					model_name: props.modelName,
 					element_id: elementId,

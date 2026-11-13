@@ -20,7 +20,7 @@ export function useEditorReadonly(ed) {
 			// panel may edit flow objects - but only what a step DOES, never
 			// what the map IS. The carve-outs live in
 			// @/bpmn/shared/releasedPanel and mirror
-			// one_bpmn/api/property_panel.py, which enforces them again on
+			// processa/api/property_panel.py, which enforces them again on
 			// save; that module's header explains each one.
 			const isPropertyCommand = (command, context) => {
 				if (!props.reassignMode) return false;

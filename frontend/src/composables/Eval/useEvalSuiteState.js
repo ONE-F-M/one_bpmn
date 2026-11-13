@@ -72,7 +72,7 @@ export function createEvalSuiteContext(route, router) {
 		loadError.value = "";
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.get_suite_detail",
+				url: "/api/method/processa.api.evals.get_suite_detail",
 				method: "GET",
 				params: {
 					suite: suiteName,

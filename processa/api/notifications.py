@@ -1,0 +1,329 @@
+# Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
+# For license information, please see license.txt
+
+import json as _json
+
+import frappe
+from frappe import _
+
+from processa.utils.session import as_user
+
+
+# ============================================
+# Notification API
+# Creates Notification documents from the BPMN Send Task dialog.
+# New notifications are disabled by default (enabled when deployed).
+# ============================================
+
+
+@frappe.whitelist()
+def create_notification(
+	notification_name: str,
+	channel: str,
+	document_type: str,
+	event: str = "New",
+	subject: str = None,
+	message: str = None,
+	message_type: str = "Markdown",
+	condition: str = None,
+	module: str = None,
+	# Email-specific
+	sender: str = None,
+	sender_email: str = None,
+	attach_print: int = 0,
+	print_format: str = None,
+	send_system_notification: int = 0,
+	# Slack-specific
+	slack_webhook_url: str = None,
+	# WhatsApp-specific  (Twilio integration)
+	twilio_number: str = None,
+	# Trigger fields
+	method: str = None,
+	date_changed: str = None,
+	days_in_advance: int = 0,
+	value_changed: str = None,
+	# Recipients
+	send_to_all_assignees: int = 0,
+	recipients: str = None,  # JSON string of recipient rows
+	# After Alert
+	set_property_after_alert: str = None,
+	property_value: str = None,
+) -> dict:
+	"""
+	Create a Notification document from the BPMN Send Task dialog.
+
+	The notification is created with enabled=0 (disabled by default).
+	It should be enabled when the process is deployed.
+
+	Args:
+		notification_name: Human-readable name for the notification
+		channel: Email / Slack / System Notification / SMS / WhatsApp
+		document_type: The DocType this notification is linked to
+		event: Trigger event (New/Save/Submit/Cancel/Days After/Days Before/Value Change/Method/Custom)
+		subject: Notification subject line (Jinja template)
+		message: Message body (Jinja template)
+		message_type: Markdown / HTML / Plain Text
+		condition: Python condition expression
+		module: Module for export
+		sender: Email Account link (Email channel)
+		sender_email: Sender email address (Email channel)
+		attach_print: Whether to attach print (Email channel)
+		print_format: Print Format link (Email channel)
+		send_system_notification: Also send system notification flag
+		slack_webhook_url: Slack Webhook URL link (Slack channel)
+		twilio_number: Communication Medium link (WhatsApp channel)
+		method: Trigger method name (Method event)
+		date_changed: Date field name (Days After/Before events)
+		days_in_advance: Number of days (Days After/Before events)
+		value_changed: Field name (Value Change event)
+		send_to_all_assignees: Send to all document assignees
+		recipients: JSON array of recipient row objects
+		set_property_after_alert: Field to set after alert fires
+		property_value: Value to set
+
+	Returns:
+		dict with name and channel
+	"""
+	if not notification_name or not channel or not document_type:
+		frappe.throw(_("Notification name, channel, and document type are required"))
+
+	if not frappe.has_permission("Notification", "create") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the System Manager role to create Notifications."),
+			frappe.PermissionError,
+		)
+
+	doc = frappe.new_doc("Notification")
+	doc.__newname = notification_name
+	doc.subject = subject or notification_name
+	doc.channel = channel
+	doc.document_type = document_type
+	doc.event = event or "New"
+	doc.enabled = 0  # Disabled by default — enabled when deployed
+	doc.message_type = message_type or "Markdown"
+
+	if message:
+		doc.message = message
+	if condition:
+		doc.condition = condition
+	if module:
+		doc.module = module
+
+	# Email-specific fields
+	if sender:
+		doc.sender = sender
+	if sender_email:
+		doc.sender_email = sender_email
+	if int(attach_print or 0):
+		doc.attach_print = 1
+	if print_format:
+		doc.print_format = print_format
+	if int(send_system_notification or 0):
+		doc.send_system_notification = 1
+
+	# Slack-specific
+	if slack_webhook_url:
+		doc.slack_webhook_url = slack_webhook_url
+
+	# WhatsApp-specific (Twilio)
+	if twilio_number:
+		doc.twilio_number = twilio_number
+
+	# Trigger fields
+	if method:
+		doc.method = method
+	if date_changed:
+		doc.date_changed = date_changed
+	if days_in_advance:
+		doc.days_in_advance = int(days_in_advance)
+	if value_changed:
+		doc.value_changed = value_changed
+
+	# After Alert
+	if set_property_after_alert:
+		doc.set_property_after_alert = set_property_after_alert
+	if property_value:
+		doc.property_value = property_value
+
+	# Recipients
+	if int(send_to_all_assignees or 0):
+		doc.send_to_all_assignees = 1
+
+	if recipients:
+		if isinstance(recipients, str):
+			try:
+				rows = _json.loads(recipients)
+			except (ValueError, _json.JSONDecodeError):
+				frappe.throw("Recipients must be a valid JSON array of objects.", frappe.ValidationError)
+		else:
+			rows = recipients
+
+		if not isinstance(rows, list):
+			frappe.throw("Recipients must be a list of objects.", frappe.ValidationError)
+
+		for row in rows:
+			if not isinstance(row, dict):
+				frappe.throw("Each recipient entry must be an object.", frappe.ValidationError)
+			doc.append(
+				"recipients",
+				{
+					"receiver_by_document_field": row.get("receiver_by_document_field", ""),
+					"receiver_by_role": row.get("receiver_by_role", ""),
+					"cc": row.get("cc", ""),
+					"bcc": row.get("bcc", ""),
+					"condition": row.get("condition", ""),
+				},
+			)
+
+	# Elevate to bypass permission checks in the Notification controller.
+	# The role guard above already ensures only authorised users reach here.
+	with as_user("Administrator"):
+		doc.insert(ignore_permissions=True)
+
+	return {"name": doc.name, "channel": doc.channel}
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_notification(process_model: str, element_type: str, doctype: str, settings: str) -> dict:
+	"""The HTML version of the draft email for the latest record of doctype; nothing is sent and no token is made."""
+	if process_model:
+		frappe.get_doc("BPMN Process Model", process_model).check_permission("write")
+	else:
+		frappe.has_permission("BPMN Process Model", "create", throw=True)
+	if element_type not in ("send_email", "userTask"):
+		frappe.throw(_("Preview is not available for {0}.").format(element_type))
+
+	doc = frappe._dict()
+	if doctype:
+		frappe.has_permission(doctype, "read", throw=True)
+		latest = frappe.get_list(doctype, order_by="modified desc", limit=1, pluck="name")
+		if not latest:
+			return {"message": _("No {0} record to preview yet").format(_(doctype))}
+		doc = frappe.get_doc(doctype, latest[0])
+
+	try:
+		cfg = _json.loads(settings or "{}")
+		if element_type == "userTask":
+			return _render_task_preview(doc, doctype, cfg)
+		return _render_email_preview(doc, doctype, cfg)
+	except Exception as e:
+		frappe.log_error(title="BPMN: email preview failed", message=frappe.get_traceback())
+		frappe.clear_messages()
+		# frappe.render_template wraps the Jinja error in HTML with the traceback; show the Jinja error alone
+		return {"error": str(e.__context__ or e)}
+
+
+def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
+	from processa.processa_engine.notifications.composer import build_notice_context, sends_notice
+	from processa.processa_engine.notifications.renderer import render_layout_preview
+	from processa.processa_engine.assignment import decode_html_attr
+
+	instance = frappe._dict(
+		name=_("Preview"),
+		doctype="BPMN Process Instance",
+		context_doctype=doctype,
+		context_docname=doc.get("name"),
+	)
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+
+	def render(text):
+		return frappe.render_template(text, jinja_ctx) if text else ""
+
+	if sends_notice(cfg):
+		ctx = build_notice_context(
+			instance, {**cfg, "emailShowStatus": "", "emailAttachments": ""}, doc, render
+		)
+		if doc.get("name") and cfg.get("emailAttachments") == "true":
+			ctx["attachments"] = [
+				{"name": name, "url": ""}
+				for name in frappe.get_list(
+					"File",
+					filters={"attached_to_doctype": doctype, "attached_to_name": doc.name, "is_folder": 0},
+					order_by="creation asc",
+					pluck="file_name",
+				)
+			]
+		if cfg.get("emailShowStatus") == "true":
+			ctx["preview_state"] = _preview_state(doc)
+		return _layout_preview(ctx, doc, cfg.get("emailAccount"))
+
+	subject = render(cfg.get("emailSubject", "")) or _("Notification from {0}").format(instance.name)
+	body = render(decode_html_attr(cfg.get("emailBody", "")))
+	return _framed_preview(subject, body, doc, cfg.get("emailAccount"))
+
+
+def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
+	"""The Notify Assignee email for doc, with buttons as links and no token."""
+	from processa.processa_engine.notifications.composer import (
+		build_layout_context,
+		build_open_link,
+		resolve_subject_body,
+		sends_decision_card,
+	)
+	from processa.processa_engine.notifications.renderer import render_html_fallback
+
+	instance = frappe._dict(
+		name=_("Preview"),
+		doctype="BPMN Process Instance",
+		context_doctype=doctype,
+		context_docname=doc.get("name"),
+	)
+	task_name = cfg.get("taskName") or _("Task")
+	if sends_decision_card(cfg):
+		ctx = build_layout_context(instance, frappe.session.user, task_name, "", "", cfg, preview=True)
+		return _layout_preview(ctx, doc, cfg.get("notifyAssigneeAccount"))
+
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+	subject, body = resolve_subject_body(cfg, jinja_ctx, task_name, instance)
+	open_link = build_open_link(instance)
+	names = [a.get("action") for a in _json.loads(cfg.get("taskActions") or "[]") if a.get("action")]
+	body = render_html_fallback(
+		{
+			"subject": subject,
+			"body": body,
+			"actions": [{"label": n, "url": open_link, "primary": i == 0} for i, n in enumerate(names)],
+			"open_link": open_link,
+		}
+	)
+	return _framed_preview(subject, body, doc, cfg.get("notifyAssigneeAccount"))
+
+
+def _layout_preview(ctx: dict, doc, account: str | None) -> dict:
+	"""A layout email as Gmail shows it, one HTML per language for the preview's language switch."""
+	from processa.processa_engine.notifications.renderer import render_layout_preview
+
+	return {
+		"subject": ctx["subject_line"],
+		"sender": _sender(account),
+		"html": render_layout_preview(ctx, "en"),
+		"html_ar": render_layout_preview(ctx, "ar"),
+		"docname": doc.get("name") or "",
+	}
+
+
+def _framed_preview(subject: str, body: str, doc, account: str | None) -> dict:
+	"""A custom body or template in the standard frame; it has one language, so no html_ar."""
+	from processa.processa_engine.notifications.composer import EMAIL_LOGO
+
+	html = frappe.render_template(
+		"processa/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}
+	)
+	return {
+		"subject": subject,
+		"sender": _sender(account),
+		"html": html,
+		"html_ar": "",
+		"docname": doc.get("name") or "",
+	}
+
+
+def _sender(account: str | None) -> str:
+	return (frappe.db.get_value("Email Account", account, "email_id") or account) if account else ""
+
+
+def _preview_state(doc) -> str:
+	"""The workflow state the live status line shows for doc; empty when its DocType has no workflow."""
+	from frappe.model.workflow import get_workflow_name, get_workflow_state_field
+
+	workflow_name = get_workflow_name(doc.get("doctype")) if doc.get("doctype") else None
+	return str(doc.get(get_workflow_state_field(workflow_name)) or "") if workflow_name else ""

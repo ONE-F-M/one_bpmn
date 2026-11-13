@@ -553,7 +553,7 @@ function UpdateFieldNameComponent(props) {
 	}
 
 	const fetchFields = (txt) => {
-		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			search_text: txt || "",
 		} }).fetch();
@@ -644,7 +644,7 @@ function UpdateFieldRowsComponent(props) {
 
 	const fetchFields = (txt) => {
 		if (!doctype) return Promise.resolve([]);
-		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			search_text: txt || "",
 		} }).fetch();
@@ -815,7 +815,7 @@ function GchatDocFieldComponent(props) {
 		if (!doctype) {
 			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
 		}
-		return createResource({ url: "one_bpmn.api.lookups.get_recipient_docfields", method: "GET", params: {
+		return createResource({ url: "processa.api.lookups.get_recipient_docfields", method: "GET", params: {
 			doctype, search_text: txt || "",
 		} }).fetch();
 	};
@@ -851,7 +851,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype) {
 				return Promise.resolve([{ fieldname: "", label: "Select a DocType first" }]);
 			}
-			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+			return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			} }).fetch().then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
@@ -899,7 +899,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype || !tableField) {
 				return Promise.resolve([{ fieldname: "", label: "Select a Table Field first" }]);
 			}
-			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+			return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			} }).fetch().then((tableFields) => {
 				const match = (Array.isArray(tableFields) ? tableFields : []).find(
@@ -908,7 +908,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 				const childDoctype = match && match.options;
 				if (!childDoctype) return [];
 				if (rowFieldsApi) return createResource({ url: rowFieldsApi, method: "GET", params: { doctype: childDoctype } }).fetch();
-				return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+				return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 					doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
 				} }).fetch().then((childFields) =>
 					(Array.isArray(childFields) ? childFields : []).filter((f) => f.options === "User")
@@ -1113,7 +1113,7 @@ function PushToDocFieldsComponent(props) {
 
 	// User fields, email fields, and "link.user_field" paths through linked records
 	const fetchDocFields = (txt) =>
-		createResource({ url: "one_bpmn.api.lookups.get_push_recipient_fields", method: "GET", params: {
+		createResource({ url: "processa.api.lookups.get_push_recipient_fields", method: "GET", params: {
 			doctype: sourceDoctype,
 			search_text: txt || "",
 		} }).fetch();
@@ -1136,7 +1136,7 @@ function PushToDocFieldsComponent(props) {
 
 const [PushTableFieldComponent, PushTableUserFieldComponent] = makeTableRecipientComponents(
 	(bo) => getAttr(bo, "pushDoctype"), "pushToTableField", "pushToTableUserField",
-	"one_bpmn.api.lookups.get_push_recipient_fields"
+	"processa.api.lookups.get_push_recipient_fields"
 );
 
 function makePushCheckbox(attr, label, description) {

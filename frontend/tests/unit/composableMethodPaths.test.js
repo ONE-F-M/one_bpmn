@@ -15,12 +15,12 @@ function pythonSource(modulePath) {
 	return null;
 }
 
-test("every full one_bpmn method path in a composable names a Python function that exists", () => {
+test("every full processa method path in a composable names a Python function that exists", () => {
 	const missing = [];
 	for (const file of readdirSync(composablesDir).filter((f) => f.endsWith(".js"))) {
 		const text = readFileSync(join(composablesDir, file), "utf8");
 		// A path followed by "." is a prefix joined to a name at run time.
-		for (const [, path] of text.matchAll(/\/api\/method\/(one_bpmn(?:\.\w+)+)(?![.\w])/g)) {
+		for (const [, path] of text.matchAll(/\/api\/method\/(processa(?:\.\w+)+)(?![.\w])/g)) {
 			const parts = path.split(".");
 			const fn = parts.pop();
 			const source = pythonSource(parts.join("."));

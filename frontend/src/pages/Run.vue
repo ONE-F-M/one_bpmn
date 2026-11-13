@@ -258,7 +258,7 @@ async function toggleTurn(name) {
 	turnLoading.value = busy
 	try {
 		turns[name] = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights.get_turn_steps",
+			url: "/api/method/processa.api.insights.get_turn_steps",
 			params: { run_name: name },
 		})
 		delete turnErrors[name]
@@ -354,7 +354,7 @@ async function load() {
 	error.value = ""
 	try {
 		detail.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights.get_run_detail",
+			url: "/api/method/processa.api.insights.get_run_detail",
 			method: "POST",
 			params: { run_name: route.params.run },
 		})
@@ -369,7 +369,7 @@ async function createExample() {
 	creatingExample.value = true
 	try {
 		const { configuration } = await frappeRequest({
-			url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.create_example_from_run",
+			url: "/api/method/processa.ai_agent_evals.eval_case_factory.create_example_from_run",
 			method: "POST",
 			params: { run_name: run.value.name },
 		})
@@ -385,7 +385,7 @@ async function createEvalCase() {
 	creatingCase.value = true
 	try {
 		const name = await frappeRequest({
-			url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
+			url: "/api/method/processa.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
 			method: "POST",
 			params: { run_name: run.value.name },
 		})

@@ -270,7 +270,7 @@ const processes = ref([])
 const loading = ref(true)
 
 // Persist the search key so it survives leaving and returning to this page
-const SEARCH_KEY_STORAGE = "one_bpmn_process_list_search"
+const SEARCH_KEY_STORAGE = "processa_process_list_search"
 function readSavedSearch() {
 	try {
 		return localStorage.getItem(SEARCH_KEY_STORAGE) || ""
@@ -396,7 +396,7 @@ async function loadProcesses() {
 	loading.value = true
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_maps.list_processes",
+			url: "/api/method/processa.api.process_maps.list_processes",
 		})
 		
 		// Handle different response formats
@@ -425,7 +425,7 @@ async function checkAllEditability() {
 	try {
 		const processNames = processes.value.map(p => p.name)
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.editability.bulk_check_processes_editable",
+			url: "/api/method/processa.api.editability.bulk_check_processes_editable",
 			// POST so the (potentially large) process_names list travels in the
 			// request body — as a GET query string it builds a multi-KB URL that
 			// nginx rejects with 400 Bad Request.
@@ -458,7 +458,7 @@ async function exportSingleDiagram(diagram) {
 	showExportDialog.value = false
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
+			url: "/api/method/processa.api.process_maps.get_process_model",
 			params: { name: diagram.name },
 		})
 		const data = response.message || response
@@ -475,7 +475,7 @@ async function exportProcess(process) {
 	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
+			url: "/api/method/processa.api.process_maps.get_process_diagrams",
 			params: { process: process.name },
 		})
 		const data = response.message || response

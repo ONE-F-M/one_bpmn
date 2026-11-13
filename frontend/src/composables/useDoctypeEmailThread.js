@@ -14,7 +14,7 @@ export function useDoctypeEmailThread() {
 		if (!doctype) return
 		loading.value = true
 		try {
-			thread.value = await createResource({ url: "one_bpmn.api.lookups.get_doctype_email_thread", method: "GET", params: { doctype } }).fetch()
+			thread.value = await createResource({ url: "processa.api.lookups.get_doctype_email_thread", method: "GET", params: { doctype } }).fetch()
 		} finally {
 			loading.value = false
 		}

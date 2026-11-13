@@ -2,7 +2,7 @@ import { ref } from "vue"
 import { frappeRequest } from "frappe-ui"
 import { downloadBlob } from "@/utils/downloadBpmn"
 
-const API = "one_bpmn.api.insights"
+const API = "processa.api.insights"
 
 // Loads the allocation report; a response to any request but the latest is dropped.
 export function useCostAllocation() {

@@ -1,6 +1,6 @@
 /.github/ @ks093
 AGENTS.md @ks093
-/one_bpmn/hooks.py @ks093
-/one_bpmn/patches.txt @ks093
-/one_bpmn/ai_agent_guardrails/ @ks093
-/one_bpmn/ai_agent_security/ @ks093
+/processa/hooks.py @ks093
+/processa/patches.txt @ks093
+/processa/ai_agent_guardrails/ @ks093
+/processa/ai_agent_security/ @ks093

@@ -6,7 +6,7 @@ import { notifySummary } from "../shared/notifySummary";
 const labelsByDoctype = {};
 
 export function loadLabels(doctype) {
-	labelsByDoctype[doctype] ||= createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: { doctype } }).fetch()
+	labelsByDoctype[doctype] ||= createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: { doctype } }).fetch()
 		.then((fields) => Object.fromEntries((Array.isArray(fields) ? fields : []).map((f) => [f.fieldname, f.label])));
 	return labelsByDoctype[doctype];
 }

@@ -32,7 +32,7 @@ describe("useAgentConfigPreview", () => {
 		await ac.loadPreview()
 
 		const { url, params } = frappeRequest.mock.calls[0][0]
-		expect(url).toBe("one_bpmn.api.process_maps.preview_ai_task")
+		expect(url).toBe("processa.api.process_maps.preview_ai_task")
 		expect(params).toMatchObject({
 			model_name: "Ticket Triage",
 			bpmn_xml: "<bpmn:definitions/>",
@@ -54,7 +54,7 @@ describe("useAgentConfigPreview", () => {
 		await ac.runDryRun()
 
 		const { url, params } = frappeRequest.mock.calls[0][0]
-		expect(url).toBe("one_bpmn.api.process_maps.dry_run_ai_task")
+		expect(url).toBe("processa.api.process_maps.dry_run_ai_task")
 		expect(params.sample_results).toBe('{"lookup": {"ok": true}}')
 		expect(ac.dryRun.value.output).toBe("Done")
 	})

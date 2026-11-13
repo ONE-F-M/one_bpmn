@@ -10,10 +10,10 @@ export default defineConfig({
 			lucideIcons: true,
 			jinjaBootData: true,
 			buildConfig: {
-				outDir: "../one_bpmn/public/frontend",
-				baseUrl: "/assets/one_bpmn/frontend/",
+				outDir: "../processa/public/frontend",
+				baseUrl: "/assets/processa/frontend/",
 				emptyOutDir: true,
-				indexHtmlPath: "../one_bpmn/www/processa.html",
+				indexHtmlPath: "../processa/www/processa.html",
 			},
 		}),
 		vue(),

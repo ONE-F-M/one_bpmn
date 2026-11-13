@@ -1,1 +1,1 @@
-export const DOCU_API = "/api/method/one_bpmn.api.docu.";
+export const DOCU_API = "/api/method/processa.api.docu.";

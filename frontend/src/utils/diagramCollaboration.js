@@ -1,7 +1,7 @@
-// Client side of one_bpmn.api.collaboration: presence, live diagram sync, revision-checked saves.
+// Client side of processa.api.collaboration: presence, live diagram sync, revision-checked saves.
 
 const DOCTYPE = "BPMN Process Model"
-const API = "one_bpmn.api.collaboration"
+const API = "processa.api.collaboration"
 
 export const EVENTS = {
 	change: "bpmn_diagram_change",

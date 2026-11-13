@@ -179,7 +179,7 @@ function AgentConfigComponent(props) {
 	const onConfigSelect = (value) => {
 		setAttr(modeling, element, bo, "aiAgentConfig", value);
 		if (!value) return;
-		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: value } }).fetch()
+		createResource({ url: "processa.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: value } }).fetch()
 			.then((res) => {
 				const fields = (res && res.message) || {};
 				Object.entries(fields).forEach(([attr, val]) => {

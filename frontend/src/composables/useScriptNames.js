@@ -9,7 +9,7 @@ let fetchPromise = null
 async function load() {
 	loading.value = true
 	try {
-		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.server_scripts.get_script_names" })
+		const res = await frappeRequest({ url: "/api/method/processa.api.server_scripts.get_script_names" })
 		names.value = res.message || res || []
 	} catch (e) {
 		error.value = e?.messages?.[0] || e?.message || String(e)

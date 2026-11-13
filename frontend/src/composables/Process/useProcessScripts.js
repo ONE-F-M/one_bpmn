@@ -234,7 +234,7 @@ export function useProcessScripts(pc) {
 		creatingScript.value = true;
 		try {
 			const result = await frappeRequest({
-				url: "one_bpmn.api.server_scripts.create_server_script",
+				url: "processa.api.server_scripts.create_server_script",
 				params: {
 					script_name: newScript.value.name,
 					script_type: newScript.value.script_type,
@@ -283,7 +283,7 @@ export function useProcessScripts(pc) {
 		const newDisabledStatus = script.disabled ? 0 : 1;
 		try {
 			await frappeRequest({
-				url: "one_bpmn.api.server_scripts.toggle_server_script",
+				url: "processa.api.server_scripts.toggle_server_script",
 				params: {
 					script_name: script.name,
 					disabled: newDisabledStatus,

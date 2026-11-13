@@ -207,7 +207,7 @@ function queryParams() {
 }
 
 function download(fmt) {
-	openReportExport("one_bpmn.api.insights.export_latency_report", { ...queryParams(), fmt })
+	openReportExport("processa.api.insights.export_latency_report", { ...queryParams(), fmt })
 }
 
 async function fetchReport() {
@@ -216,7 +216,7 @@ async function fetchReport() {
 	elementRuns.reset()
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights.get_performance_report",
+			url: "/api/method/processa.api.insights.get_performance_report",
 			method: "POST",
 			params: queryParams(),
 		})

@@ -101,7 +101,7 @@ export function useAgentConfigAssistant(ac) {
 		if (!convName) return;
 		assistantConversation.value = "";
 		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_scripts.end_chat_conversation",
+			url: "/api/method/processa.api.server_scripts.end_chat_conversation",
 			params: { conversation_name: convName },
 		}).catch(() => {});
 	}
@@ -164,7 +164,7 @@ export function useAgentConfigAssistant(ac) {
 		m.updateState = "applying";
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
+				url: "/api/method/processa.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
 				method: "POST",
 				params: {
 					config_name: m.update.config_name,

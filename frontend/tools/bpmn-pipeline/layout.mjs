@@ -7,7 +7,7 @@
  * sub-process box comes from subprocesses.mjs (already on the node as w/h).
  *
  * See the comments on the routing model in buildManualLaneDI, and
- * one_bpmn/tests/test_lane_layout.py for the guarantees that are pinned.
+ * processa/tests/test_lane_layout.py for the guarantees that are pinned.
  */
 
 import {

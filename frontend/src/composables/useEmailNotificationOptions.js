@@ -4,7 +4,7 @@
 import { createResource } from "frappe-ui";
 import { ref } from "vue"
 
-const FIELDS_URL = "one_bpmn.api.lookups.get_doctype_fields"
+const FIELDS_URL = "processa.api.lookups.get_doctype_fields"
 
 async function names(doctype) {
 	const rows = await createResource({ url: "frappe.client.get_list", params: { doctype: doctype, fields: '["name"]', limit_page_length: 0, order_by: "name asc" } }).fetch()
@@ -35,7 +35,7 @@ export function useEmailNotificationOptions() {
 		tableFields.value = []
 		if (!doctype) return
 		const [fields, tables] = await Promise.all([
-			createResource({ url: "one_bpmn.api.lookups.get_recipient_docfields", method: "GET", params: { doctype } }).fetch(),
+			createResource({ url: "processa.api.lookups.get_recipient_docfields", method: "GET", params: { doctype } }).fetch(),
 			createResource({ url: FIELDS_URL, method: "GET", params: { doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true } }).fetch(),
 		])
 		docFields.value = Array.isArray(fields) ? fields : []

@@ -9,7 +9,7 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        files: "one_bpmn.*"
+        files: "processa.*"
         exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
       - id: check-yaml
       - id: no-commit-to-branch
@@ -40,13 +40,13 @@ repos:
         exclude: |
             (?x)^(
                 frontend/.*|
-                one_bpmn/public/dist/.*|
+                processa/public/dist/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                one_bpmn/www/website_script.js|
-                one_bpmn/templates/includes/.*|
-                one_bpmn/public/js/lib/.*|
-                one_bpmn/website/doctype/website_theme/website_theme_template.scss
+                processa/www/website_script.js|
+                processa/templates/includes/.*|
+                processa/public/js/lib/.*|
+                processa/website/doctype/website_theme/website_theme_template.scss
             )$
 
 
@@ -60,13 +60,13 @@ repos:
         exclude: |
             (?x)^(
                 frontend/.*|
-                one_bpmn/public/dist/.*|
+                processa/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                one_bpmn/www/website_script.js|
-                one_bpmn/templates/includes/.*|
-                one_bpmn/public/js/lib/.*
+                processa/www/website_script.js|
+                processa/templates/includes/.*|
+                processa/public/js/lib/.*
             )$
 
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook

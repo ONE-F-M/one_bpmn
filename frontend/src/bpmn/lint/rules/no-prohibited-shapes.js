@@ -11,7 +11,7 @@
  * We only want to flag the generic "None-type" Task, not its subtypes.
  *
  * The prohibited shapes map mirrors the backend constant in
- *   one_bpmn/processa_engine/compiler/checks.py PROHIBITED_SHAPES
+ *   processa/processa_engine/compiler/checks.py PROHIBITED_SHAPES
  * Keep both in sync when adding or removing entries.
  */
 

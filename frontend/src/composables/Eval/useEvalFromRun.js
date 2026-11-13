@@ -33,7 +33,7 @@ export function useEvalFromRun(ctx) {
 		try {
 			agentRuns.value =
 				(await frappeRequest({
-					url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.list_runs_for_case_picker",
+					url: "/api/method/processa.ai_agent_evals.eval_case_factory.list_runs_for_case_picker",
 					method: "GET",
 					params: { suite: suiteName },
 				})) || [];
@@ -49,7 +49,7 @@ export function useEvalFromRun(ctx) {
 		loadingSteps.value = true;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.get_run_steps_for_case_picker",
+				url: "/api/method/processa.ai_agent_evals.eval_case_factory.get_run_steps_for_case_picker",
 				method: "GET",
 				params: { run_name: fromRun.run_name },
 			});
@@ -72,7 +72,7 @@ export function useEvalFromRun(ctx) {
 		savingFromRun.value = true;
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
+				url: "/api/method/processa.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
 				method: "POST",
 				params: {
 					run_name: fromRun.run_name,

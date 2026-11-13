@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 const SCRIPT = readFileSync(
 	resolve(
 		__dirname,
-		"../../../one_bpmn/processa_engine/doctype/processa_legacy_migration/processa_legacy_migration.js",
+		"../../../processa/processa_engine/doctype/processa_legacy_migration/processa_legacy_migration.js",
 	),
 	"utf8",
 );

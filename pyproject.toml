@@ -1,5 +1,5 @@
 [project]
-name = "one_bpmn"
+name = "processa"
 authors = [
     { name = "kartiksharma9319@gmail.com", email = "kartiksharma9319@gmail.com"}
 ]
@@ -81,10 +81,10 @@ indent-style = "tab"
 docstring-code-format = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=one_bpmn --cov-report=term-missing --cov-fail-under=30"
+addopts = "--cov=processa --cov-report=term-missing --cov-fail-under=30"
 
 [tool.coverage.run]
-source = ["one_bpmn"]
+source = ["processa"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
@@ -103,11 +103,11 @@ pretty = true
 incremental = true
 sqlite_cache = true
 files = [
-    "one_bpmn/__init__.py",
-    "one_bpmn/api/__init__.py",
-    "one_bpmn/tasks.py",
+    "processa/__init__.py",
+    "processa/api/__init__.py",
+    "processa/tasks.py",
 ]
-exclude = '^one_bpmn/one_bpmn/patches|/test_.*\.py$'
+exclude = '^processa/patches|/test_.*\.py$'
 
 [[tool.mypy.overrides]]
 module = [
