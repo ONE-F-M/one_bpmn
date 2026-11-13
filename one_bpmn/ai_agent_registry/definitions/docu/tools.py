@@ -95,6 +95,8 @@ DOCTYPE_PERMISSION_FLAGS = (
 	"report", "export", "import", "share", "print", "email", "if_owner",
 )
 
+DEFAULT_MODULE = "Processa Engine"
+
 
 def read_doctype_definition(doctype: str) -> dict | None:
 	"""An existing DocType in the full Docu IR shape, or None when it does not exist.
@@ -124,9 +126,6 @@ def read_doctype_definition(doctype: str) -> dict | None:
 			else:
 				row[attr] = val or ""
 		fields.append(row)
-	# Imported here because one_bpmn.api.docu imports this module at load time
-	from one_bpmn.api.docu import DEFAULT_MODULE
-
 	out = {
 		"doctype_name": doctype,
 		"module": getattr(meta, "module", DEFAULT_MODULE),

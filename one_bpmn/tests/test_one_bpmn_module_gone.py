@@ -24,16 +24,18 @@ class TestOneBpmnModuleGone(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("DocType", {"module": "ONE BPMN"}))
 
 	def test_a_design_naming_the_old_module_lands_in_processa_engine(self):
+		execute()
 		name = "Zz Gone Probe " + frappe.generate_hash(length=6).upper()
-		ir = json.dumps({
-			"doctype_name": name,
-			"module": "ONE BPMN",
-			"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
-		})
+		ir = json.dumps(
+			{
+				"doctype_name": name,
+				"module": "ONE BPMN",
+				"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
+			}
+		)
 		try:
 			apply_doctype(ir, confirm=1)
 			self.assertEqual(frappe.db.get_value("DocType", name, "module"), "Processa Engine")
 		finally:
 			if frappe.db.exists("DocType", name):
-				frappe.delete_doc("DocType", name, force=True, ignore_permissions=True)
-			frappe.db.commit()
+				frappe.delete_doc("DocType", name, force=True)

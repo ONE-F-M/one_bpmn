@@ -27,5 +27,8 @@ def execute():
 			frappe.db.set_value(doctype, name, "module", NEW_MODULE, update_modified=False)
 
 	if frappe.db.exists("Module Def", OLD_MODULE):
-		# Module Def is a system record, so the delete skips the permission check
-		frappe.delete_doc("Module Def", OLD_MODULE, ignore_permissions=True)
+		frappe.delete_doc(
+			"Module Def",
+			OLD_MODULE,
+			ignore_permissions=True,  # patch: Module Def is a system record
+		)
