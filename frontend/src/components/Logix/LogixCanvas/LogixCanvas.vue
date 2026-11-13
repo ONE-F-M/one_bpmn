@@ -361,7 +361,7 @@ async function runSecurityLint() {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.security.lint_server_script",
+			url: "/api/method/processa.api.security.lint_server_script",
 			method: "POST",
 			params: { code, script_name: savedScriptName.value },
 		});
@@ -569,7 +569,7 @@ async function runTestCase(payload) {
 	}
 	try {
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_scripts.run_logix_test_case",
+			url: "/api/method/processa.api.server_scripts.run_logix_test_case",
 			method: "POST",
 			params: {
 				script_name: savedScriptName.value,
@@ -676,7 +676,7 @@ async function fetchVersionHistory() {
 	loadingVersions.value = true;
 	try {
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.versions.get_script_version_history",
+			url: "/api/method/processa.api.versions.get_script_version_history",
 			params: { script_name: canvasScriptName.value },
 		});
 		versions.value = data || [];
@@ -761,7 +761,7 @@ async function ensureUniqueName() {
 			// A name that matches the currently saved script is always fine (it's ours)
 			if (name === savedScriptName.value) break;
 			const d = await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_scripts.check_server_script_exists",
+				url: "/api/method/processa.api.server_scripts.check_server_script_exists",
 				params: { script_name: name },
 			});
 			if (!d?.exists) break;
@@ -792,7 +792,7 @@ async function saveScript() {
 		// Upsert with the (possibly renamed) name
 		const meta = scriptMeta.value;
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_scripts.create_server_script",
+			url: "/api/method/processa.api.server_scripts.create_server_script",
 			method: "POST",
 			params: {
 				script_name:       name,

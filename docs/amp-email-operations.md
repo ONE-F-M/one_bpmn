@@ -1,6 +1,6 @@
 # AMP email: sender registration
 
-Gmail renders the interactive AMP part of an email only for senders Google has registered. Until then every recipient sees the HTML fallback. Registration is a one-time Operations task. Developer notes are in [`one_bpmn/processa_engine/notifications/README.md`](../one_bpmn/processa_engine/notifications/README.md).
+Gmail renders the interactive AMP part of an email only for senders Google has registered. Until then every recipient sees the HTML fallback. Registration is a one-time Operations task. Developer notes are in [`processa/processa_engine/notifications/README.md`](../processa/processa_engine/notifications/README.md).
 
 The sending domain is `one-fm.com`; task emails come from `notifications@one-fm.com`.
 
@@ -10,7 +10,7 @@ The sending domain is `one-fm.com`; task emails come from `notifications@one-fm.
 - [x] **SPF**: `dig +short txt one-fm.com` returns `v=spf1 include:_spf.google.com ~all`.
 - [x] **DMARC**: `dig +short txt _dmarc.one-fm.com` returns a `p=reject` policy.
 - [ ] **AMP validation passes** for the sample you submit (see the developer notes).
-- [ ] **CORS works in production**: `one_bpmn/templates/deployment/amp_cors_nginx.conf` is deployed and `handle_amp_action` answers an `AMP-Same-Origin` preflight with `AMP-Access-Control-Allow-Source-Origin`.
+- [ ] **CORS works in production**: `processa/templates/deployment/amp_cors_nginx.conf` is deployed and `handle_amp_action` answers an `AMP-Same-Origin` preflight with `AMP-Access-Control-Allow-Source-Origin`.
 - [ ] **Volume estimate**: User Tasks with `notifyAssignee=true` times average tasks per day.
 - [ ] **Privacy policy URL** for one-fm.com.
 

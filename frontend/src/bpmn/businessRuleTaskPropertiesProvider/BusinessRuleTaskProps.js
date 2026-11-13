@@ -79,7 +79,7 @@ function DecisionTablePicker(props) {
 			params.search_term = txt;
 		}
 
-		return createResource({ url: "one_bpmn.api.dmn.get_decision_list", method: "GET", params: params }).fetch().then((data) => {
+		return createResource({ url: "processa.api.dmn.get_decision_list", method: "GET", params: params }).fetch().then((data) => {
 			const list = Array.isArray(data) ? data : [];
 			return list;
 		});

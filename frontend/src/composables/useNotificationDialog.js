@@ -193,7 +193,7 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 		creatingNotification.value = true;
 		try {
 			const result = await frappeRequest({
-				url: "one_bpmn.api.notifications.create_notification",
+				url: "processa.api.notifications.create_notification",
 				params: {
 					notification_name: newNotif.value.name,
 					channel: newNotif.value.channel,

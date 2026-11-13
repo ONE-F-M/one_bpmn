@@ -105,7 +105,7 @@ export function useAgentConfigSave(ac) {
 		await ac.saveScreening();
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
+				url: "/api/method/processa.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
 				method: "POST",
 				params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
 			});

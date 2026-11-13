@@ -300,7 +300,7 @@ async function applyDecisions() {
 		applying.value = true;
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.config_export_import.confirm_overwrite_scripts",
+				url: "/api/method/processa.api.config_export_import.confirm_overwrite_scripts",
 				method: "POST",
 				params: { overwrites: JSON.stringify(toOverwrite) },
 			});

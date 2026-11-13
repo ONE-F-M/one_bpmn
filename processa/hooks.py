@@ -1,0 +1,281 @@
+app_name = "processa"
+app_title = "Processa"
+app_publisher = "kartiksharma9319@gmail.com"
+app_description = "Spiffworkflow integration with Frappe"
+app_email = "kartiksharma9319@gmail.com"
+app_license = "mit"
+
+# Website route rules for Vue.js frontend
+website_route_rules = [
+	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
+	{"from_route": "/processa", "to_route": "processa"},
+	# The ONE AI chat page. The template folder must stay
+	# importable (www/one_ai/index.py), so the pretty route is mapped here
+	# rather than named with a hyphen on disk.
+	{"from_route": "/one-ai", "to_route": "one_ai"},
+]
+
+# Includes in <head>
+# ------------------
+
+extend_bootinfo = "processa.boot.boot_session"
+
+app_include_js = [
+	"/assets/processa/js/bpmn_json_prettify.js",
+	"/assets/processa/js/one_ai_loader.js",
+	"/assets/processa/js/bpmn_form_actions.js?v=6",
+	"/assets/processa/js/bpmn_list_indicator.js",
+	"/assets/processa/js/bpmn_list_actions.js?v=1",
+	"/assets/processa/js/bpmn_cancel_request.js?v=1",
+	# An agent's question appears on the document it is about, whatever
+	# that document is. Loaded for every form rather than bound to one doctype:
+	# the clarification record names a doctype and a document, so it was never
+	# Work-Item-specific, and the moment an agent is pointed at anything else a
+	# question about it has to surface on that thing. The script asks once which
+	# doctypes have ever had a question asked about them and does nothing on the
+	# rest, so a form nobody has ever asked about costs no round trip.
+	# ?v= as above — a plain path gets no automatic cache-busting.
+	"/assets/processa/js/ai_clarification_on_document.js?v=2",
+]
+
+# Purge action on the AI Memory list view, mirroring the memory browser's
+# Purge button. Calls the same processa.api.memory.purge_memories.
+doctype_list_js = {
+	"AI Memory": "public/js/ai_memory_list.js",
+}
+
+# Installation
+# ------------
+
+after_install = [
+	"processa.install.after_install",
+	"processa.processa_connectors.seed.import_seed_manifests",
+]
+
+# Permissions
+# -----------
+# Permissions evaluated in scripted ways
+
+# Scope AI Evals doctypes to the process owner (System Manager sees all).
+permission_query_conditions = {
+	"AI Eval Suite": "processa.ai_agent_evals.eval_permissions.eval_suite_query_conditions",
+	"AI Eval Case": "processa.ai_agent_evals.eval_permissions.eval_case_query_conditions",
+	"AI Eval Run": "processa.ai_agent_evals.eval_permissions.eval_run_query_conditions",
+	# Your own memories plus the shared ones; a System Manager sees everybody's.
+	# Enforced here so it holds for the browser, the Desk list and any report,
+	# instead of being re-stated at each call site.
+	"AI Memory": "processa.ai_agent_memory.permissions.ai_memory_query_conditions",
+	# A conversation with an agent is private to the person who had it. Enforced
+	# here so it holds for the list, the Desk, any report and /api/resource alike.
+	"Chat Message": "processa.ai_agent_conversations.permissions.chat_message_query_conditions",
+	"Doctype Change Request": "processa.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
+	"AI Skill": "processa.ai_agent_skills.permissions.ai_skill_query_conditions",
+}
+
+has_permission = {
+	"AI Eval Suite": "processa.ai_agent_evals.eval_permissions.eval_suite_has_permission",
+	"AI Eval Case": "processa.ai_agent_evals.eval_permissions.eval_case_has_permission",
+	"AI Eval Run": "processa.ai_agent_evals.eval_permissions.eval_run_has_permission",
+	"AI Memory": "processa.ai_agent_memory.permissions.ai_memory_has_permission",
+	"Chat Message": "processa.ai_agent_conversations.permissions.chat_message_has_permission",
+	"Doctype Change Request": "processa.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.has_permission",
+	"AI Skill": "processa.ai_agent_skills.permissions.ai_skill_has_permission",
+}
+
+# DocType Class
+# ---------------
+# Override standard doctype classes
+
+# The jobs that WAKE parked agent work get a queue of their own.
+# Frappe derives a scheduled job's queue from its frequency alone, so a Cron job
+# is always on "default" — shared here with 172 other enabled jobs. A long job
+# ahead of them means a finished delegation still reads as running and a passed
+# deadline goes unnoticed until it clears. Agent turns already have their own
+# worker for this reason; this gives the same to the clock that wakes them.
+#
+# Our three methods only. Every other scheduled job on the site falls through to
+# Frappe's own behaviour, and ours fall back to "default" unless the site
+# actually declares the queue — so this is safe to deploy before the worker.
+override_doctype_class = {
+	"Scheduled Job Type": "processa.overrides.scheduled_job_type.ProcessaScheduledJobType",
+	"Server Script": "processa.overrides.server_script.ProcessaServerScript",
+}
+
+# Document Events
+# ---------------
+# Universal BPMN trigger — fires for every DocType.
+# processa_engine/triggers.py checks internally whether a matching active BPMN Process
+# Model is configured for that doctype + event before doing anything.
+# Internal BPMN doctypes are skipped to prevent recursion.
+
+_BPMN_TRIGGER = "processa.processa_engine.triggers.on_doc_event"
+
+# Guard: blocks native Frappe submit/cancel/workflow-action when a BPMN
+# process instance is actively controlling the document.
+# Documents with NO active BPMN instance are completely unaffected.
+_BPMN_GUARD   = "processa.processa_engine.triggers.guard_bpmn_document"
+_BPMN_DELETE  = "processa.processa_engine.triggers.delete_linked_bpmn_instances"
+
+# Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
+after_migrate = [
+	"processa.ai_agent_registry.provisioning.agent_config_resolver.sync_all_shapes_to_configs",
+	"processa.install.grant_process_owner_doctype_access",
+]
+
+# Jinja globals for aiUserPrompt templates.
+jinja = {
+	"methods": [
+		"processa.processa_engine.agent_runtime.turn_state.get_turn",
+		"processa.ai_agent_registry.definitions.docu.tools.compact_ir",
+	]
+}
+
+doc_events = {
+	"*": {
+		# Start new BPMN instances / bidirectional sync
+		"after_insert":           _BPMN_TRIGGER,
+		"on_update":              _BPMN_TRIGGER,
+		"after_save":             _BPMN_TRIGGER,
+		"on_submit":              _BPMN_TRIGGER,
+		"on_cancel":              _BPMN_TRIGGER,
+		"on_update_after_submit": _BPMN_TRIGGER,
+
+		# Gate: block native actions when BPMN is controlling the doc
+		"before_submit":          _BPMN_GUARD,
+		"before_cancel":          _BPMN_GUARD,
+		"before_workflow_action": _BPMN_GUARD,
+		"on_trash":               _BPMN_DELETE,
+		"onload":                 "processa.processa_engine.instances.cancellation.set_pending_cancellation_onload",
+	},
+	# Creating a chat agent configuration kicks off the
+	# "AI Agent Creation Process" BPMN map via its conditional start event
+	# (handled by the universal _BPMN_TRIGGER above) — no dedicated hook.
+	# Pre-deployment security gate: structurally validate the body of any
+	# Server Script that a BPMN script task references (unrelated Server
+	# Scripts pass through untouched).
+	"Server Script": {
+		"validate": [
+			"processa.ai_agent_security.code_checks.script_gate.apply_server_script_approval",
+			"processa.ai_agent_security.code_checks.script_gate.validate_server_script_on_save",
+		],
+	},
+	# PII input screening. The map-driven agents read the user's
+	# text back off the stored Chat Message, so redacting the in-flight
+	# message is not enough — the stored row has to be redacted too.
+	"Chat Message": {
+		"before_insert": [
+			"processa.ai_agent_security.screening.pii.screen_chat_message",
+			# The output half: the same argument as above, in the other direction.
+			# A map-driven agent writes its reply as a Chat Message and the surface
+			# reads it back from there, so screening only the in-flight string would
+			# be undone by the stored row.
+			"processa.ai_agent_security.screening.output_screening.screen_chat_response",
+		],
+		"after_insert": [
+			# The count and turn-boundary compaction triggers. after_insert, not
+			# before: the message this turn produced has to be part of the count,
+			# and a failed insert must not leave work queued about it. The handler
+			# only ever ENQUEUES — summarising on this thread would put its
+			# latency in front of the person waiting for a reply.
+			"processa.ai_agent_conversations.compaction_triggers.on_chat_message",
+		],
+	},
+	# The list of Processa-controlled doctypes (used by
+	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
+	# Redis — drop it whenever a process model is (de)activated or retargeted.
+	"BPMN Process Model": {
+		"on_update": "processa.processa_engine.instances.listing.clear_processa_doctype_cache",
+		"after_delete": "processa.processa_engine.instances.listing.clear_processa_doctype_cache",
+	},
+}
+
+# Scheduled Tasks
+# ---------------
+# BPMN Timer events run every minute:
+# - Timer Start Events: check cron expressions, start new instances
+# - Timer Catch Events: resume waiting instances whose timers elapsed
+
+scheduler_events = {
+	"cron": {
+		# Retention runs once a day, in the small hours: it is the only job here
+		# that DELETES anything, and a bounded nightly pass is easier to reason
+		# about (and to notice going wrong) than a trickle through the day.
+		"30 2 * * *": [
+			"processa.ai_agent_conversations.jobs.sweep_conversation_retention",
+			# A published rate change has a date but the catalogue has no date
+			# field, so something has to notice the day arriving.
+			"processa.ai_agent_observability.model_rates.apply_due_model_rates",
+			# Soft-retires memories that decayed, were never corroborated, or
+			# are minor and old. Sets expires_on with the reason in metadata;
+			# deletes nothing.
+			"processa.ai_agent_memory.prune.prune_memories",
+			# Memory search ranks with an exact scan and no vector index, a
+			# decision bounded by row counts. Once a day is enough to notice a
+			# bound being approached; nothing here acts on it.
+			"processa.ai_agent_memory.volume_alert.check_volume",
+		],
+		# A sandbox run whose callback never arrives would leave its agent waiting for good.
+		"*/2 * * * *": [
+			"processa.agents_sandbox.sandbox.reaper.reap",
+			"processa.agents_sandbox.sandbox.reaper.reap_sessions",
+		],
+		"* * * * *": [
+			"processa.processa_engine.timers.process_timer_start_events",
+			"processa.processa_engine.timers.process_timer_catch_events",
+			"processa.a2a.poller.poll_a2a_tasks",
+		],
+		# Try every enabled model's credentials against its provider
+		# (a free list call, not a completion), then tell someone about any model
+		# that is Unhealthy and has not been announced yet — once per kind of
+		# problem. Fifteen minutes is often enough that a fixed key lifts the
+		# block before the person who fixed it has moved on, and rare enough to
+		# be invisible in the provider's request log.
+		"*/15 * * * *": [
+			"processa.ai_agent_registry.model_health.check_ai_model_credentials",
+		],
+		# A lane job that is killed (worker restart, RQ timeout) never gets to
+		# enqueue its own successor or notice it was the last lane home, so a
+		# fanned-out run it belonged to would sit on "Running" forever without
+		# this. Five minutes is the same cadence as the credential check above
+		# and well inside the margin a run's own deadline already carries.
+		"*/5 * * * *": [
+			"processa.ai_agent_evals.runner.sweep.sweep_stale_eval_runs",
+			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
+			"processa.processa_engine.timers.requeue_stranded_ai_steps",
+		],
+		"0 * * * *": [
+			"processa.ai_agent_conversations.jobs.close_stale_chat_instances",
+			# Chase a question nobody has answered. Hourly rather than
+			# by the minute because the thing being waited on is a person reading
+			# their notifications, and it never resolves the question itself.
+			"processa.ai_agent_conversations.jobs.chase_unanswered_clarifications",
+			# The TIME compaction trigger. Hourly rather than by the minute
+			# because the thing being waited on is a conversation going quiet,
+			# and the thresholds that drive it are configured in minutes but
+			# meant in tens of minutes.
+			"processa.ai_agent_conversations.jobs.compact_idle_conversations",
+		],
+	},
+	"hourly": [
+		# Ends a Processa Legacy Migration whose background jobs died without finishing it.
+		"processa.processa_engine.legacy_migration.fail_stalled_migrations",
+	],
+}
+
+# Cache keys that survive frappe.clear_cache()
+# --------------------------------------------
+# The stage tools' per-turn store (processa_engine/agent_runtime/turn_state.py) is live state for a running turn.
+persistent_cache_keys = ["ait_turn:*"]
+
+# Request Events
+# ----------------
+after_request = ["processa.processa_engine.notifications.actions.apply_amp_headers"]
+
+# Automatically update python controller files with type annotations for this app.
+export_python_type_annotations = True
+
+# Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
+# 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
+default_log_clearing_doctypes = {
+	"AI Memory": 0,
+}

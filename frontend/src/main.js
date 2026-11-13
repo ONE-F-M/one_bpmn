@@ -73,7 +73,7 @@ app.use(router)
 router.isReady().then(async () => {
 	if (import.meta.env.DEV) {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.www.processa.get_context_for_dev",
+			url: "/api/method/processa.www.processa.get_context_for_dev",
 		}).then(async (values) => {
 			if (!window.frappe) window.frappe = {}
 			window.frappe.boot = values

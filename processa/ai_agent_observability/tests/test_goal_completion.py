@@ -1,0 +1,541 @@
+"""
+Did the run achieve what it was asked to do?
+
+Satisfaction is sparse and self-selected; completion is recorded on every run
+with no user effort, which is what makes it usable for comparing agents. That
+only holds if the values mean what they say — so the property these tests defend
+hardest is that **Unknown is never coerced**. An undetermined run counted as a
+success or a failure would bias every average built on it, invisibly, because
+the row would still read as definite.
+
+Run with:
+    bench --site SITE run-tests --app processa --module processa.tests.test_goal_completion
+"""
+
+from __future__ import annotations
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+
+from processa.ai_agent_observability import goal_completion as gc
+from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
+from processa.ai_agent_observability.observability import finalize_ai_run
+
+
+class TestWhatTheExecutorKnows(FrappeTestCase):
+	"""determine() is pure — no database, no model, no guessing."""
+
+	def test_a_clean_run_with_an_answer_achieved(self):
+		state, basis = gc.determine(ExecutorResult(output="here is your answer"))
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("here is your answer", basis)
+
+	def test_an_errored_run_is_not_achieved(self):
+		state, basis = gc.determine(
+			ExecutorResult(error_code=ErrorCode.FAILED_MODEL_CALL, error_message="boom")
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("FAILED_MODEL_CALL", basis)
+
+	def test_the_turn_cap_is_not_achieved_and_says_so(self):
+		"""It arrives as a model failure like any other, but it is a distinct
+		outcome — the agent was still working, not broken — and the basis has to
+		be readable enough that nobody has to open the trace to know which."""
+		state, basis = gc.determine(
+			ExecutorResult(hit_turn_cap=True, error_code=ErrorCode.FAILED_MODEL_CALL)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("ran out of turns", basis)
+
+	def test_a_clean_run_with_no_output_is_unknown_not_success(self):
+		"""Finished without error but said nothing. Counting that as achieved
+		would inflate every agent that quietly does nothing."""
+		state, basis = gc.determine(ExecutorResult(output=""))
+		self.assertEqual(state, gc.UNKNOWN)
+		self.assertIn("no output", basis)
+
+	def test_a_suspended_run_is_unknown_because_it_has_not_ended(self):
+		state, basis = gc.determine(ExecutorResult(error_code=ErrorCode.SUSPENDED))
+		self.assertEqual(state, gc.UNKNOWN)
+		self.assertIn("not decided", basis)
+
+	def test_no_result_at_all_is_unknown(self):
+		state, _ = gc.determine(None)
+		self.assertEqual(state, gc.UNKNOWN)
+
+	def test_a_structured_reply_counts_as_an_answer(self):
+		state, _ = gc.determine(ExecutorResult(output={"response": "done"}))
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_an_empty_structured_reply_does_not(self):
+		state, _ = gc.determine(ExecutorResult(output={"response": "", "bpmn_xml": ""}))
+		self.assertEqual(state, gc.UNKNOWN)
+
+	def test_every_basis_is_a_sentence_somebody_could_act_on(self):
+		"""A number in a report has to be traceable to its evidence."""
+		for result in (
+			ExecutorResult(output="ok"),
+			ExecutorResult(error_code=ErrorCode.FAILED_MODEL_CALL),
+			ExecutorResult(hit_turn_cap=True, error_code=ErrorCode.FAILED_MODEL_CALL),
+			ExecutorResult(output=""),
+			ExecutorResult(error_code=ErrorCode.SUSPENDED),
+		):
+			_, basis = gc.determine(result)
+			self.assertTrue(basis and basis.endswith("."), f"unhelpful basis: {basis!r}")
+
+	def test_the_basis_quotes_the_actual_request_and_output(self):
+		"""The whole point — a basis somebody can judge, not a
+		template every run shares."""
+		state, basis = gc.determine(
+			ExecutorResult(output="the sky is blue"), request_text="why is the sky blue?"
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("why is the sky blue?", basis)
+		self.assertIn("the sky is blue", basis)
+
+	def test_different_runs_get_different_bases(self):
+		"""No single template should ever cover most runs — the basis
+		has to move when the request/output do."""
+		_, basis_a = gc.determine(ExecutorResult(output="answer A"), request_text="question A")
+		_, basis_b = gc.determine(ExecutorResult(output="answer B"), request_text="question B")
+		self.assertNotEqual(basis_a, basis_b)
+
+	def test_a_structured_reply_without_a_known_key_is_still_quoted(self):
+		"""_output_text used to collapse this shape to the literal
+		placeholder "structured" — losing the one thing that could make the
+		basis specific."""
+		state, basis = gc.determine(ExecutorResult(output={"bpmn_xml": "<bpmn/>"}))
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("<bpmn/>", basis)
+		self.assertNotIn("structured", basis)
+
+
+class TestAMapDeclaringItsOwnDefinitionOfDone(FrappeTestCase):
+	"""Agents differ in what finishing means, so a map may name the reply key
+	that proves it — declaratively, never as an expression to evaluate."""
+
+	def test_the_declared_key_being_present_is_achievement(self):
+		state, basis = gc.determine(
+			ExecutorResult(output={"response": "here", "bpmn_xml": "<bpmn/>"}), goal_key="bpmn_xml"
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("bpmn_xml", basis)
+
+	def test_a_chatty_reply_without_the_declared_key_is_not_achievement(self):
+		"""The whole point: an agent that answered pleasantly but produced no
+		diagram did not do what it was asked."""
+		state, basis = gc.determine(
+			ExecutorResult(output={"response": "I could not draw that"}), goal_key="bpmn_xml"
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("bpmn_xml", basis)
+
+	def test_an_empty_declared_key_is_not_achievement(self):
+		state, _ = gc.determine(ExecutorResult(output={"bpmn_xml": "   "}), goal_key="bpmn_xml")
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+
+	def test_a_declared_key_does_not_rescue_an_errored_run(self):
+		state, basis = gc.determine(
+			ExecutorResult(output={"bpmn_xml": "<bpmn/>"}, error_code=ErrorCode.FAILED_MODEL_CALL),
+			goal_key="bpmn_xml",
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("error", basis.lower())
+
+
+class RunFixture(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.instance = None
+
+	def _run(self, status="Running", instance=None):
+		doc = frappe.get_doc(
+			{
+				"doctype": "AI Agent Run",
+				"bpmn_id": "goal_probe",
+				"status": status,
+				"started_at": frappe.utils.now_datetime(),
+				"instance": instance,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda n=doc.name: frappe.db.exists("AI Agent Run", n)
+			and frappe.delete_doc("AI Agent Run", n, force=True, ignore_permissions=True)
+		)
+		return doc
+
+
+class TestItIsRecordedOnTheRun(RunFixture):
+	def test_finalizing_a_successful_run_records_achievement(self):
+		run = self._run()
+		finalize_ai_run(run, ExecutorResult(output="the answer"))
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.goal_completion, gc.ACHIEVED)
+		self.assertTrue(row.completion_basis)
+
+	def test_finalizing_a_failed_run_records_non_achievement(self):
+		run = self._run()
+		finalize_ai_run(run, ExecutorResult(error_code=ErrorCode.FAILED_MODEL_CALL, error_message="x"))
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.NOT_ACHIEVED
+		)
+
+	def test_the_declared_key_reaches_the_record(self):
+		run = self._run()
+		finalize_ai_run(run, ExecutorResult(output={"script": "print(1)"}), goal_key="script")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.ACHIEVED
+		)
+
+	def test_a_background_task_with_no_process_still_gets_an_outcome(self):
+		"""Not every run belongs to a chat, and a background AI Agent Task never
+		waits for an instance to complete — so the executor's own signals have to
+		be enough on their own."""
+		run = self._run(instance=None)
+		finalize_ai_run(run, ExecutorResult(output="done"))
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertIsNone(row.instance)
+		self.assertEqual(row.goal_completion, gc.ACHIEVED)
+
+	def test_a_new_run_starts_unknown(self):
+		"""Never blank, never a guess — a run in flight has simply not decided."""
+		self.assertEqual(self._run().goal_completion, gc.UNKNOWN)
+
+
+class TestTheProcessHasTheFinalWord(RunFixture):
+	"""Whether the map reached its end event is the strongest signal, and the one
+	that can only be read after the runs have already finished."""
+
+	def _instance(self):
+		model = frappe.db.get_value("BPMN Process Model", {}, "name")
+		if not model:
+			self.skipTest("no process model on this site")
+		doc = frappe.get_doc(
+			{"doctype": "BPMN Process Instance", "process_model": model, "status": "Active"}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.db.exists("BPMN Process Instance", doc.name)
+			and frappe.delete_doc("BPMN Process Instance", doc.name, force=True, ignore_permissions=True)
+		)
+		return doc
+
+    # ── the two settling directions ──────────────────────────────────────────
+
+	def test_reaching_the_end_event_settles_an_undecided_run(self):
+		inst = self._instance()
+		run = self._run(status="Success", instance=inst.name)
+		run.db_set("final_output", "the answer", update_modified=False)
+		self.assertEqual(run.goal_completion, gc.UNKNOWN)
+
+		settled = gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(settled, 1)
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.goal_completion, gc.ACHIEVED)
+		self.assertIn("end event", row.completion_basis)
+		self.assertIn("the answer", row.completion_basis)
+
+	def test_a_completed_map_does_not_promote_a_run_with_no_output(self):
+		"""The map finishing is not, by itself, evidence this run
+		achieved anything. The exact shape 6 of 15 audited "Achieved" runs
+		were wrongly recorded as."""
+		inst = self._instance()
+		run = self._run(status="Success", instance=inst.name)
+		self.assertFalse((run.final_output or "").strip())
+
+		settled = gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(settled, 0)
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.UNKNOWN
+		)
+
+	def test_an_errored_process_settles_it_the_other_way(self):
+		inst = self._instance()
+		run = self._run(status="Success", instance=inst.name)
+		gc.settle_for_instance(inst.name, "Errored")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.NOT_ACHIEVED
+		)
+
+	# ── what it must NOT do ──────────────────────────────────────────────────
+
+	def test_a_completed_map_does_not_promote_a_run_that_errored(self):
+		"""A map recovering through its error branch is not the agent having
+		achieved its goal. This is the one that would quietly inflate every
+		success rate if it were wrong."""
+		inst = self._instance()
+		run = self._run(status="Error", instance=inst.name)
+		gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.UNKNOWN
+		)
+
+	def test_an_outcome_the_executor_already_decided_is_never_overwritten(self):
+		inst = self._instance()
+		run = self._run(status="Success", instance=inst.name)
+		finalize_ai_run(run, ExecutorResult(output={"x": 1}), goal_key="script")  # Not Achieved
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.NOT_ACHIEVED
+		)
+
+		gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"),
+			gc.NOT_ACHIEVED,
+			"the map completing overwrote what the run itself established",
+		)
+
+	def test_a_run_still_in_flight_is_left_alone(self):
+		inst = self._instance()
+		run = self._run(status="Running", instance=inst.name)
+		gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.UNKNOWN
+		)
+
+	def test_a_status_that_is_not_an_ending_settles_nothing(self):
+		inst = self._instance()
+		self._run(status="Success", instance=inst.name)
+		self.assertEqual(gc.settle_for_instance(inst.name, "Active"), 0)
+
+	def test_no_instance_settles_nothing(self):
+		self.assertEqual(gc.settle_for_instance("", "Completed"), 0)
+
+
+def _turn(role, tool_calls=None):
+	"""A TurnRecord-shaped dict, enough to drive determine()'s trace walk."""
+	return {"role": role, "content": "", "tool_calls": tool_calls or []}
+
+
+class TestAToolFailureNeverRetried(FrappeTestCase):
+	"""Calling finalize is not achievement when a tool failed and was never called again successfully."""
+
+	def test_a_failed_tool_with_no_retry_is_not_achieved_and_names_the_tool(self):
+		trace = [
+			_turn("tool", [{"name": "send_email", "result": '{"error": "smtp timeout"}'}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("send_email", basis)
+
+	def test_a_failed_tool_retried_successfully_is_achieved_as_normal(self):
+		trace = [
+			_turn("tool", [{"name": "send_email", "result": '{"error": "smtp timeout"}'}]),
+			_turn("tool", [{"name": "send_email", "result": "sent"}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("here is your answer", basis)
+
+	def test_a_different_tool_succeeding_does_not_supersede_the_failed_one(self):
+		trace = [
+			_turn("tool", [{"name": "tool_a", "result": '{"error": "boom"}'}]),
+			_turn("tool", [{"name": "tool_b", "result": "ok"}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("tool_a", basis)
+
+	def test_a_dict_shaped_resumed_trace_with_a_failure_is_not_achieved(self):
+		"""A resumed run's trace holds dicts, not dataclasses; both shapes read the same way."""
+		trace = [
+			{
+				"role": "tool",
+				"content": "",
+				"tool_calls": [{"name": "fetch_doc", "result": "Error calling fetch_doc: not found"}],
+			},
+			{
+				"role": "tool",
+				"content": "",
+				"tool_calls": [{"name": "finalize", "result": "ok"}],
+			},
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("fetch_doc", basis)
+
+
+class TestThePatchFixesAlreadyAchievedRuns(RunFixture):
+	"""The patch reclassifies Achieved runs whose stored calls show a failure never retried successfully."""
+
+	def _step_with_call(self, run_name, step_index, tool_name, status, tool_result):
+		step = frappe.get_doc(
+			{
+				"doctype": "AI Agent Step",
+				"run": run_name,
+				"step_index": step_index,
+				"role": "tool",
+				"tool_calls": [
+					{
+						"tool_name": tool_name,
+						"status": status,
+						"tool_result": tool_result,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		return step
+
+	def test_an_unretried_failure_flips_an_achieved_run_to_not_achieved(self):
+		run = self._run(status="Success")
+		frappe.db.set_value(
+			"AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"}
+		)
+		self._step_with_call(run.name, 1, "send_email", "Error", '{"error": "smtp timeout"}')
+		self._step_with_call(run.name, 2, "finalize", "Success", "ok")
+
+		from processa.patches.v1_0 import goal_completion_unsuperseded_tool_error as patch
+
+		patch.execute()
+
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.goal_completion, gc.NOT_ACHIEVED)
+		self.assertIn("send_email", row.completion_basis)
+
+	def test_a_retried_success_leaves_the_run_achieved(self):
+		run = self._run(status="Success")
+		frappe.db.set_value(
+			"AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"}
+		)
+		self._step_with_call(run.name, 1, "send_email", "Error", '{"error": "smtp timeout"}')
+		self._step_with_call(run.name, 2, "send_email", "Success", "sent")
+		self._step_with_call(run.name, 3, "finalize", "Success", "ok")
+
+		from processa.patches.v1_0 import goal_completion_unsuperseded_tool_error as patch
+
+		patch.execute()
+
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.ACHIEVED
+		)
+
+
+G57_TOO_LARGE = (
+	'{"generated": false, "response": "This process is too large for me to generate, '
+	'even split into smaller phases.", "truncated": true, "auto_fixes": []}'
+)
+UKB_GENERATED = '{"generated": true, "process_name": "Event Staff Lifecycle", "issues": 0, "auto_fixes": []}'
+
+
+def _stage_trace(stage_name, stage_result):
+	return [
+		_turn("tool", [{"name": "classify_intent", "result": '{"intent": "GENERATE_NEW"}'}]),
+		_turn("tool", [{"name": stage_name, "result": stage_result}]),
+	]
+
+
+class TestAFailedStageIsNotAchieved(FrappeTestCase):
+	"""A stage tool reports failure in a JSON body its call status calls Success."""
+
+	def test_the_too_large_run_is_not_achieved_and_says_why(self):
+		state, basis = gc.determine(
+			ExecutorResult(output="This process is too large for me to generate.", trace=_stage_trace("generate_process", G57_TOO_LARGE))
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", basis)
+		self.assertIn("too large", basis)
+
+	def test_a_generated_diagram_stays_achieved(self):
+		state, _ = gc.determine(
+			ExecutorResult(output="I've generated the process.", trace=_stage_trace("generate_process", UKB_GENERATED))
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_each_failure_flag_is_not_achieved(self):
+		cases = (
+			("generated", '{"generated": false}'),
+			("modified", '{"modified": false}'),
+			("truncated", '{"truncated": true}'),
+			("safe", '{"finalized": true, "safe": false}'),
+			("fallback", '{"finalized": true, "fallback": true}'),
+		)
+		for flag, body in cases:
+			with self.subTest(flag):
+				state, basis = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.NOT_ACHIEVED)
+				self.assertIn("'stage'", basis)
+
+	def test_a_success_body_stays_achieved(self):
+		for body in ('{"modified": true, "process_name": "P"}', '{"finalized": true}', '{"has_ir": true}'):
+			with self.subTest(body):
+				state, _ = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_removal_confirmation_is_a_question_not_a_failure(self):
+		state, _ = gc.determine(
+			ExecutorResult(
+				output="confirm removal?",
+				trace=_stage_trace("modify_process", '{"modified": false, "needs_removal_confirm": true}'),
+			)
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_stage_retried_successfully_is_achieved(self):
+		trace = _stage_trace("generate_process", G57_TOO_LARGE) + [
+			_turn("tool", [{"name": "generate_process", "result": UKB_GENERATED}])
+		]
+		state, _ = gc.determine(ExecutorResult(output="done", trace=trace))
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_another_tool_succeeding_does_not_rescue_a_failed_stage(self):
+		trace = _stage_trace("generate_process", G57_TOO_LARGE) + [
+			_turn("tool", [{"name": "finalize", "result": '{"finalized": true}'}])
+		]
+		state, basis = gc.determine(ExecutorResult(output="done", trace=trace))
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", basis)
+
+	def test_results_that_are_not_json_objects_are_ignored(self):
+		for body in ("plain text", "[1, 2]", "", "{broken"):
+			with self.subTest(body):
+				state, _ = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_dict_shaped_resumed_trace_is_read_the_same_way(self):
+		trace = [{"role": "tool", "content": "", "tool_calls": [{"name": "generate_process", "result": G57_TOO_LARGE}]}]
+		state, _ = gc.determine(ExecutorResult(output="a reply", trace=trace))
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+
+
+class TestStageFailuresOnTheRecord(RunFixture):
+	_step_with_call = TestThePatchFixesAlreadyAchievedRuns._step_with_call
+
+	def test_finalizing_records_it_and_leaves_status_alone(self):
+		run = self._run()
+		finalize_ai_run(
+			run,
+			ExecutorResult(output="too large", trace=_stage_trace("generate_process", G57_TOO_LARGE)),
+		)
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.status, "Success")
+		self.assertEqual(row.goal_completion, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", row.completion_basis)
+	def _achieved_run(self, stage_result):
+		run = self._run(status="Success")
+		frappe.db.set_value("AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"})
+		self._step_with_call(run.name, 1, "generate_process", "Success", stage_result)
+		self._step_with_call(run.name, 2, "finalize", "Success", '{"finalized": true}')
+		return run
+
+	def test_a_too_large_run_flips_and_a_generated_run_does_not(self):
+		bad = self._achieved_run(G57_TOO_LARGE)
+		good = self._achieved_run(UKB_GENERATED)
+
+		from processa.patches.v1_0 import goal_completion_failed_stage_results as patch
+
+		patch.execute()
+		patch.execute()
+
+		self.assertEqual(frappe.db.get_value("AI Agent Run", bad.name, "goal_completion"), gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", frappe.db.get_value("AI Agent Run", bad.name, "completion_basis"))
+		self.assertEqual(frappe.db.get_value("AI Agent Run", good.name, "goal_completion"), gc.ACHIEVED)

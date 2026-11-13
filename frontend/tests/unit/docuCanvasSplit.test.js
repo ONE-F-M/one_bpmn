@@ -83,9 +83,9 @@ describe("DocuCanvas split", () => {
 });
 
 describe("endpoints the Docu canvas calls", () => {
-	const apiModule = read("utils/docuApi.js").match(/one_bpmn\.api\.(\w+)\./)[1];
+	const apiModule = read("utils/docuApi.js").match(/processa\.api\.(\w+)\./)[1];
 	const python = readFileSync(
-		new URL(`../../../one_bpmn/api/${apiModule}.py`, import.meta.url),
+		new URL(`../../../processa/api/${apiModule}.py`, import.meta.url),
 		"utf8",
 	);
 	const sources = [...docuFiles.filter((f) => /\.(vue)$/.test(f)), ...COMPOSABLES]

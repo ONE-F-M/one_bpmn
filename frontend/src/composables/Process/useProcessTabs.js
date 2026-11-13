@@ -61,7 +61,7 @@ export function useProcessTabs(pc) {
 		// Server call (no loadProcess round-trip)
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.delete_diagram",
+				url: "/api/method/processa.api.process_maps.delete_diagram",
 				params: { name: tab.name },
 			});
 		} catch (error) {
@@ -135,7 +135,7 @@ export function useProcessTabs(pc) {
 
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.rename_process_model",
+				url: "/api/method/processa.api.process_maps.rename_process_model",
 				params: {
 					name: tabName,
 					new_title: newModelName,
@@ -217,7 +217,7 @@ export function useProcessTabs(pc) {
 		if (!activeDiagramName.value) return;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.versions.get_edit_history",
+				url: "/api/method/processa.api.versions.get_edit_history",
 				params: { model_name: activeDiagramName.value },
 			});
 			const groups = res.message || res || [];
@@ -264,7 +264,7 @@ export function useProcessTabs(pc) {
 		activeVersionName.value = versionName;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
+				url: "/api/method/processa.api.versions.get_snapshot_xml",
 				params: { version_name: versionName },
 			});
 			const snap = res.message || res;

@@ -35,12 +35,12 @@ export function useElementRuns(queryParams) {
 				more
 					? { split: current.split, rows: current.steps }
 					: frappeRequest({
-							url: "/api/method/one_bpmn.api.insights.get_step_latency_report",
+							url: "/api/method/processa.api.insights.get_step_latency_report",
 							method: "POST",
 							params: { ...filters, limit: FIRST_PAGE },
 						}),
 				frappeRequest({
-					url: "/api/method/one_bpmn.api.insights.get_element_runs",
+					url: "/api/method/processa.api.insights.get_element_runs",
 					method: "POST",
 					params: runsParams,
 				}),

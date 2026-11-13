@@ -1,4 +1,4 @@
-const KEY = "one_bpmn_instance_list_state"
+const KEY = "processa_instance_list_state"
 
 export function loadInstanceListState(storage = window.sessionStorage) {
 	try {

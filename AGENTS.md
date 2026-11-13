@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This repository holds `one_bpmn` (Processa), a Frappe v15 app for BPMN process modelling and execution: a Python backend with a SpiffWorkflow engine, and a Vue and bpmn-js editor under `frontend/`.
+This repository holds `processa` (Processa), a Frappe v15 app for BPMN process modelling and execution: a Python backend with a SpiffWorkflow engine, and a Vue and bpmn-js editor under `frontend/`.
 
 These are the only instructions coding agents read. Folder-specific rules live in nested files:
 
-- [`one_bpmn/agents/AGENTS.md`](one_bpmn/agents/AGENTS.md): the AI agent runtime, Logix and ProsAlly.
+- [`processa/agents/AGENTS.md`](processa/agents/AGENTS.md): the AI agent runtime, Logix and ProsAlly.
 - [`frontend/AGENTS.md`](frontend/AGENTS.md): the Vue frontend and the bpmn-js extensions.
 
 House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered rule set (A1 to F8) is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
@@ -14,11 +14,11 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - Frappe v15, Python 3.10 or later (`requires-python` in `pyproject.toml`).
 - SpiffWorkflow for BPMN execution and serialization.
 - Vue 3, Vite, frappe-ui, TailwindCSS and bpmn-js in `frontend/`. Node.js 20, Yarn.
-- The editor is served at `/processa` from `one_bpmn/www/processa.py` and the built shell `one_bpmn/www/processa.html`.
+- The editor is served at `/processa` from `processa/www/processa.py` and the built shell `processa/www/processa.html`.
 
 ## Repository layout
 
-- `one_bpmn/api/`: whitelisted endpoints, one module per domain:
+- `processa/api/`: whitelisted endpoints, one module per domain:
   - `process_maps.py`: process model and Process endpoints (save, import, list, rename, delete); the work is in `processa_engine/maps/`.
   - `deploy.py`: the deploy, disable, activate and deactivate endpoints; the work is in `processa_engine/compiler/`.
   - `instances.py`: instance endpoints (start, complete, send message, list, cancel, suspend, resume, retry); the work is in `processa_engine/instances/`.
@@ -27,21 +27,21 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
   - `server_scripts.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
   - `canvas_comments.py`, `notifications.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
-- `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
-- `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
-- `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
-- `one_bpmn/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator, and the handlers the Connector Agent writes (`generated/`); `one_bpmn/api/connectors.py` holds the modeler endpoints.
-- `one_bpmn/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
-- `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
-- `one_bpmn/ai_agent_security/`: the conversation lock, injection pattern and security event doctypes, input and output screening (`screening/`), the generated-script validator and Server Script gate (`code_checks/`), rate limits, turn locks, agent identities and the Server Script Approvals report; `one_bpmn/api/security.py` holds their endpoints.
-- `one_bpmn/ai_agent_guardrails/`: the tool policy rule and doctype change request doctypes, tool call interception (`tool_policy.py`) and the `AgentRefusal` exception (`refusal.py`).
-- `one_bpmn/ai_agent_conversations/`: the seven chat and clarification doctypes, AG-UI streaming and its event contract (`agui/`), chat persistence and permissions, compaction, retention, session state and turn context, clarifications and the four scheduled conversation jobs (`jobs.py`); `one_bpmn/api/sessions.py` and `one_bpmn/api/clarifications.py` hold their endpoints.
-- `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens, and mobile push (`push_notification.py`); `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
-- `one_bpmn/commands/`: bench commands.
-- `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
-- `one_bpmn/templates/`: email and deployment templates.
-- `one_bpmn/hooks.py`: app hooks, the universal document-event trigger, scheduler events and fixtures.
-- `one_bpmn/tasks.py`: scheduled A2A polling, conversation, memory and model jobs.
+- `processa/processa/doctype/`: DocType JSON, controllers and tests.
+- `processa/processa_engine/engine/`: the SpiffWorkflow script engine.
+- `processa/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
+- `processa/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator, and the handlers the Connector Agent writes (`generated/`); `processa/api/connectors.py` holds the modeler endpoints.
+- `processa/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
+- `processa/agents/`: the AI agent runtime. See its `AGENTS.md`.
+- `processa/ai_agent_security/`: the conversation lock, injection pattern and security event doctypes, input and output screening (`screening/`), the generated-script validator and Server Script gate (`code_checks/`), rate limits, turn locks, agent identities and the Server Script Approvals report; `processa/api/security.py` holds their endpoints.
+- `processa/ai_agent_guardrails/`: the tool policy rule and doctype change request doctypes, tool call interception (`tool_policy.py`) and the `AgentRefusal` exception (`refusal.py`).
+- `processa/ai_agent_conversations/`: the seven chat and clarification doctypes, AG-UI streaming and its event contract (`agui/`), chat persistence and permissions, compaction, retention, session state and turn context, clarifications and the four scheduled conversation jobs (`jobs.py`); `processa/api/sessions.py` and `processa/api/clarifications.py` hold their endpoints.
+- `processa/processa_engine/notifications/`: AMP and HTML task emails and their tokens, and mobile push (`push_notification.py`); `processa/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
+- `processa/commands/`: bench commands.
+- `processa/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
+- `processa/templates/`: email and deployment templates.
+- `processa/hooks.py`: app hooks, the universal document-event trigger, scheduler events and fixtures.
+- `processa/tasks.py`: scheduled A2A polling, conversation, memory and model jobs.
 - `frontend/`: the Vue frontend. See its `AGENTS.md`.
 - `docs/`: operations notes and retros.
 
@@ -94,11 +94,11 @@ When copying a map, set `process_name` before `is_active`. A copy inherits its s
 ## Testing
 
 ```bash
-bench --site <site> run-tests --app one_bpmn --failfast
+bench --site <site> run-tests --app processa --failfast
 ```
 
 - Tests inherit `frappe.tests.utils.FrappeTestCase`; plain pytest classes report "Ran 0 tests" under `bench run-tests`.
-- Shared tests go in `one_bpmn/tests/`; DocType tests sit next to their DocType.
+- Shared tests go in `processa/tests/`; DocType tests sit next to their DocType.
 - Keep fixture BPMN XML small. When you touch them, cover sequential flow, gateways, subprocesses, timers, signals, cancellation and restart.
 - Assert state transitions, not file existence. Test both the happy path and the validation failure, and assert permission checks on write and delete paths.
 

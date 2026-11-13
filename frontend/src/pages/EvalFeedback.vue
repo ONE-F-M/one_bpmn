@@ -299,7 +299,7 @@ async function loadRows() {
 	try {
 		rows.value =
 			(await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.list_response_feedback",
+				url: "/api/method/processa.api.evals.list_response_feedback",
 				params: {
 					rating: rating.value,
 					status: status.value,
@@ -325,7 +325,7 @@ async function loadOverview() {
 	try {
 		overview.value =
 			(await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.get_feedback_overview",
+				url: "/api/method/processa.api.evals.get_feedback_overview",
 				params: { from_date: fromDate.value, to_date: toDate.value, agent: agent.value || undefined },
 			})) || {};
 	} catch (e) {
@@ -336,7 +336,7 @@ async function loadOverview() {
 async function loadAgents() {
 	try {
 		const list = (await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.list_assignable_agents",
+			url: "/api/method/processa.api.evals.list_assignable_agents",
 			// The endpoint defaults to Live-only so other callers are untouched;
 			// this screen asks for everything.
 			params: { include_all: 1 },
@@ -367,7 +367,7 @@ async function setStatus(row, next) {
 	busy[row.name] = true;
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.feedback.set_feedback_status",
+			url: "/api/method/processa.api.feedback.set_feedback_status",
 			method: "POST",
 			params: { feedback: row.name, status: next },
 		});
@@ -384,7 +384,7 @@ async function convert(row) {
 		// a case never lands in the provisioned Baseline suite (which is wiped on
 		// every re-provision).
 		const out = await frappeRequest({
-			url: "/api/method/one_bpmn.api.feedback.create_eval_case_from_feedback",
+			url: "/api/method/processa.api.feedback.create_eval_case_from_feedback",
 			method: "POST",
 			params: { feedback: row.name },
 		});

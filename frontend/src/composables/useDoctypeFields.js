@@ -13,7 +13,7 @@ export function useDoctypeFields(fieldtypes) {
 		if (!doctype) return
 		loading.value = true
 		try {
-			const data = await createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+			const data = await createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype,
 				fieldtype_in: JSON.stringify(fieldtypes),
 			} }).fetch()

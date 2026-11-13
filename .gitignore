@@ -31,13 +31,13 @@ share/python-wheels/
 *.egg
 
 # Frontend build output (frappe-ui / Frappe CRM default location)
-one_bpmn/public/frontend
-one_bpmn/www/processa.html
+processa/public/frontend
+processa/www/processa.html
 # Old build output locations, kept so stale local builds stay untracked
-one_bpmn/public/processa
+processa/public/processa
 # one-ai desk bundle, built by `npm run build:oneai` in frontend/
-one_bpmn/public/one_ai
-one_bpmn/www/processa/index.html
+processa/public/one_ai
+processa/www/processa/index.html
 
 # Auto-generated type declarations
 frontend/components.d.ts

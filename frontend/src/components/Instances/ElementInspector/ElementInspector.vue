@@ -660,7 +660,7 @@ async function frappeGetList(doctype, fields, filters, extra = {}) {
 }
 
 async function loadDocumentStoreConversation(bpmnId) {
-	const title = `one_bpmn:${props.processInstanceName}:${bpmnId}`
+	const title = `processa:${props.processInstanceName}:${bpmnId}`
 	const convs = await frappeGetList("Chat Conversation", ["name"], [["title", "=", title]], { limit: 1 })
 	if (!convs.length) return
 	const rows = await frappeGetList(

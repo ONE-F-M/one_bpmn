@@ -36,7 +36,7 @@ export function useEvalThresholds(ctx) {
 		thresholdError.value = "";
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.update_suite_thresholds",
+				url: "/api/method/processa.api.evals.update_suite_thresholds",
 				method: "POST",
 				params: {
 					suite: suiteName,

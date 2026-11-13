@@ -161,7 +161,7 @@ export function useProcessDocument(pc) {
 	async function checkEditability() {
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.editability.check_process_editable",
+				url: "/api/method/processa.api.editability.check_process_editable",
 				params: { process_name: props.process },
 			});
 
@@ -265,7 +265,7 @@ export function useProcessDocument(pc) {
 	async function loadProcess() {
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
+				url: "/api/method/processa.api.process_maps.get_process_diagrams",
 				params: { process: props.process },
 			});
 			const data = response.message || response;
@@ -350,7 +350,7 @@ export function useProcessDocument(pc) {
 
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_maps.get_process_model",
+				url: "/api/method/processa.api.process_maps.get_process_model",
 				params: { name },
 			});
 

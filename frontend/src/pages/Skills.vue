@@ -742,7 +742,7 @@ const harvestSkill = async () => {
 	harvesting.value = true
 	try {
 		const res = await call(
-			'one_bpmn.api.skills.harvest_skill_from_run',
+			'processa.api.skills.harvest_skill_from_run',
 			{
 				run_name: harvestRunName.value
 			}

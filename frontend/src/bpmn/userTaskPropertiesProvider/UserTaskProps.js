@@ -334,7 +334,7 @@ function AssigneeDocfieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return createResource({ url: "one_bpmn.api.lookups.get_assignee_docfields", method: "GET", params: { doctype } }).fetch()
+		return createResource({ url: "processa.api.lookups.get_assignee_docfields", method: "GET", params: { doctype } }).fetch()
 			.then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
 				if (!txt) return list;
@@ -390,7 +390,7 @@ function AssigneeTableFieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
@@ -449,7 +449,7 @@ function AssigneeTableUserFieldComponent(props) {
 				{ fieldname: "", label: "— Select a Table Field first —" },
 			]);
 		}
-		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
@@ -459,7 +459,7 @@ function AssigneeTableUserFieldComponent(props) {
 			);
 			const childDoctype = match && match.options;
 			if (!childDoctype) return [];
-			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
+			return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype: childDoctype,
 				fieldtype_in: '["Link"]',
 				include_options: true,

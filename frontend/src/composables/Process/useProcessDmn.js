@@ -49,7 +49,7 @@ export function useProcessDmn(pc) {
 		if (activeDiagramName.value) {
 			try {
 				const resp = await frappeRequest({
-					url: "/api/method/one_bpmn.api.dmn.get_dmn_xml",
+					url: "/api/method/processa.api.dmn.get_dmn_xml",
 					params: {
 						process_model: activeDiagramName.value,
 						decision_id: decisionId,
@@ -99,7 +99,7 @@ export function useProcessDmn(pc) {
 
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.dmn.save_dmn_xml",
+				url: "/api/method/processa.api.dmn.save_dmn_xml",
 				method: "POST",
 				params: {
 					process_model: activeDiagramName.value,

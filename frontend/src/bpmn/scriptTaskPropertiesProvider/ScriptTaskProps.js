@@ -162,7 +162,7 @@ class CreateAgentConfigForm extends Component {
 			return;
 		}
 		this.setState({ saving: true, error: "" });
-		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration", params: {
+		createResource({ url: "processa.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration", params: {
 			payload: JSON.stringify({
 				agent_name: name,
 				agent_type: "Background",

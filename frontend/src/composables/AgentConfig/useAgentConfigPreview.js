@@ -50,7 +50,7 @@ export function useAgentConfigPreview(ac) {
 		previewError.value = null;
 		try {
 			preview.value = await frappeRequest({
-				url: "one_bpmn.api.process_maps.preview_ai_task",
+				url: "processa.api.process_maps.preview_ai_task",
 				method: "POST",
 				params: await requestParams(),
 			});
@@ -68,7 +68,7 @@ export function useAgentConfigPreview(ac) {
 		dryRun.value = null;
 		try {
 			dryRun.value = await frappeRequest({
-				url: "one_bpmn.api.process_maps.dry_run_ai_task",
+				url: "processa.api.process_maps.dry_run_ai_task",
 				method: "POST",
 				params: { ...(await requestParams()), sample_results: sampleResults.value || "{}" },
 			});

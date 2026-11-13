@@ -17,7 +17,7 @@ const sources = [
 ].join("\n");
 
 const prefixModule = (constant) =>
-	apiSource.match(new RegExp(`${constant}\\s*=\\s*"/api/method/one_bpmn\\.api\\.(\\w+)\\."`))[1];
+	apiSource.match(new RegExp(`${constant}\\s*=\\s*"/api/method/processa\\.api\\.(\\w+)\\."`))[1];
 
 const calledBy = (constant) =>
 	[...sources.matchAll(new RegExp(`${constant}\\s*\\+\\s*"(\\w+)"`, "g"))].map((m) => m[1]);
@@ -26,7 +26,7 @@ describe("endpoints the A2A page calls", () => {
 	for (const constant of ["A2A_API", "CLARIFY_API"]) {
 		it(`exist in the backend module behind ${constant}`, () => {
 			const module = prefixModule(constant);
-			const python = read(new URL(`../../../one_bpmn/api/${module}.py`, import.meta.url));
+			const python = read(new URL(`../../../processa/api/${module}.py`, import.meta.url));
 			const names = [...new Set(calledBy(constant))];
 			expect(names.length).toBeGreaterThan(0);
 			for (const name of names) {

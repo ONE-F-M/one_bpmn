@@ -115,7 +115,7 @@ async function fetchOverview() {
 	error.value = null
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights.get_agent_overview",
+			url: "/api/method/processa.api.insights.get_agent_overview",
 			method: "POST",
 			params: {
 				from_date: props.fromDate,

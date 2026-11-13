@@ -21,7 +21,7 @@ export default defineConfig({
 			formats: ["iife"],
 			fileName: () => "one-ai.iife.js",
 		},
-		outDir: "../one_bpmn/public/one_ai",
+		outDir: "../processa/public/one_ai",
 		emptyOutDir: true,
 		rollupOptions: { output: { assetFileNames: "one-ai.[ext]" } },
 	},

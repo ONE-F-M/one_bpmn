@@ -43,7 +43,7 @@ export function useProductionReview(pc) {
 	async function loadProductionReviewSettings() {
 		try {
 			const r = await frappeRequest({
-				url: "/api/method/one_bpmn.api.production_review.production_review_settings",
+				url: "/api/method/processa.api.production_review.production_review_settings",
 			});
 			const d = r.message || r;
 			connectToProduction.value = !!d.connect_to_production;
@@ -73,8 +73,8 @@ export function useProductionReview(pc) {
 		try {
 			const url =
 				reviewKind.value === "doctypes"
-					? "/api/method/one_bpmn.api.production_review.review_doctypes"
-					: "/api/method/one_bpmn.api.production_review.review_workflow_objects";
+					? "/api/method/processa.api.production_review.review_doctypes"
+					: "/api/method/processa.api.production_review.review_workflow_objects";
 			const response = await frappeRequest({
 				url,
 				method: "GET",
@@ -99,8 +99,8 @@ export function useProductionReview(pc) {
 		try {
 			const url =
 				reviewKind.value === "doctypes"
-					? "/api/method/one_bpmn.api.production_review.sync_doctypes"
-					: "/api/method/one_bpmn.api.production_review.sync_workflow_objects";
+					? "/api/method/processa.api.production_review.sync_doctypes"
+					: "/api/method/processa.api.production_review.sync_workflow_objects";
 			const response = await frappeRequest({
 				url,
 				method: "POST",

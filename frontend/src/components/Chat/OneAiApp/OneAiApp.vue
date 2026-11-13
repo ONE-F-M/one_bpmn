@@ -50,7 +50,7 @@
 </template>
 
 <script setup>
-// one-ai — the Lumina successor, hosted in one_bpmn. The page is
+// one-ai — the Lumina successor, hosted in processa. The page is
 // deliberately thin: the history sidebar and the agent picker are the only
 // things it owns; everything conversational is the same shared panel every
 // other surface embeds. It offers the Lumina page's own fixed set of modes
@@ -84,7 +84,7 @@ onMounted(async () => {
 		// lives on the server (ONE_AI_AGENT_IDS), not here, so the picker and
 		// the sidebar filter can never disagree.
 		const list = await frappeRequest({
-			url: "/api/method/one_bpmn.api.a2a.list_one_ai_agents",
+			url: "/api/method/processa.api.a2a.list_one_ai_agents",
 		}) || [];
 		agents.value = list;
 		// A conversation stores agent_mode, which is the chat_mode_label for
@@ -107,7 +107,7 @@ onMounted(async () => {
 async function refreshList() {
 	try {
 		conversations.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.agui.list_conversations",
+			url: "/api/method/processa.api.agui.list_conversations",
 		}) || [];
 	} catch { /* sidebar just stays as-is */ }
 }

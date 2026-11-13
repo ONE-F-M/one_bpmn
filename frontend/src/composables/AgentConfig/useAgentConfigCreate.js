@@ -46,7 +46,7 @@ export function useAgentConfigCreate(ac) {
 				enabled_skills: newAgent.value.ai_skills.filter((sk) => (sk.skill || "").trim()),
 			};
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration",
+				url: "/api/method/processa.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration",
 				method: "POST",
 				params: { payload: JSON.stringify(payload) },
 			});

@@ -33,7 +33,7 @@ export function useEvalReassign(ctx) {
 		reassignError.value = "";
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.evals.reassign_suite",
+				url: "/api/method/processa.api.evals.reassign_suite",
 				method: "POST",
 				params: { suite: suiteName, agent_configuration: reassignAgent.value || null },
 			});

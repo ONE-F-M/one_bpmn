@@ -27,8 +27,8 @@ BASELINE_PATH = ".github/structure_baseline.txt"
 CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 # Where the restricted imports are allowed (path prefixes, repo-relative).
-ENGINE_PREFIXES = ("one_bpmn/processa_engine/engine/",)
-ADAPTER_PREFIXES = ("one_bpmn/processa_engine/agent_runtime/llm_",)
+ENGINE_PREFIXES = ("processa/processa_engine/engine/",)
+ADAPTER_PREFIXES = ("processa/processa_engine/agent_runtime/llm_",)
 
 WORK_ITEM_ID = re.compile(r"(?<![A-Za-z0-9])WI-\d+")
 IGNORE_PERMISSIONS = re.compile(r"ignore_permissions\s*=\s*True")
@@ -49,9 +49,9 @@ RESTRICTED_IMPORTS = (
 
 ID_EXTENSIONS = (".py", ".vue", ".js", ".ts", ".jsx", ".tsx")
 
-APP_PACKAGE = "one_bpmn"
-DEFINITIONS_PREFIX = "one_bpmn/ai_agent_registry/definitions/"
-DEFINITIONS_MODULE = "one_bpmn.ai_agent_registry.definitions"
+APP_PACKAGE = "processa"
+DEFINITIONS_PREFIX = "processa/ai_agent_registry/definitions/"
+DEFINITIONS_MODULE = "processa.ai_agent_registry.definitions"
 SHARED_FOLDER = "shared"
 DEFINITION_NAMES = ("tools.py", "helpers.py", "validators.py", "__init__.py", "AGENTS.md")
 DEFINITION_NAME_PREFIXES = ("tools_", "helpers_", "validators_")
@@ -171,7 +171,7 @@ def is_test_file(path: str) -> bool:
 
 
 def in_allowed_test_location(path: str) -> bool:
-	"""A test file belongs in a tests/ folder (one_bpmn/tests/ or a module's) or in a folder under doctype/."""
+	"""A test file belongs in a tests/ folder (processa/tests/ or a module's) or in a folder under doctype/."""
 	folders = path.split("/")[:-1]
 	if "tests" in folders:
 		return True
@@ -333,7 +333,7 @@ def check_test_location(change: Change, baseline: Baseline, result: Result) -> N
 				change.path,
 				None,
 				"test-location",
-				"test file must live in a doctype folder, a module tests/ folder or one_bpmn/tests/",
+				"test file must live in a doctype folder, a module tests/ folder or processa/tests/",
 			)
 		)
 

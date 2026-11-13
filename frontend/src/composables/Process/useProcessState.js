@@ -84,7 +84,7 @@ export function createProcessContext(props) {
 	// While released, the properties panel can edit flow objects on an otherwise
 	// read-only canvas - everything except script tasks, AI Agent tasks, sequence
 	// flows and the attributes that would break the map (see
-	// one_bpmn/api/property_panel.py). Each change is persisted through that
+	// processa/api/property_panel.py). Each change is persisted through that
 	// endpoint, because the normal save path is blocked on locked models. The map
 	// is recompiled ONCE - a single Deploy - when the panel is locked again.
 	const reassignMode = ref(false);

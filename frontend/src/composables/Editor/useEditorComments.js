@@ -139,7 +139,7 @@ export function useEditorComments(ed) {
 		if (users.value.length > 0) return; // Already fetched
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.lookups.get_system_users",
+				url: "/api/method/processa.api.lookups.get_system_users",
 			});
 			users.value = (response.message || response || []).filter((u) => u.full_name);
 		} catch (err) {
@@ -151,7 +151,7 @@ export function useEditorComments(ed) {
 		if (!props.modelName) return;
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.canvas_comments.get_canvas_comments",
+				url: "/api/method/processa.api.canvas_comments.get_canvas_comments",
 				params: { model_name: props.modelName },
 			});
 			comments.value = response.message || response || [];
@@ -248,7 +248,7 @@ export function useEditorComments(ed) {
 
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
+				url: "/api/method/processa.api.canvas_comments.post_canvas_comment",
 				params: {
 					model_name: props.modelName,
 					element_id: elementId,
@@ -270,7 +270,7 @@ export function useEditorComments(ed) {
 	async function resolveComment(comment) {
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.canvas_comments.update_comment_status",
+				url: "/api/method/processa.api.canvas_comments.update_comment_status",
 				params: {
 					name: comment.name,
 					status: "Resolved",

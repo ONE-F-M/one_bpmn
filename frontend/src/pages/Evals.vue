@@ -227,7 +227,7 @@ async function fetchSuites(silent = false) {
 	if (!silent) loading.value = true
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.list_eval_suites",
+			url: "/api/method/processa.api.evals.list_eval_suites",
 			method: "GET",
 		})
 		suites.value = res?.suites || []
@@ -243,7 +243,7 @@ async function fetchSuites(silent = false) {
 async function fetchOverview() {
 	try {
 		overview.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.get_evals_overview",
+			url: "/api/method/processa.api.evals.get_evals_overview",
 			method: "GET",
 			params: { from_date: fromDate.value, to_date: toDate.value },
 		}) || {}
@@ -262,7 +262,7 @@ watch([fromDate, toDate], fetchOverview)
 
 async function fetchAgents() {
 	try {
-		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.evals.list_assignable_agents", method: "GET", params: { include_all: 1 } })
+		const res = await frappeRequest({ url: "/api/method/processa.api.evals.list_assignable_agents", method: "GET", params: { include_all: 1 } })
 		// EVERY agent comes back now, not just the Live ones — evaluating an
 		// agent is how it stops being a Draft. The lifecycle rides in the
 		// description so the list says what it is offering instead of quietly
@@ -283,7 +283,7 @@ async function fetchAgents() {
 
 async function fetchProcesses() {
 	try {
-		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.evals.list_owned_processes", method: "GET" })
+		const res = await frappeRequest({ url: "/api/method/processa.api.evals.list_owned_processes", method: "GET" })
 		processOptions.value = (res || []).map((p) => ({ label: p.name, value: p.name }))
 	} catch (e) {
 		processOptions.value = []
@@ -297,7 +297,7 @@ async function runSuite(s) {
 	inProgressMessage.value = ""
 	try {
 		const runName = await frappeRequest({
-			url: "/api/method/one_bpmn.ai_agent_evals.runner.cases.run_eval_cases",
+			url: "/api/method/processa.ai_agent_evals.runner.cases.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})
@@ -334,7 +334,7 @@ async function createSuite() {
 	savingSuite.value = true
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.create_suite",
+			url: "/api/method/processa.api.evals.create_suite",
 			method: "POST",
 			params: { ...newSuite },
 		})
@@ -357,7 +357,7 @@ async function doReassign() {
 	savingReassign.value = true
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.reassign_suite",
+			url: "/api/method/processa.api.evals.reassign_suite",
 			method: "POST",
 			params: { suite: reassignSuite.value.name, agent_configuration: reassignAgent.value || null },
 		})

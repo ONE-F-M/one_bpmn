@@ -151,7 +151,7 @@ export function useEditorElements(ed) {
 			elements.forEach((element) => {
 				if (element.id && props.modelName) {
 					frappeRequest({
-						url: "/api/method/one_bpmn.api.canvas_comments.delete_canvas_element_assets",
+						url: "/api/method/processa.api.canvas_comments.delete_canvas_element_assets",
 						params: {
 							model_name: props.modelName,
 							element_id: element.id,

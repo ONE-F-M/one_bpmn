@@ -139,7 +139,7 @@ import { useRoute } from "vue-router"
 import { dayjs } from "@/dayjs"
 import { fmtCost, fmtMs, fmtNum } from "@/utils/runFormat"
 
-const API = "/api/method/one_bpmn.api.insights."
+const API = "/api/method/processa.api.insights."
 const PAGE_SIZES = [25, 50, 100].map((n) => ({ label: String(n), value: n }))
 const ORIGINS = [
 	{ label: "Production", value: "production" },

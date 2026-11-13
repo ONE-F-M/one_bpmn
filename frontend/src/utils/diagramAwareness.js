@@ -1,7 +1,7 @@
 // Who else has this diagram open, whether they edit or only view, and which elements they have selected.
-// Ephemeral: relayed over frappe.realtime by one_bpmn.api.collaboration.set_awareness, never saved.
+// Ephemeral: relayed over frappe.realtime by processa.api.collaboration.set_awareness, never saved.
 
-const API = "one_bpmn.api.collaboration.set_awareness"
+const API = "processa.api.collaboration.set_awareness"
 
 export const AWARENESS_EVENT = "bpmn_diagram_awareness"
 export const ANNOUNCE_DEBOUNCE_MS = 100

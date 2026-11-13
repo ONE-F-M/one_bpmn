@@ -24,9 +24,9 @@
 
 import { createResource } from "frappe-ui";
 
-const ENDPOINT = "/api/method/one_bpmn.api.agui.stream_agent_turn";
+const ENDPOINT = "/api/method/processa.api.agui.stream_agent_turn";
 
-const STATUS_ENDPOINT = "one_bpmn.api.agui.turn_status";
+const STATUS_ENDPOINT = "processa.api.agui.turn_status";
 
 const GENERIC_FAILURE = "Connection lost. Please try again.";
 

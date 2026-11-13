@@ -24,7 +24,7 @@ test("nothing saved loads as an empty state", () => {
 })
 
 test("corrupt stored JSON loads as an empty state", () => {
-	const storage = fakeStorage({ one_bpmn_instance_list_state: "{not json" })
+	const storage = fakeStorage({ processa_instance_list_state: "{not json" })
 	assert.deepEqual(loadInstanceListState(storage), {})
 })
 

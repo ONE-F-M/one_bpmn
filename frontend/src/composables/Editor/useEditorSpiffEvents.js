@@ -164,7 +164,7 @@ export function useEditorSpiffEvents(ed) {
 			if (props.modelName) {
 				try {
 					const resp = await frappeRequest({
-						url: "/api/method/one_bpmn.api.dmn.get_decision_list",
+						url: "/api/method/processa.api.dmn.get_decision_list",
 						params: { process_model: props.modelName },
 					});
 					// frappeRequest auto-unwraps "message"; resp is the list directly

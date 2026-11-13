@@ -188,7 +188,7 @@ async function load() {
 	loading.value = true;
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.evals.scheduled_results",
+			url: "/api/method/processa.api.evals.scheduled_results",
 			params: {
 				days: filters.days,
 				triggered_by: filters.triggered_by,

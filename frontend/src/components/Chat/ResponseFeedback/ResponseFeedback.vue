@@ -162,7 +162,7 @@ function acknowledge() {
 function call(method, body) {
 	error.value = "";
 	return frappeRequest({
-		url: `/api/method/one_bpmn.api.feedback.${method}`,
+		url: `/api/method/processa.api.feedback.${method}`,
 		method: "POST",
 		params: { message: props.message, ...body },
 	});

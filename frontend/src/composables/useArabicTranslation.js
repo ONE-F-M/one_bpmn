@@ -7,7 +7,7 @@ export function useArabicTranslation({ edited = ref([]), processModel = ref("") 
 	const errors = ref({})
 	const translator = createArabicTranslator({
 		request: (text) =>
-			createResource({ url: "one_bpmn.api.translation.translate", params: { text, process_model: processModel.value } }).fetch(),
+			createResource({ url: "processa.api.translation.translate", params: { text, process_model: processModel.value } }).fetch(),
 		edited,
 		errors,
 	})

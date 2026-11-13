@@ -46,7 +46,7 @@ export function useAgentConfigScreening(ac) {
 		if (!name || name === "__create__") return;
 		try {
 			const r = await frappeRequest({
-				url: "/api/method/one_bpmn.api.security.agent_screening",
+				url: "/api/method/processa.api.security.agent_screening",
 				method: "POST",
 				params: { agent: name },
 			});
@@ -65,7 +65,7 @@ export function useAgentConfigScreening(ac) {
 		});
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.security.save_agent_screening",
+				url: "/api/method/processa.api.security.save_agent_screening",
 				method: "POST",
 				params: { agent: name, values: JSON.stringify(values) },
 			});

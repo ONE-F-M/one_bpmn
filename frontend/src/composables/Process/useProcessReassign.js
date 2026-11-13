@@ -57,7 +57,7 @@ export function useProcessReassign(pc) {
 		for (const [taskId, { modelName, assignment }] of entries) {
 			try {
 				const res = await frappeRequest({
-					url: "/api/method/one_bpmn.api.property_panel.update_element_properties",
+					url: "/api/method/processa.api.property_panel.update_element_properties",
 					method: "POST",
 					params: {
 						model_name: modelName,
@@ -88,7 +88,7 @@ export function useProcessReassign(pc) {
 		for (const modelName of models) {
 			try {
 				const res = await frappeRequest({
-					url: "/api/method/one_bpmn.api.property_panel.deploy_property_changes",
+					url: "/api/method/processa.api.property_panel.deploy_property_changes",
 					method: "POST",
 					params: { model_name: modelName },
 				});

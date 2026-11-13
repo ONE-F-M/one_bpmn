@@ -58,7 +58,7 @@ const { createApp } = createRenderer({
 	patchProp: () => {},
 });
 
-const API = "/api/method/one_bpmn.api.docu.";
+const API = "/api/method/processa.api.docu.";
 const saves = () => frappeRequest.mock.calls.filter(([r]) => r.url === `${API}apply_doctype`);
 const flush = async () => {
 	for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0);
