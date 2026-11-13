@@ -48,7 +48,7 @@ jobs:
             cd $BENCH
             rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             bench setup requirements one_bpmn
-            cd $BENCH/apps/one_bpmn/spiff
+            cd $BENCH/apps/one_bpmn/frontend
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
             # Remove old build output that would shadow www/processa.html

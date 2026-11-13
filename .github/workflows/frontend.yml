@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [staging, processa-refactor]
     paths:
-      - "spiff/**"
+      - "frontend/**"
       - ".github/workflows/frontend.yml"
   workflow_dispatch:
 
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: spiff
+        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 20
           cache: yarn
-          cache-dependency-path: spiff/yarn.lock
+          cache-dependency-path: frontend/yarn.lock
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile

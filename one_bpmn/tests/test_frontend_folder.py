@@ -9,12 +9,11 @@ from frappe.tests.utils import FrappeTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OLD_FOLDER = re.compile(r"(?<![A-Za-z_.])spiff/")
-# Patches and their test keep the paths they ran with; workflow files change in their own PR.
+# Patches and their test keep the paths they ran with
 SKIPPED = (
 	"one_bpmn/one_bpmn/patches/",
 	"one_bpmn/patches.txt",
 	"one_bpmn/tests/test_frontend_agent_eval_cases_follow_the_pages_folder_patch.py",
-	".github/workflows/",
 )
 
 

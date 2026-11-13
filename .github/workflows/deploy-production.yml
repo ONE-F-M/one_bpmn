@@ -54,7 +54,7 @@ jobs:
             git pull upstream version-15
             cd $BENCH
             trap 'status=$?; if [ $status -ne 0 ]; then sudo supervisorctl start $WORKERS; sudo supervisorctl restart $NAME-web:; fi' EXIT
-            cd $BENCH/apps/one_bpmn/spiff
+            cd $BENCH/apps/one_bpmn/frontend
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
             # Remove old build output that would shadow www/processa.html
