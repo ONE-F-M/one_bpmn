@@ -28,7 +28,7 @@ class TestProcessOwnerDoctypeAccess(FrappeTestCase):
 
 	def _new_doctype(self):
 		return frappe.get_doc({
-			"doctype": "DocType", "name": self.doctype, "module": "ONE BPMN", "custom": 1,
+			"doctype": "DocType", "name": self.doctype, "module": "Processa Engine", "custom": 1,
 			"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
 			"permissions": [{"role": "System Manager", "read": 1}],
 		})

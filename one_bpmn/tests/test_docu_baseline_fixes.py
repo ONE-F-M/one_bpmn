@@ -17,7 +17,7 @@ from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doct
 def _ir(autoname):
 	return {
 		"doctype_name": "Safety Incident",
-		"module": "ONE BPMN",
+		"module": "Processa Engine",
 		"autoname": autoname,
 		"fields": [{"fieldname": "location", "label": "Location", "fieldtype": "Data"}],
 	}

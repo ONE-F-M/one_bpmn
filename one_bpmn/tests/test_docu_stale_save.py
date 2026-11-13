@@ -22,7 +22,7 @@ class TestDocuStaleSave(FrappeTestCase):
 
 	def _ir(self):
 		fields = [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}]
-		return json.dumps({"doctype_name": self.doctype, "module": "ONE BPMN", "fields": fields})
+		return json.dumps({"doctype_name": self.doctype, "module": "Processa Engine", "fields": fields})
 
 	def _edit_in_desk(self):
 		doc = frappe.get_doc("DocType", self.doctype)

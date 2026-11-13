@@ -652,7 +652,7 @@ class TestRespectUserPermissions(FrappeTestCase):
 			frappe.get_doc({
 				"doctype": "DocType",
 				"name": self.DT,
-				"module": "ONE BPMN",
+				"module": "Processa Engine",
 				"custom": 1,
 				"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
 				"permissions": [{"role": "System Manager", "read": 1, "write": 1}],

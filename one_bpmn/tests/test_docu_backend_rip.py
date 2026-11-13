@@ -152,7 +152,7 @@ class TestSharedSchemaTools(FrappeTestCase):
 	def test_validate_doctype_json_wraps_the_schema_gate(self):
 		import json
 
-		good = json.dumps({"doctype_name": "Rip Probe", "module": "ONE BPMN",
+		good = json.dumps({"doctype_name": "Rip Probe", "module": "Processa Engine",
 		                   "fields": [{"fieldname": "x", "label": "X", "fieldtype": "Data"}]})
 		self.assertTrue(json.loads(tools.validate_doctype_json(good))["valid"])
 		bad = json.loads(tools.validate_doctype_json("{not json"))

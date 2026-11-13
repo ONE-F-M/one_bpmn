@@ -95,6 +95,8 @@ DOCTYPE_PERMISSION_FLAGS = (
 	"report", "export", "import", "share", "print", "email", "if_owner",
 )
 
+DEFAULT_MODULE = "Processa Engine"
+
 
 def read_doctype_definition(doctype: str) -> dict | None:
 	"""An existing DocType in the full Docu IR shape, or None when it does not exist.
@@ -126,7 +128,7 @@ def read_doctype_definition(doctype: str) -> dict | None:
 		fields.append(row)
 	out = {
 		"doctype_name": doctype,
-		"module": getattr(meta, "module", "ONE BPMN"),
+		"module": getattr(meta, "module", DEFAULT_MODULE),
 		"is_child_table": int(bool(getattr(meta, "istable", 0))),
 		"custom": int(bool(getattr(meta, "custom", 0))),
 		"autoname": getattr(meta, "autoname", "") or "",

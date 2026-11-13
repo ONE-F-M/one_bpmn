@@ -29,6 +29,7 @@ from frappe import _
 from frappe.utils import get_datetime
 
 from one_bpmn.ai_agent_registry.definitions.docu.tools import (
+	DEFAULT_MODULE,
 	diff_ir,
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
@@ -323,11 +324,10 @@ def _refuse_stale_save(name: str, base_modified: str | None) -> None:
 def _apply_ir_now(ir_dict: dict, warnings: list, confirm=0) -> dict:
 	"""Apply an already-validated, already-authorised Docu IR (no routing)."""
 	name = ir_dict["doctype_name"].strip()
-	module = (ir_dict.get("module") or "ONE BPMN").strip()
-	# The module must be a real Frappe Module — the agent can mistake the business
-	# process name for a module. Fall back to ONE BPMN rather than fail on a bogus one.
+	module = (ir_dict.get("module") or DEFAULT_MODULE).strip()
+	# The agent can name the business process instead of a real module, so fall back to the default.
 	if not module or not frappe.db.exists("Module Def", module):
-		module = "ONE BPMN"
+		module = DEFAULT_MODULE
 	is_child = int(bool(ir_dict.get("is_child_table")))
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
