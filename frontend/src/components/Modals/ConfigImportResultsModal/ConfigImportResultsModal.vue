@@ -57,7 +57,28 @@
 					</div>
 				</div>
 
-				<!-- Needs confirmation (modified Server Scripts) -->
+				<!-- Failed items -->
+				<div v-if="results.failed?.length" class="space-y-1">
+					<div class="text-xs font-semibold text-red-700 uppercase tracking-wider px-1">
+						Could Not Be Created ({{ results.failed.length }})
+					</div>
+					<div class="border border-red-200 rounded-lg divide-y divide-red-100">
+						<div
+							v-for="item in results.failed"
+							:key="`${item.type}:${item.name}`"
+							class="px-3 py-2 bg-red-50/50"
+						>
+							<div class="flex items-center gap-2">
+								<Icon icon="lucide:x-circle" class="w-4 h-4 text-red-500 shrink-0" />
+								<span class="text-sm text-gray-800 flex-1">{{ item.name }}</span>
+								<span class="text-xs text-gray-400">{{ item.type }}</span>
+							</div>
+							<div class="text-xs text-red-800 mt-1 pl-6">{{ item.reason }}</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Needs confirmation (modified records) -->
 				<div v-if="results.needs_confirmation?.length" class="space-y-1">
 					<div class="text-xs font-semibold text-amber-700 uppercase tracking-wider px-1">
 						Modified — Review Required ({{ results.needs_confirmation.length }})
@@ -65,7 +86,7 @@
 					<div class="border border-amber-200 rounded-lg divide-y divide-amber-100">
 						<div
 							v-for="(item, idx) in results.needs_confirmation"
-							:key="item.name"
+							:key="`${item.type}:${item.name}`"
 							class="bg-amber-50/50"
 						>
 							<!-- Header row -->
@@ -117,13 +138,13 @@
 										<div class="font-semibold text-red-700 mb-1 flex items-center gap-1">
 											<Icon icon="lucide:server" class="w-3 h-3" /> Existing (Production)
 										</div>
-										<pre class="bg-red-50 border border-red-200 rounded p-2 font-mono text-[11px] text-red-900 overflow-x-auto max-h-64 whitespace-pre-wrap">{{ item.existing_script }}</pre>
+										<pre class="bg-red-50 border border-red-200 rounded p-2 font-mono text-[11px] text-red-900 overflow-x-auto max-h-64 whitespace-pre-wrap">{{ existingText(item) }}</pre>
 									</div>
 									<div>
 										<div class="font-semibold text-green-700 mb-1 flex items-center gap-1">
 											<Icon icon="lucide:download" class="w-3 h-3" /> Incoming (Config File)
 										</div>
-										<pre class="bg-green-50 border border-green-200 rounded p-2 font-mono text-[11px] text-green-900 overflow-x-auto max-h-64 whitespace-pre-wrap">{{ item.incoming_script }}</pre>
+										<pre class="bg-green-50 border border-green-200 rounded p-2 font-mono text-[11px] text-green-900 overflow-x-auto max-h-64 whitespace-pre-wrap">{{ incomingText(item) }}</pre>
 									</div>
 								</div>
 							</div>
@@ -182,11 +203,12 @@
 import { ref, computed, watch } from "vue";
 import { Dialog, Button, frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
+import { existingText, incomingText, overwritePayloads } from "@/utils/configImportDecisions";
 
 const props = defineProps({
 	results: {
 		type: Object,
-		default: () => ({ created: [], skipped: [], needs_confirmation: [] }),
+		default: () => ({ created: [], skipped: [], needs_confirmation: [], failed: [] }),
 	},
 	importing: {
 		type: Boolean,
@@ -246,7 +268,8 @@ const summaryDetail = computed(() => {
 	const parts = [];
 	if (r.created?.length) parts.push(`${r.created.length} created`);
 	if (r.skipped?.length) parts.push(`${r.skipped.length} already exist`);
-	if (r.needs_confirmation?.length) parts.push(`${r.needs_confirmation.length} modified script(s) need your review`);
+	if (r.needs_confirmation?.length) parts.push(`${r.needs_confirmation.length} modified record(s) need your review`);
+	if (r.failed?.length) parts.push(`${r.failed.length} could not be created`);
 	return parts.join(" · ") || "No records to import";
 });
 
@@ -284,28 +307,30 @@ function skipAll() {
 }
 
 async function applyDecisions() {
-	const items = props.results.needs_confirmation || [];
-	const toOverwrite = [];
+	const { scripts, records } = overwritePayloads(
+		props.results.needs_confirmation || [],
+		overwriteDecisions.value,
+	);
 
-	for (let i = 0; i < items.length; i++) {
-		if (overwriteDecisions.value[i] === "overwrite") {
-			toOverwrite.push({
-				name: items[i].name,
-				script: items[i].incoming_script,
-			});
-		}
-	}
-
-	if (toOverwrite.length > 0) {
+	if (scripts.length > 0 || records.length > 0) {
 		applying.value = true;
 		try {
-			await frappeRequest({
-				url: "/api/method/processa.api.config_export_import.confirm_overwrite_scripts",
-				method: "POST",
-				params: { overwrites: JSON.stringify(toOverwrite) },
-			});
+			if (scripts.length > 0) {
+				await frappeRequest({
+					url: "/api/method/processa.api.config_export_import.confirm_overwrite_scripts",
+					method: "POST",
+					params: { overwrites: JSON.stringify(scripts) },
+				});
+			}
+			if (records.length > 0) {
+				await frappeRequest({
+					url: "/api/method/processa.api.config_export_import.confirm_overwrite_config",
+					method: "POST",
+					params: { overwrites: JSON.stringify(records) },
+				});
+			}
 		} catch (err) {
-			console.error("Failed to overwrite scripts:", err);
+			console.error("Failed to overwrite records:", err);
 		} finally {
 			applying.value = false;
 		}
