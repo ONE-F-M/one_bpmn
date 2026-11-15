@@ -188,12 +188,14 @@
 						<textarea
 							v-model="inlineCommentFormData.text"
 							@input="handleInlineCommentInput"
+							@keydown="onMentionKeydown"
 							@keydown.enter.meta.prevent="submitInlineComment"
 							@keydown.enter.ctrl.prevent="submitInlineComment"
 							placeholder="Add a comment..."
 							class="inline-comment-textarea w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none overflow-hidden leading-relaxed"
 							:class="{ 'pb-10': inlineMentionedUsers.length > 0 }"
 						></textarea>
+						<p v-if="commentError" class="mt-1 text-[10px] text-red-600">{{ commentError }}</p>
 						
 						<!-- Mentions Dropdown -->
 						<div
@@ -201,9 +203,11 @@
 							class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 						>
 							<div
-								v-for="u in mentionSuggestions"
+								v-for="(u, mIdx) in mentionSuggestions"
 								:key="u.value"
 								@click="selectMention(u)"
+								@mouseenter="activeMentionIndex = mIdx"
+								:class="mIdx === activeMentionIndex ? 'bg-blue-50 mention-option-active' : ''"
 								class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
 							>
 								<span>{{ u.label }}</span>
@@ -421,9 +425,11 @@
 										placeholder="Add a comment..."
 										class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[52px] resize-none overflow-hidden pr-10 bg-gray-50/30 leading-relaxed"
 										:class="{ 'pb-10': timelineMentionedUsers.length > 0 }"
+										@keydown="onMentionKeydown"
 										@keydown.enter.meta.prevent="submitTimelineComment"
 										@keydown.enter.ctrl.prevent="submitTimelineComment"
 									></textarea>
+									<p v-if="commentError" class="mt-1 text-[10px] text-red-600">{{ commentError }}</p>
 									<div class="absolute right-2 bottom-2 flex items-center gap-1.5">
 										<button
 											@click="timelineIsTask = !timelineIsTask"
@@ -448,9 +454,11 @@
 										class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 									>
 										<div
-											v-for="u in mentionSuggestions"
+											v-for="(u, mIdx) in mentionSuggestions"
 											:key="u.value"
 											@click="selectMention(u)"
+											@mouseenter="activeMentionIndex = mIdx"
+											:class="mIdx === activeMentionIndex ? 'bg-blue-50 mention-option-active' : ''"
 											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
 										>
 											<span>{{ u.label }}</span>
@@ -601,9 +609,11 @@
 								placeholder="Add a comment..."
 								class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none overflow-hidden pr-10 bg-gray-50/30 leading-relaxed"
 								:class="{ 'pb-10': timelineMentionedUsers.length > 0 }"
+								@keydown="onMentionKeydown"
 								@keydown.enter.meta.prevent="submitTimelineComment"
 								@keydown.enter.ctrl.prevent="submitTimelineComment"
 							></textarea>
+							<p v-if="commentError" class="mt-1 text-[10px] text-red-600">{{ commentError }}</p>
 
 							<!-- Timeline Mentions Dropdown -->
 							<div
@@ -611,9 +621,11 @@
 								class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 							>
 								<div
-									v-for="u in mentionSuggestions"
+									v-for="(u, mIdx) in mentionSuggestions"
 									:key="u.value"
 									@click="selectMention(u)"
+									@mouseenter="activeMentionIndex = mIdx"
+									:class="mIdx === activeMentionIndex ? 'bg-blue-50 mention-option-active' : ''"
 									class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
 								>
 									<span>{{ u.label }}</span>
@@ -783,21 +795,25 @@
 							type="textarea"
 							v-model="commentFormData.text"
 							@input="handleCommentInput"
+							@keydown="onMentionKeydown"
 							@keydown.enter.meta.prevent="submitComment"
 							@keydown.enter.ctrl.prevent="submitComment"
 							:required="true"
 							placeholder="What's on your mind?"
 							class="main-comment-textarea"
 						/>
+						<p v-if="commentError" class="mt-1 text-xs text-red-600">{{ commentError }}</p>
 						<div
 							v-if="showMentionDropdown && activeMentionContext === 'dialog'"
 							v-click-outside="() => { showMentionDropdown = false; }"
 							class="absolute z-[120] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 						>
 							<div
-								v-for="u in mentionSuggestions"
+								v-for="(u, mIdx) in mentionSuggestions"
 								:key="u.value"
 								@click="selectMention(u)"
+								@mouseenter="activeMentionIndex = mIdx"
+								:class="mIdx === activeMentionIndex ? 'bg-blue-50 mention-option-active' : ''"
 								class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
 							>
 								<span>{{ u.label }}</span>
@@ -1389,7 +1405,14 @@ async function submitTimelineComment() {
 	
 	const element = selectedElements.value[0];
 	const elementId = element?.id || "process";
-	
+
+	const assignedTo = timelineAssignedTo.value || resolveTypedMention(timelineText.value);
+	if (timelineIsTask.value && !assignedTo) {
+		commentError.value = "A task needs an assignee. Mention the person with @ and pick them from the list.";
+		return;
+	}
+	commentError.value = "";
+
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
@@ -1397,7 +1420,7 @@ async function submitTimelineComment() {
 				model_name: props.modelName,
 				element_id: elementId,
 				comment: timelineText.value.trim(),
-				assigned_to: timelineAssignedTo.value,
+				assigned_to: assignedTo,
 				is_task: timelineIsTask.value ? 1 : 0
 			}
 		});
@@ -1419,6 +1442,7 @@ function autoResizeTextarea(el) {
 }
 
 function handleTimelineCommentInput(e) {
+	commentError.value = "";
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
 	const text = timelineText.value || "";
@@ -1482,6 +1506,8 @@ const showMentionDropdown = ref(false);
 const activeMentionContext = ref("");
 const mentionSearchQuery = ref("");
 const mentionStartIndex = ref(-1);
+const activeMentionIndex = ref(0);
+const commentError = ref("");
 
 const mentionSuggestions = computed(() => {
 	const q = (mentionSearchQuery.value || "").trim().toLowerCase();
@@ -2772,6 +2798,7 @@ function selectCommentElement(element) {
 }
 
 function handleCommentInput(e) {
+	commentError.value = "";
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
 	const text = commentFormData.value.text || "";
@@ -2855,6 +2882,13 @@ function closeInlineComment(force = false) {
 async function submitInlineComment() {
 	if (!inlineCommentFormData.value.text || !props.modelName || !inlineCommentElement.value) return;
 
+	const assignedTo = inlineCommentFormData.value.assigned_to || resolveTypedMention(inlineCommentFormData.value.text);
+	if (inlineCommentFormData.value.is_task && !assignedTo) {
+		commentError.value = "A task needs an assignee. Mention the person with @ and pick them from the list.";
+		return;
+	}
+	commentError.value = "";
+
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
@@ -2862,7 +2896,7 @@ async function submitInlineComment() {
 				model_name: props.modelName,
 				element_id: inlineCommentElement.value.id,
 				comment: inlineCommentFormData.value.text,
-				assigned_to: inlineCommentFormData.value.assigned_to,
+				assigned_to: assignedTo,
 				is_task: inlineCommentFormData.value.is_task ? 1 : 0
 			}
 		});
@@ -2886,6 +2920,7 @@ async function submitInlineComment() {
 
 function handleInlineCommentInput(e) {
 	// Reusing mention logic for inline popover
+	commentError.value = "";
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
 	const text = inlineCommentFormData.value.text || "";
@@ -2925,6 +2960,66 @@ function handleInlineCommentInput(e) {
 	nextTick(() => autoResizeTextarea(e.target));
 }
 
+// Keep the highlighted suggestion valid whenever the list changes.
+watch(mentionSuggestions, () => {
+	activeMentionIndex.value = 0;
+});
+
+watch(showMentionDropdown, (open) => {
+	if (open) activeMentionIndex.value = 0;
+});
+
+function scrollActiveMentionIntoView() {
+	nextTick(() => {
+		const el = document.querySelector(".mention-option-active");
+		if (el) el.scrollIntoView({ block: "nearest" });
+	});
+}
+
+// Drive the mention dropdown from the keyboard: arrows move, Enter/Tab commit,
+// Escape dismisses. Without this a suggestion can only be committed with the
+// mouse, which leaves assigned_to empty and silently breaks task comments.
+function onMentionKeydown(e) {
+	if (!showMentionDropdown.value) return;
+	if (e.isComposing) return;
+
+	const suggestions = mentionSuggestions.value;
+
+	if (e.key === "Escape") {
+		e.preventDefault();
+		e.stopPropagation();
+		showMentionDropdown.value = false;
+		return;
+	}
+
+	if (!suggestions.length) return;
+
+	if (e.key === "ArrowDown") {
+		e.preventDefault();
+		activeMentionIndex.value = (activeMentionIndex.value + 1) % suggestions.length;
+		scrollActiveMentionIntoView();
+	} else if (e.key === "ArrowUp") {
+		e.preventDefault();
+		activeMentionIndex.value = (activeMentionIndex.value - 1 + suggestions.length) % suggestions.length;
+		scrollActiveMentionIntoView();
+	} else if (e.key === "Enter" || e.key === "Tab") {
+		// Cmd/Ctrl+Enter stays the submit shortcut.
+		if (e.metaKey || e.ctrlKey) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const index = Math.min(activeMentionIndex.value, suggestions.length - 1);
+		selectMention(suggestions[index]);
+	}
+}
+
+// Recover an assignee from a name that was typed out instead of picked from
+// the dropdown, so a task comment never reaches the server unassigned.
+function resolveTypedMention(text) {
+	if (!text) return "";
+	const match = users.value.find(u => u.full_name && text.includes("@" + u.full_name));
+	return match ? match.name : "";
+}
+
 function selectMention(user) {
 	const isTimeline = activeMentionContext.value === "timeline";
 	const isInline = activeMentionContext.value === "inline";
@@ -2952,6 +3047,10 @@ function selectMention(user) {
 		inlineCommentFormData.value.is_task = true;
 	} else {
 		commentFormData.value.text = newText;
+		// Keep the Assign To control in step with the mention, and keep the
+		// userSearchQuery watcher from clearing what was just selected.
+		commentFormData.value.assigned_to = user.value;
+		userSearchQuery.value = user.label;
 	}
 	
 	showMentionDropdown.value = false;
@@ -3073,6 +3172,13 @@ async function submitComment() {
 		return;
 	}
 
+	const assignedTo = commentFormData.value.assigned_to || resolveTypedMention(commentFormData.value.text);
+	if (commentFormData.value.is_task && !assignedTo) {
+		commentError.value = "A task needs an assignee. Mention the person with @ and pick them from the list.";
+		return;
+	}
+	commentError.value = "";
+
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
@@ -3080,7 +3186,7 @@ async function submitComment() {
 				model_name: props.modelName,
 				element_id: elementId,
 				comment: commentFormData.value.text,
-				assigned_to: commentFormData.value.assigned_to,
+				assigned_to: assignedTo,
 				is_task: commentFormData.value.is_task ? 1 : 0
 			}
 		});
