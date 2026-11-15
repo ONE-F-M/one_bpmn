@@ -40,6 +40,9 @@ over a no-code HTTP Request operation.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import re
 import time
 from urllib.parse import quote
@@ -845,6 +848,18 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 # Args that must never reach the audit record. The test password is one, so an action that carries it is never
 # re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
 SECRET_ARGS = frozenset({"password"})
+
+
+def test_password_for(run_id: str) -> str:
+	"""The one password every test user of a run gets, derived from the run id and a site secret.
+
+	It is derived rather than stored, so it never sits in process data (the engine copies that into the activity log and
+	the saved workflow state) and the model never sees it. Any later step of the same run gets the same value back."""
+	secret = (frappe.conf.get("encryption_key") or "").encode()
+	if not secret:
+		raise AgentSandboxError("The site has no encryption_key to derive the test password from.")
+	digest = hmac.new(secret, f"testing-agent-test-password:{run_id}".encode(), hashlib.sha256).digest()
+	return base64.urlsafe_b64encode(digest).decode().rstrip("=")[:24]
 NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
 
 
@@ -930,6 +945,11 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		run.db_set(finished({"state": "failed", "failure_class": "policy", "error_message": "No GitHub token configured."}), update_modified=False)
 		raise AgentSandboxError("Processa Settings has no GitHub token configured.")
 
+	if action == "prepare_site":
+		run_id = str(params.get("run_id") or "").strip()
+		if not run_id:
+			raise AgentSandboxError("prepare_site needs a run_id.")
+		params = {**params, "password": test_password_for(run_id)}  # a password a caller passed is replaced, never forwarded
 	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
 	payload = {
 		"correlation_id": run.name,
