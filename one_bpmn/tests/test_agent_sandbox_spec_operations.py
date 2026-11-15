@@ -160,15 +160,32 @@ class TestSpecToolScripts(FrappeTestCase):
 
 	def test_browser_snapshot_saves_the_screenshot_as_a_private_file_and_returns_a_link_not_base64(self):
 		response = {"ok": True, "response": {"snapshot": "- heading", "screenshot_base64": "QUJD", "url": "/app", "role": "Sales User"}}
-		created = []
-		result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app", "role": "Sales User"}, response,
-		                            file_cls=lambda d: created.append(d) or MagicMock(insert=lambda **k: SimpleNamespace(file_url="/private/files/snap.jpg")))
+		with patch("frappe.utils.file_manager.save_file", return_value=SimpleNamespace(file_url="/private/files/snap.jpg")) as save:
+			result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app", "role": "Sales User"}, response)
 		self.assertEqual(sent[0][4], {"run_id": "run-1", "url": "/app", "role": "Sales User"})
 		self.assertNotIn("screenshot_base64", result)
 		self.assertEqual((result["snapshot"], result["screenshot_file"]), ("- heading", "/private/files/snap.jpg"))
-		self.assertEqual((created[0]["is_private"], created[0]["attached_to_doctype"], created[0]["attached_to_name"]), (1, "A2A Task", "A2A-1"))
+		args, kwargs = save.call_args
+		self.assertEqual((args[0], args[1], args[2], args[3]), ("snapshot-run-1.jpg", "QUJD", "A2A Task", "A2A-1"))
+		self.assertEqual((kwargs["decode"], kwargs["is_private"]), (True, 1))
 		result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app"})
 		self.assertIn("error", result)
+
+	def test_every_tool_script_passes_the_security_gate_so_it_can_be_linked_to_a_map(self):
+		from one_bpmn.security.script_validator import validate_script
+
+		for name, code in tools_patch.SCRIPTS.items():
+			self.assertEqual(validate_script(code)["findings"], [], name)
+
+	def test_a_site_that_ran_the_first_patch_gets_the_corrected_script(self):
+		from one_bpmn.one_bpmn.patches.v1_0 import fix_browser_snapshot_screenshot_save as fix
+
+		tools_patch.execute()
+		frappe.db.set_value("Server Script", "Sandbox Tool: Browser Snapshot", "script", "result['old'] = frappe.get_doc({}).insert(ignore_permissions=True)")
+		fix.execute()
+		script = frappe.db.get_value("Server Script", "Sandbox Tool: Browser Snapshot", "script")
+		self.assertIn("save_file", script)
+		self.assertNotIn("ignore_permissions", script)
 
 	def test_trigger_job_passes_the_method_and_an_error_answer_comes_back_as_an_error(self):
 		result, sent, _ = self._run("Sandbox Tool: Trigger Job", {**self.BRIEF, "method": "one_bpmn.tasks.daily"})
