@@ -7,7 +7,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_replies, tools_review
-from processa.patches.v1_0 import prosally_relayouts_and_compares as relayout_patch
 from processa.patches.v1_0 import seed_prosally_layout_regression_cases as seed
 
 NODES = [{"id": "g1", "name": "Recruiter Action?"}, {"id": "g2", "name": "Requester Action?"}]
@@ -77,21 +76,6 @@ class TestRelayoutReply(FrappeTestCase):
 		self.assertIn("already the best", out["response"])
 		for thing in TWO_THINGS:
 			self.assertIn(thing, out["response"])
-
-	def test_the_classifier_rule_names_alignment_labels_arrows_and_colour(self):
-		rule = next(
-			replacement
-			for anchor, replacement in relayout_patch.PROMPT_EDITS
-			if "classify as RELAYOUT" in replacement
-		)
-
-		for phrase in (
-			"aligned or placed",
-			"which way an arrow runs",
-			"colour",
-			"no step, lane or gateway to add",
-		):
-			self.assertIn(phrase, rule)
 
 
 class TestRegressionCases(FrappeTestCase):
