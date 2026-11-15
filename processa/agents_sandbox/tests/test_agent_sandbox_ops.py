@@ -14,6 +14,7 @@ receives the concrete action and its arguments.
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -178,12 +179,13 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertNotIn("tools", kwargs["json"])
 
 	def test_the_test_password_is_derived_from_the_run_id_forwarded_and_never_stored(self):
-		_result, ctx, mock_post = self._dispatch("prepare_site", run_id="run-1", password="Caller-chosen-1")
+		caller_value = "caller-" + uuid.uuid4().hex  # random at run time, so no credential-looking literal sits in the file
+		_result, ctx, mock_post = self._dispatch("prepare_site", run_id="run-1", password=caller_value)
 		sent = mock_post.call_args.kwargs["json"]["args"]["password"]
 		self.assertEqual(sent, ops.test_password_for("run-1"))  # a caller's own value is replaced
 		row = frappe.get_doc("Agent Sandbox Run", ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]["run"])
 		self.assertNotIn(sent, row.request_payload)
-		self.assertNotIn("Caller-chosen-1", row.request_payload)
+		self.assertNotIn(caller_value, row.request_payload)
 		self.assertEqual(frappe.parse_json(row.request_payload)["args"], {"run_id": "run-1", "password": "REDACTED"})
 
 	def test_the_derived_password_is_stable_per_run_different_between_runs_and_acceptable_to_the_sandbox(self):
