@@ -49,6 +49,21 @@ class TestRevertOutput(FrappeTestCase):
 		self.assertIn("+" + FIRST, output["diff"])
 		self.assertIn("Apply it to put it back", output["response"])
 
+	def test_the_agent_user_with_no_roles_can_still_read_the_history(self):
+		self.script.script = SECOND
+		self.script.save(ignore_version=False)  # the test runner skips versions by default
+		set_turn(CONV, {"current_script": self.script.name})
+		agent_user = frappe.db.get_value("AI Agent Configuration", "logix", "agent_user")
+		if not agent_user:
+			self.skipTest("Logix has no agent user on this site")
+		frappe.set_user(agent_user)
+		self.addCleanup(frappe.set_user, "Administrator")
+
+		result = tools.revert_output(CONV)
+
+		self.assertTrue(result["has_fix"])
+		self.assertEqual(get_turn(CONV)["output"]["modified_script"], FIRST)
+
 	def test_a_script_without_history_says_so(self):
 		set_turn(CONV, {"current_script": self.script.name})
 

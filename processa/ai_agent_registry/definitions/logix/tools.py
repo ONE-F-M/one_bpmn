@@ -9,7 +9,7 @@ from frappe import _
 from processa.ai_agent_registry.definitions.shared.helpers import tool_envelope
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from processa.ai_agent_security.code_checks.script_validator import validate_script
-from processa.api.versions import get_script_version_history
+from processa.api.versions import script_versions
 from processa.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from processa.processa_engine.agent_runtime.structured_output import provider_schema
 from processa.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
@@ -82,7 +82,8 @@ def revert_output(conversation: str) -> dict:
 	if not script:
 		say = _("No script is linked to this step, so there is nothing to revert.")
 		return _reply(conversation, say, intent="REVERT")
-	history = get_script_version_history(script)
+	# Reads history without the read check: the agent user holds no roles.
+	history = script_versions(script) if frappe.db.exists("Server Script", script) else []
 	if len(history) < 2:
 		say = _("The script {0} has no earlier version to go back to.").format(script)
 		return _reply(conversation, say, intent="REVERT")

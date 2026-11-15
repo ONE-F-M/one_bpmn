@@ -260,14 +260,15 @@ def restore_version(version_name: str) -> dict:
 @frappe.whitelist()
 def get_script_version_history(script_name: str) -> list:
 	"""Return a Server Script's versions from Frappe's Version records, newest first, current state first."""
-	if not script_name:
-		return []
-
-	if not frappe.db.exists("Server Script", script_name):
+	if not script_name or not frappe.db.exists("Server Script", script_name):
 		return []
 
 	frappe.get_doc("Server Script", script_name).check_permission("read")
+	return script_versions(script_name)
 
+
+def script_versions(script_name: str) -> list:
+	"""A Server Script's versions, newest first, current state first; the caller has checked permission."""
 	current = frappe.db.get_value(
 		"Server Script", script_name,
 		["modified", "modified_by", "script"],
