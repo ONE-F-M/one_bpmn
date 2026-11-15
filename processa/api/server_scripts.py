@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import cint, escape_html, now_datetime
 
 from processa.processa_engine.agent_runtime import turn_signal
+from processa.processa_engine.agent_runtime.executor import ErrorCode
 from processa.ai_agent_security.rate_limit import RateLimited
 from processa.api.common import shape_reply
 from processa.utils.session import as_user
@@ -366,14 +367,16 @@ def _raise_if_turn_failed(inst_name: str, turn_started) -> None:
 
 
 def _note_turn_failure(result: dict, inst_name: str, turn_started) -> dict:
-	"""Add the failed run's reason to a reply the map saved anyway, on the result and the saved message."""
+	"""Replace a reply the map saved anyway with the failed run's reason, on the result and the saved message."""
 	run = _latest_turn_run(inst_name, turn_started)
 	if not run or run.status != "Error":
 		return result
 	result["error_code"] = run.error_code
 	if result.get("intent") == "ERROR":
 		return result
-	result["response"] = f"{result.get('response') or ''}\n\n{_turn_failure_message(run)}".strip()
+	# The saved reply is the map's clarify fallback, which reads as the agent
+	# not understanding; the failure sentence is the whole reply.
+	result["response"] = _turn_failure_message(run)
 	if result.get("message_name"):
 		frappe.db.set_value("Chat Message", result["message_name"], "text", result["response"])
 	return result
@@ -417,6 +420,10 @@ def _stopped_reason(error_code: str | None, error_message: str | None) -> str:
 		return _("The model timed out before it answered. Please try again.")
 	if error_code == "BUDGET_EXCEEDED":
 		return _("The agent stopped because this request went over its budget. Try a smaller request.")
+	if error_code and error_code not in {code.value for code in ErrorCode}:
+		# A Python exception class name: the traceback is already in the Error Log,
+		# and the raw message is not for the user.
+		return _("The agent hit an internal error; the team has been notified.")
 	return _("The agent could not answer ({0}): {1}").format(
 		error_code or _("unknown error"), escape_html((error_message or "")[:300])
 	)

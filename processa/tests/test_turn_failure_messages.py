@@ -118,7 +118,7 @@ class TestTurnFailureMessages(FrappeTestCase):
 		result = SSA._note_turn_failure(
 			{"response": fallback, "message_name": message_name}, self.instance, self.turn_started
 		)
-		self.assertIn(fallback, result["response"])
+		self.assertNotIn(fallback, result["response"])
 		self.assertIn("tool-call limit", result["response"])
 		self.assertEqual(result["error_code"], "TURN_CAP_REACHED")
 		self.assertIn("tool-call limit", frappe.db.get_value("Chat Message", message_name, "text"))
@@ -139,6 +139,48 @@ class TestTurnFailureMessages(FrappeTestCase):
 	def test_budget_stop_shows_the_budget_message(self):
 		self._run("Error", "BUDGET_EXCEEDED", "The run passed its token budget of 100 with 3,021 tokens.")
 		self.assertIn("over its budget", self._message())
+
+	def test_a_saved_clarify_reply_on_an_error_run_becomes_the_failure_text_alone(self):
+		self._run("Error", "TIMEOUT", "Model call exceeded aiTimeout (30s)")
+		clarify = "Could you tell me a bit more about what this script should do?"
+		message_name = self._bot_message(clarify)
+		result = SSA._note_turn_failure(
+			{"response": clarify, "message_name": message_name}, self.instance, self.turn_started
+		)
+		expected = "The model timed out before it answered. Please try again."
+		self.assertEqual(result["response"], expected)
+		self.assertEqual(frappe.db.get_value("Chat Message", message_name, "text"), expected)
+
+	def test_an_exception_class_name_gives_the_internal_error_sentence_without_the_message(self):
+		text = SSA._stopped_reason(
+			"AttributeError", "Traceback (most recent call last): File x.py line 3 'NoneType' has no attribute"
+		)
+		self.assertEqual(text, "The agent hit an internal error; the team has been notified.")
+		self.assertNotIn("Traceback", text)
+		self.assertNotIn("NoneType", text)
+		self.assertNotIn("AttributeError", text)
+
+	def test_a_reply_with_intent_error_is_left_alone_on_an_error_run(self):
+		self._run("Error", "AttributeError", "boom")
+		reply = "Something went wrong."
+		message_name = self._bot_message(reply)
+		result = SSA._note_turn_failure(
+			{"response": reply, "intent": "ERROR", "message_name": message_name},
+			self.instance,
+			self.turn_started,
+		)
+		self.assertEqual(result["response"], reply)
+		self.assertEqual(frappe.db.get_value("Chat Message", message_name, "text"), reply)
+
+	def test_a_success_run_leaves_a_clarify_reply_alone(self):
+		self._run("Success")
+		clarify = "Could you tell me a bit more about what this script should do?"
+		message_name = self._bot_message(clarify)
+		result = SSA._note_turn_failure(
+			{"response": clarify, "message_name": message_name}, self.instance, self.turn_started
+		)
+		self.assertEqual(result, {"response": clarify, "message_name": message_name})
+		self.assertEqual(frappe.db.get_value("Chat Message", message_name, "text"), clarify)
 
 	def test_a_good_reply_is_left_alone(self):
 		self._run("Success")
