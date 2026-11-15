@@ -195,9 +195,22 @@ def _start_timer_instance(model_name: str, config_name: str, now):
 
 def process_timer_catch_events():
 	"""Every minute: resume Active BPMN Process Instances whose waiting timer tasks have elapsed."""
+	timer_models = frappe.get_all(
+		"BPMN Process Model",
+		or_filters=[
+			[field, "like", f"%{typename}%"]
+			for field in ("serialized_spec", "subprocess_specs")
+			for typename in ("TimerEventDefinition", "TimeDateEventDefinition")
+		],
+		pluck="name",
+	)
+	if not timer_models:
+		return
+
+	# Uses the model's current spec, so an instance whose map later dropped its timer is skipped.
 	active_instances = frappe.get_all(
 		"BPMN Process Instance",
-		filters={"status": "Active"},
+		filters={"status": "Active", "process_model": ["in", timer_models]},
 		pluck="name",
 	)
 
