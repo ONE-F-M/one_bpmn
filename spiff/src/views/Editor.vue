@@ -501,6 +501,7 @@
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
 						:readonly="!canEditActiveDiagram || !!activeVersionName"
+						:comments-allowed="!activeVersionName"
 						:reassign-mode="reassignMode && !activeVersionName"
 						:model-name="activeDiagramName"
 						:process="process"

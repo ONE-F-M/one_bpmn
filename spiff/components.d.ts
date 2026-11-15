@@ -21,6 +21,7 @@ declare module 'vue' {
     ChoiceGroup: typeof import('./src/components/chat/primitives/ChoiceGroup.vue')['default']
     CodeBlock: typeof import('./src/components/chat/primitives/CodeBlock.vue')['default']
     CodeMirrorEditor: typeof import('./src/components/CodeMirrorEditor.vue')['default']
+    CommentToolButton: typeof import('./src/components/CommentToolButton.vue')['default']
     CompareDialog: typeof import('./src/components/CompareDialog.vue')['default']
     ConfigImportResultsDialog: typeof import('./src/components/ConfigImportResultsDialog.vue')['default']
     CostAllocationCards: typeof import('./src/components/insights/CostAllocationCards.vue')['default']
