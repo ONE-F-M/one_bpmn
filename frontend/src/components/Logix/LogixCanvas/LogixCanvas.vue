@@ -323,7 +323,7 @@ import { frappeRequest } from "frappe-ui";
 // test cases as onefm.test_cases cards that run against the linked script.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
-import { saveStatusLabel, NAME_REQUIRED_MESSAGE, READONLY_MESSAGE } from "@/utils/logixSaveStatus";
+import { saveStatusLabel } from "@/utils/logixSaveStatus";
 
 const props = defineProps({
 	element:        { type: Object,  default: null },
@@ -348,11 +348,9 @@ const isDirty          = ref(false);
 const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
-const saveError        = ref(""); // why the last save did not happen, shown in the status area
-// scheduleAutoSave returns before saveScript on a read-only map, so the
-// read-only reason is derived here from props.readonly as well as set in
-// saveScript. Only shown once the user has changed something.
-const saveProblem = computed(() => isDirty.value
+const saveError        = ref(""); // the last save request's error, shown in the status area
+// Read-only shows at once; the other reasons only once the user has changed something.
+const saveProblem = computed(() => (props.readonly || isDirty.value)
 	? saveStatusLabel({ readonly: props.readonly, name: canvasScriptName.value, error: saveError.value })
 	: "");
 
@@ -782,15 +780,9 @@ async function ensureUniqueName() {
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
-	if (props.readonly) { // view-only: never persist edits
-		saveError.value = READONLY_MESSAGE;
-		return;
-	}
+	if (props.readonly) return; // view-only: never persist edits
 	const name = canvasScriptName.value.trim();
-	if (!name) { // wait — user hasn't named the script yet, and say so
-		saveError.value = NAME_REQUIRED_MESSAGE;
-		return;
-	}
+	if (!name) return; // silently wait — user hasn't named the script yet
 
 	isSaving.value = true;
 	try {
