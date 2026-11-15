@@ -340,3 +340,5 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_reviews_process_links #03-11-2026 ProsAl
 one_bpmn.one_bpmn.patches.v1_0.prosally_reads_process_maps #03-11-2026 ProsAlly gets a read-only read_process_map tool over the process maps the designer can read, and its generate and modify stages read what it finds
 one_bpmn.one_bpmn.patches.v1_0.add_activity_log_lookup_index #03-11-2026 Create the BPMN Activity Log index on instance, task and action that the duplicate check before every log row needs
 one_bpmn.one_bpmn.patches.v1_0.add_agent_sandbox_test_site_operations #15-11-2026 the agent_sandbox connector gets the prepare_site and checkout_pr_head operations the Testing Agent map calls
+one_bpmn.one_bpmn.patches.v1_0.add_agent_sandbox_spec_operations #16-11-2026 the agent_sandbox connector gets the run_specs and run_specs_on_base operations the Testing Agent map calls
+one_bpmn.one_bpmn.patches.v1_0.add_testing_agent_sandbox_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to write a spec, look at a page and run a scheduled job

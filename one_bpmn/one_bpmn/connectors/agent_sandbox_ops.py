@@ -776,6 +776,12 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	if work_item_id and sessions.uses_job(payload["agent_name"]):
 		return _tool_call_in_session(run, payload)
 
+	if action in SPEC_TOOL_ACTIONS:
+		error = f"{action} is only available in a sandbox Job session: turn on the agent's sandbox Job setting and run it for a Work Item."
+		if run:
+			run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": error}), update_modified=False)
+		return {"ok": False, "error": error}
+
 	began = time.monotonic()
 	try:
 		token = _mint_identity_token(sandbox_url)
@@ -829,7 +835,10 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 			work_item=payload["work_item_id"], target_app=payload["target_app"], git_branch=payload["git_branch"],
 			agent_name=payload["agent_name"], caller_instance=getattr(run, "caller_instance", None),
 		)
-		answer = sessions.wait_for(sessions.enqueue(session, "tool", payload["action"], {"args": payload["args"]}))
+		answer = sessions.wait_for(
+			sessions.enqueue(session, "tool", payload["action"], {"args": payload["args"]}),
+			timeout=SPEC_WAIT_SECONDS.get(payload["action"]),
+		)
 		error = "The sandbox session gave no answer in time." if answer is None else None
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {payload['action']} session call failed", message=frappe.get_traceback())
@@ -863,7 +872,11 @@ def test_password_for(run_id: str) -> str:
 		raise AgentSandboxError("The site has no encryption_key to derive the test password from.")
 	digest = hmac.new(secret, f"testing-agent-test-password:{run_id}".encode(), hashlib.sha256).digest()
 	return base64.urlsafe_b64encode(digest).decode().rstrip("=")[:24]
-NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base"})
+# Fast spec tools exist only in a sandbox Job session (the HTTP /tool_call path does not know them). A page capture can take
+# up to 60 seconds in the sandbox, so its answer is waited for longer than the 60 seconds every other fast tool gets.
+SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job"})
+SPEC_WAIT_SECONDS = {"browser_snapshot": 90}
 
 
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
