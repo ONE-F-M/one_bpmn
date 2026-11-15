@@ -11,8 +11,11 @@ from frappe.utils import create_batch, now_datetime
 from frappe.utils.background_jobs import is_job_enqueued
 from rq.timeouts import JobTimeoutException
 
-from processa.processa_engine.legacy_migration_move import log_error_row, migrate_record
-from processa.processa_engine.legacy_migration_replay import (
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_move import (
+	log_error_row,
+	migrate_record,
+)
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_replay import (
 	OPEN_INSTANCE_STATUSES,
 	build_context,
 	state_field,
@@ -75,7 +78,7 @@ def start(migration_name: str) -> None:
 		return
 	for n, batch in enumerate(batches, start=1):
 		frappe.enqueue(
-			"processa.processa_engine.legacy_migration.run_batch",
+			"processa.processa_engine.doctype.processa_legacy_migration.legacy_migration.run_batch",
 			queue="long",
 			timeout=600,
 			job_id=f"plm::{migration_name}::{n}",

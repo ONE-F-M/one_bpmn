@@ -7,11 +7,13 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from processa.processa_engine import legacy_migration
-from processa.processa_engine.engine import restore_workflow
-from processa.processa_engine.legacy_migration_move import migrate_record
-from processa.processa_engine.legacy_migration_replay import build_context, wait_ids
-from processa.tests.factories.legacy_migration_maps import (
+from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_move import migrate_record
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_replay import (
+	build_context,
+	wait_ids,
+)
+from processa.processa_engine.doctype.processa_legacy_migration.test_processa_legacy_migration import (
 	APPROVED,
 	DONE,
 	DRAFT,
@@ -25,6 +27,7 @@ from processa.tests.factories.legacy_migration_maps import (
 	run_start,
 	with_changes,
 )
+from processa.processa_engine.engine import restore_workflow
 
 MAPPING = [(DRAFT, DRAFT), (APPROVED, APPROVED)]
 NOBODY = "_plm_edge_nobody@example.com"
