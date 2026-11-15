@@ -891,7 +891,7 @@ def test_password_for(run_id: str) -> str:
 NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"})
 # Fast spec tools exist only in a sandbox Job session (the HTTP /tool_call path does not know them). A page capture can take
 # up to 60 seconds in the sandbox, so its answer is waited for longer than the 60 seconds every other fast tool gets.
-SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job"})
+SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job", "seed_docs", "seed_context"})
 SPEC_WAIT_SECONDS = {"browser_snapshot": 90}
 
 
