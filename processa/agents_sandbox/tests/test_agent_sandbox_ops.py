@@ -177,6 +177,13 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertNotIn("agent_config", kwargs["json"])
 		self.assertNotIn("tools", kwargs["json"])
 
+	def test_a_password_arg_reaches_the_sandbox_but_is_not_stored_on_the_run(self):
+		_result, ctx, mock_post = self._dispatch("prepare_site", run_id="run-1", password="Secret-pass-123")
+		self.assertEqual(mock_post.call_args.kwargs["json"]["args"]["password"], "Secret-pass-123")
+		row = frappe.get_doc("Agent Sandbox Run", ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]["run"])
+		self.assertNotIn("Secret-pass-123", row.request_payload)
+		self.assertEqual(frappe.parse_json(row.request_payload)["args"], {"run_id": "run-1", "password": "REDACTED"})
+
 	def test_open_pull_request_parks_and_forwards_summary_as_an_arg(self):
 		result, ctx, mock_post = self._dispatch("open_pull_request", summary="Added the docstring.")
 		self.assertIsNone(result)
