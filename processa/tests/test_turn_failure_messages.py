@@ -153,12 +153,22 @@ class TestTurnFailureMessages(FrappeTestCase):
 
 	def test_an_exception_class_name_gives_the_internal_error_sentence_without_the_message(self):
 		text = SSA._stopped_reason(
-			"AttributeError", "Traceback (most recent call last): File x.py line 3 'NoneType' has no attribute"
+			"AttributeError",
+			"Traceback (most recent call last): File x.py line 3 'NoneType' has no attribute",
 		)
 		self.assertEqual(text, "The agent hit an internal error; the team has been notified.")
 		self.assertNotIn("Traceback", text)
 		self.assertNotIn("NoneType", text)
 		self.assertNotIn("AttributeError", text)
+
+	def test_an_unexpected_error_gives_the_internal_error_sentence_without_the_message(self):
+		self._run(
+			"Error", "UNEXPECTED_ERROR", "'ExecutorConfig' object has no attribute 'tool_result_max_chars'"
+		)
+		text = self._message()
+		self.assertIn("The agent hit an internal error; the team has been notified.", text)
+		self.assertNotIn("ExecutorConfig", text)
+		self.assertNotIn("UNEXPECTED_ERROR", text)
 
 	def test_a_reply_with_intent_error_is_left_alone_on_an_error_run(self):
 		self._run("Error", "AttributeError", "boom")
