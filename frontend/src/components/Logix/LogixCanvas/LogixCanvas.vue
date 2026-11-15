@@ -47,6 +47,7 @@
 					<span v-if="isSaving" class="lc-save-status lc-autosaving">
 						<span class="lc-spinner-sm"></span> Saving…
 					</span>
+					<span v-else-if="saveProblem" class="lc-save-status lc-unsaved lc-save-error" :title="saveProblem">● {{ saveProblem }}</span>
 					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
 					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
 
@@ -322,6 +323,7 @@ import { frappeRequest } from "frappe-ui";
 // test cases as onefm.test_cases cards that run against the linked script.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
+import { saveStatusLabel, NAME_REQUIRED_MESSAGE, READONLY_MESSAGE } from "@/utils/logixSaveStatus";
 
 const props = defineProps({
 	element:        { type: Object,  default: null },
@@ -346,6 +348,13 @@ const isDirty          = ref(false);
 const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
+const saveError        = ref(""); // why the last save did not happen, shown in the status area
+// scheduleAutoSave returns before saveScript on a read-only map, so the
+// read-only reason is derived here from props.readonly as well as set in
+// saveScript. Only shown once the user has changed something.
+const saveProblem = computed(() => isDirty.value
+	? saveStatusLabel({ readonly: props.readonly, name: canvasScriptName.value, error: saveError.value })
+	: "");
 
 // ── Live security lint ────────────────────────────────────────────────
 // Mirrors the pre-deployment gate so the author sees blocking issues as they
@@ -773,9 +782,15 @@ async function ensureUniqueName() {
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
-	if (props.readonly) return; // view-only: never persist edits
+	if (props.readonly) { // view-only: never persist edits
+		saveError.value = READONLY_MESSAGE;
+		return;
+	}
 	const name = canvasScriptName.value.trim();
-	if (!name) return; // silently wait — user hasn't named the script yet
+	if (!name) { // wait — user hasn't named the script yet, and say so
+		saveError.value = NAME_REQUIRED_MESSAGE;
+		return;
+	}
 
 	isSaving.value = true;
 	try {
@@ -820,6 +835,7 @@ async function saveScript() {
 			});
 		}
 
+		saveError.value = "";
 		isDirty.value = false;
 		isSaved.value = true;
 		setTimeout(() => { isSaved.value = false; }, 3000);
@@ -828,6 +844,7 @@ async function saveScript() {
 		await fetchVersionHistory();
 	} catch (err) {
 		console.error("Auto-save failed:", err);
+		saveError.value = err?.messages?.[0] || err?.message || "Auto-save failed";
 	} finally {
 		isSaving.value = false;
 	}
@@ -970,6 +987,7 @@ async function saveScript() {
 }
 .lc-unsaved   { color: #e65100; }
 .lc-saved     { color: #2e7d32; }
+.lc-save-error { white-space: normal; max-width: 16rem; }
 .lc-autosaving { color: #888; }
 .lc-lint-status { color: #c62828; font-weight: 600; cursor: default; }
 
