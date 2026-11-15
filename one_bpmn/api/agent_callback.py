@@ -170,9 +170,18 @@ def classify_failure(status: str, payload: dict) -> str:
 	return "env" if status in ("tests_failed", "failed") else "infra"
 
 
+# The status the sandbox reports when each test-site command worked. Neither opens a pull request.
+TEST_SITE_SUCCESS = {"prepare_site": "prepared", "checkout_pr_head": "ready"}
+
+
 def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dict:
 	"""The state a finished run settles to. run_tests never opens a PR, so for
 	it tests_passed is completion; every other shape still needs a pr_url."""
+	if action in TEST_SITE_SUCCESS:
+		if status == TEST_SITE_SUCCESS[action]:
+			return {"state": "completed"}
+		error = payload.get("error") or status or "sandbox run failed"
+		return {"state": "failed", "failure_class": "env", "error_message": bounded_error(error)}
 	if status == "tests_passed":
 		if action == "run_tests":
 			return {"state": "completed"}
@@ -422,6 +431,8 @@ def _sandbox_run_answer(run) -> str:
 	with the sandbox's own output so the agent can tell its change from the
 	environment, and a PR is mentioned on either branch."""
 	prefix = _retry_prefix(run)
+	if _run_action(run) in TEST_SITE_SUCCESS:
+		return prefix + _test_site_answer(run)
 	if _run_action(run) == "run_tests":
 		verdict = "Tests passed." if run.state == "completed" else f"Tests failed ({run.error_message or 'no reason given'})."
 		return prefix + verdict + _output_tail(run)
@@ -434,6 +445,18 @@ def _sandbox_run_answer(run) -> str:
 	elif _run_action(run) == "open_pull_request":
 		reason += " No pull request exists."
 	return prefix + reason + _output_tail(run)
+
+
+def _test_site_answer(run) -> str:
+	"""What the agent is told prepare_site or checkout_pr_head returned: the sandbox's own result, without timings.
+	A failure names the step and carries the tail of the output so the agent can tell what broke."""
+	action = _run_action(run)
+	result = {k: v for k, v in (frappe.parse_json(run.result or "{}") or {}).items() if k != "timings_ms"}
+	if run.state == "completed":
+		return f"{action} succeeded: {frappe.as_json(result)}"
+	text = f"{action} failed at step {result.get('step') or 'unknown'}: {run.error_message or 'no reason given'}"
+	tail = result.get("migration_tail") or result.get("build_tail") or result.get("detail") or ""
+	return text + (f"\n\nOutput (tail):\n{tail[-1500:]}" if tail else "")
 
 
 def _retry_prefix(run) -> str:

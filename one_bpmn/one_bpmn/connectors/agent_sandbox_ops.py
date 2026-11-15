@@ -845,6 +845,12 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 	return {"ok": True, "response": _with_batch_hint(payload["action"], data)}
 
 
+# Args that must never reach the audit record. The test password is one, so an action that carries it is never
+# re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
+SECRET_ARGS = frozenset({"password"})
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
+
+
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
 	"""Queue a slow action for the Work Item's Job session. The result settles the run like a callback."""
 	session = sessions.ensure_session(
@@ -940,7 +946,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"callback_url": _callback_url(),
 		"agent_name": agent_name_for(instance) or "Dev Agent",
 	}
-	audit_payload = {**payload, "github_token": "REDACTED"}
+	audit_payload = {**payload, "github_token": "REDACTED", "args": {k: ("REDACTED" if k in SECRET_ARGS else v) for k, v in args.items()}}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
 	if work_item_id and sessions.uses_job(payload["agent_name"]):
@@ -1024,6 +1030,8 @@ def retry_eligible(run) -> bool:
 	The supervisor decides by failure class: an infrastructure or model API failure is retried within its attempt
 	limit, an environment failure once and only when the agent's configuration allows it. A code failure goes back
 	to the agent with the failing tests, because running the same tests again almost never changes the result."""
+	if (run.action or "") in NO_AUTO_RETRY_ACTIONS:
+		return False
 	if supervisor.next_step(run)["action"] != "retry":
 		return False
 	if run.failure_class != "env":
