@@ -492,7 +492,7 @@ See `AGENTS.md` for the full working rules.
 ## Architecture Overview
 
 - `processa/api/` - backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, lookups)
-- `processa/processa/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
+- `processa/processa_engine/doctype/` - BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration); every other module keeps its DocTypes in its own `doctype/` folder
 - `processa/tasks.py` — scheduled A2A, conversation, memory and model jobs
 - `processa/hooks.py` — universal document-event trigger and scheduler events
 - `frontend/` - the Vue.js frontend (bpmn-js editor + ProsAlly assistant)
