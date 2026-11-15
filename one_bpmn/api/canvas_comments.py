@@ -77,7 +77,9 @@ def get_canvas_comments(model_name: str) -> list:
 					# Use ToDo's allocated_to as the source of truth for assignment
 					c.assigned_to = todo_info["allocated_to"]
 				else:
-					c.status = None
+					# No ToDo (historic comment saved as a task with no assignee):
+					# keep the stored status so it still renders as a task.
+					c.status = c.status or "Open"
 
 			if c.assigned_to:
 				a_info = user_map.get(c.assigned_to, {})
