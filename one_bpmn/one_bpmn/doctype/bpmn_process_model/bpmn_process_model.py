@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 import re
 import xml.etree.ElementTree as ET
 
@@ -86,6 +87,18 @@ class BPMNProcessModel(Document):
 		self.validate_script_task_security()
 		self.validate_response_schemas()
 		self.warn_unsupported_temperature()
+		self.bump_diagram_revision()
+
+	def bump_diagram_revision(self):
+		"""Advance ``diagram_revision`` whenever the diagram XML of a saved model changes.
+
+		Real-time collaboration compares this number to detect a stale save. The new
+		value is always derived from the stored one, never from what the caller sent.
+		"""
+		if self.is_new() or not self.has_value_changed("bpmn_xml"):
+			return
+		before = self.get_doc_before_save()
+		self.diagram_revision = (cint(before.get("diagram_revision")) if before else cint(self.diagram_revision)) + 1
 
 	def warn_unsupported_temperature(self):
 		"""Warn, without blocking the save, about AI tasks whose temperature their model is never sent."""

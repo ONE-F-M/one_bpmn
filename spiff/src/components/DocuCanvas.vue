@@ -640,6 +640,7 @@ const nid = () => `n${++uid}`;
 const applying    = ref(false);
 const applyError  = ref("");
 const appliedName = ref("");
+const baseModified = ref("");   // the DocType's modified stamp as last read; the server refuses a save over a newer one
 
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
@@ -1167,7 +1168,10 @@ function currentIr() {
 async function loadSchema(dt) {
 	try {
 		const res = await frappeRequest({ url: `${API}get_doctype_schema`, params: { doctype: dt } });
-		if (res?.exists && res.doctype_ir) loadIr(res.doctype_ir);
+		if (res?.exists && res.doctype_ir) {
+			loadIr(res.doctype_ir);
+			baseModified.value = res.modified || "";
+		}
 	} catch (e) { /* new doctype — nothing to load */ }
 }
 
@@ -1273,6 +1277,7 @@ async function runAutosave() {
 				confirm: 1,
 				process: props.processContext?.process || undefined,
 				list_in_process: listingAnswer.value ?? undefined,
+				base_modified: baseModified.value || undefined,
 			},
 		});
 		if (res?.status === "needs_listing_decision") {
@@ -1289,6 +1294,7 @@ async function runAutosave() {
 		}
 		if (res?.name) {
 			appliedName.value = res.name;
+			baseModified.value = res.modified || "";
 			emit("applied", res.name);   // write the DocType name back onto the shape
 		}
 		saveNotes.value = (res?.notes || []).join(" ");

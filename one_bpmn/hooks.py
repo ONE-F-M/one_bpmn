@@ -163,6 +163,7 @@ permission_query_conditions = {
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
 	"Doctype Change Request": "one_bpmn.one_bpmn.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
+	"DocType": "one_bpmn.utils.doctype_permissions.doctype_query_conditions",
 }
 
 has_permission = {
@@ -172,6 +173,7 @@ has_permission = {
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
 	"Doctype Change Request": "one_bpmn.one_bpmn.doctype.doctype_change_request.doctype_change_request.has_permission",
+	"DocType": "one_bpmn.utils.doctype_permissions.doctype_has_permission",
 }
 
 # DocType Class
@@ -208,7 +210,10 @@ _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
 # Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
-after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
+after_migrate = [
+	"one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs",
+	"one_bpmn.install.grant_process_owner_doctype_access",
+]
 
 # Jinja globals for aiUserPrompt templates.
 jinja = {
