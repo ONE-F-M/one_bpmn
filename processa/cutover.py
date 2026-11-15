@@ -1,12 +1,14 @@
-"""Move a site's records from the one_bpmn app name to processa before its first migrate on processa.
+"""Move each site's records from the one_bpmn app name to processa before its first migrate on processa.
 
-Runs from the deploy workflows through bench execute, ahead of migrate, because migrate cannot load hooks for an
-installed app whose package is gone. A site already on processa is left as it is.
+The deploy workflows call run() from the bench sites folder ahead of migrate. bench execute cannot be used: it
+refuses a method from an app the site does not list as installed yet. A site already on processa is left alone.
 """
 
 import json
 
 import frappe
+from frappe.query_builder import DocType
+from frappe.utils import get_sites
 
 OLD_APP = "one_bpmn"
 NEW_APP = "processa"
@@ -21,19 +23,35 @@ RENAMED_PATCHES = {
 KEPT_NAME = "delete_one_bpmn_module"
 
 
+def run():
+	for site in get_sites():
+		frappe.init(site=site)
+		frappe.connect()
+		try:
+			if OLD_APP in json.loads(frappe.db.get_global("installed_apps") or "[]"):
+				rename_app()
+				frappe.db.commit()
+				print(f"{site}: moved to {NEW_APP}")
+		finally:
+			frappe.destroy()
+
+
 def rename_app():
+	"""Rename the app in the site records. Direct updates only, since app hooks cannot load while one_bpmn is listed."""
 	installed = json.loads(frappe.db.get_global("installed_apps") or "[]")
-	if OLD_APP in installed:
-		frappe.db.set_global("installed_apps", json.dumps([NEW_APP if app == OLD_APP else app for app in installed]))
-	for name in frappe.get_all("Installed Application", filters={"app_name": OLD_APP}, pluck="name"):
-		frappe.db.set_value("Installed Application", name, "app_name", NEW_APP)
-	for name in frappe.get_all("Module Def", filters={"app_name": OLD_APP}, pluck="name"):
-		frappe.db.set_value("Module Def", name, "app_name", NEW_APP)
-	rows = frappe.get_all("Patch Log", filters={"patch": ["like", f"{OLD_PATCH_PREFIX}%"]}, fields=["name", "patch"])
-	for row in rows:
+	default_value = DocType("DefaultValue")
+	(
+		frappe.qb.update(default_value)
+		.set(default_value.defvalue, json.dumps([NEW_APP if app == OLD_APP else app for app in installed]))
+		.where((default_value.parent == "__global") & (default_value.defkey == "installed_apps"))
+	).run()
+	for doctype in ("Installed Application", "Module Def"):
+		for name in frappe.get_all(doctype, filters={"app_name": OLD_APP}, pluck="name"):
+			frappe.db.set_value(doctype, name, "app_name", NEW_APP, update_modified=False)
+	for row in frappe.get_all("Patch Log", filters={"patch": ["like", f"{OLD_PATCH_PREFIX}%"]}, fields=["name", "patch"]):
 		frappe.db.set_value("Patch Log", row.name, "patch", patch_line(row.patch), update_modified=False)
-	frappe.clear_cache()
-	print(f"processa cutover: {len(rows)} Patch Log rows rewritten")
+	frappe.cache.hdel("defaults", "__global")
+	frappe.cache.delete_value("app_hooks")
 
 
 def patch_line(old: str) -> str:

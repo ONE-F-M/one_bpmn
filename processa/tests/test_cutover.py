@@ -20,12 +20,13 @@ class TestCutover(FrappeTestCase):
 			self.assertIn(new, lines)
 
 	def test_rename_app_moves_site_records_once(self):
-		installed = json.loads(frappe.db.get_global("installed_apps"))
-		frappe.db.set_global("installed_apps", json.dumps(["one_bpmn" if app == "processa" else app for app in installed]))
-		module = frappe.get_doc({"doctype": "Module Def", "module_name": "Cutover Probe", "app_name": "one_bpmn"}).insert()
+		module = frappe.get_doc({"doctype": "Module Def", "module_name": "Cutover Probe", "app_name": "one_bpmn"})
+		module.db_insert()
 		old = next(iter(OLD_LINES))
 		frappe.db.delete("Patch Log", {"patch": OLD_LINES[old]})
 		patch_log = frappe.get_doc({"doctype": "Patch Log", "patch": old}).insert()
+		installed = json.loads(frappe.db.get_global("installed_apps"))
+		frappe.db.set_global("installed_apps", json.dumps(["one_bpmn" if app == "processa" else app for app in installed]))
 
 		rename_app()
 		rename_app()
