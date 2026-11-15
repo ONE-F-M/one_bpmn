@@ -1,7 +1,8 @@
-"""Logix's tool functions: the debug stage and read-only Server Script lookups."""
+"""Logix's tool functions: the debug stage, the reply that matches the applied script, and read-only Server Script lookups."""
 
 import difflib
 import json
+import re
 
 import frappe
 from frappe import _
@@ -73,6 +74,19 @@ def run_debug_stage(conversation: str) -> dict:
 	lines += [f"- {issue}" for issue in review.get("issues") or []]
 	lines += [f"- {f['rule']} (line {f['line']}: `{f['code']}`)" for f in gate.get("findings") or []]
 	return _reply(conversation, "\n".join(lines))
+
+
+CODE_FENCE = re.compile(r"(```python\s*\n)(.*?)(```)", re.DOTALL)
+
+
+def reply_with_code(text: str, code: str) -> str:
+	"""The reply text with its first python block replaced by code, so what is shown is what gets applied."""
+	if not code:
+		return text
+	block = code.rstrip("\n") + "\n"
+	if CODE_FENCE.search(text):
+		return CODE_FENCE.sub(lambda m: m.group(1) + block + m.group(3), text, count=1)
+	return text.rstrip() + "\n\n```python\n" + block + "```"
 
 
 def _ask(adapter, system: str, user: str, schema: dict) -> dict:
