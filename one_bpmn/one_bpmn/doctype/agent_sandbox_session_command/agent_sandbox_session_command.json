@@ -40,7 +40,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Kind",
-   "options": "tool\nrun_tests\nfinalize\nclose",
+   "options": "tool\nrun_tests\nfinalize\nclose\nprepare_site\ncheckout_pr_head\nrun_specs\nrun_specs_on_base\nupload_videos",
    "read_only": 1
   },
   {
