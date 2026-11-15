@@ -16,7 +16,9 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from processa.patches.v1_0 import apply_reviewed_memory_cleanup as memory_cleanup
 from processa.patches.v1_0 import lucrusher_retries_a_failed_fetch as patch
+from processa.patches.v1_0 import seed_lucrusher_skills as skills_seed
 
 TOPOLOGY = "lucrusher-topology-analysis"
 UUID = "75d0898c-f3ce-46d7-a242-997a179f09b9"
@@ -179,12 +181,16 @@ class TestPatchEdits(FrappeTestCase):
 
 	def test_the_prompt_sentence_follows_the_do_not_rerun_rule(self):
 		self.assertTrue(patch.PROMPT_NEW.startswith(patch.PROMPT_ANCHOR))
-		self.assertIn("A tool that returned an error is not done; retry it when the user asks.", patch.PROMPT_NEW)
+		self.assertIn(
+			"A tool that returned an error is not done; retry it when the user asks.", patch.PROMPT_NEW
+		)
 
 	def test_a_403_hint_gives_the_email_and_how_to_share(self):
 		profile = SimpleNamespace(
 			integrations=SimpleNamespace(
-				utils=SimpleNamespace(make_get_request=lambda url, headers=None: {"email": "key.owner@example.com"})
+				utils=SimpleNamespace(
+					make_get_request=lambda url, headers=None: {"email": "key.owner@example.com"}
+				)
 			)
 		)
 
@@ -227,3 +233,73 @@ class TestPatchOnTheSite(FrappeTestCase):
 	def test_the_patch_is_declared(self):
 		patches = open(os.path.join(frappe.get_app_path("processa"), "patches.txt")).read()
 		self.assertIn("processa.patches.v1_0.lucrusher_retries_a_failed_fetch", patches)
+
+
+# The fetch tool and the agent prompt live on the site and travel by export; these are the
+# sentences they carry, checked against the live records where they are installed.
+KEY_INVALID = "The Lucidchart integration key on this site is invalid; an administrator must replace it."
+NO_PAGES = "The document returned no pages; try again in a minute."
+FOUR_PAGES = {
+	"document_id": UUID,
+	"title": "T",
+	"pages": [{"page_title": f"P{i}"} for i in range(4)],
+	"error": None,
+}
+
+
+class TestFetchFailureWording(FrappeTestCase):
+	def _fetch_tool(self):
+		if not frappe.db.exists("Server Script", patch.FETCH_TOOL):
+			self.skipTest("the LuCrusher fetch tool is not installed on this site")
+		return frappe.db.get_value("Server Script", patch.FETCH_TOOL, "script")
+
+	def _prompt(self):
+		config = frappe.db.exists("AI Agent Configuration", "Lucrusher")
+		if not config:
+			self.skipTest("the LuCrusher agent is not installed on this site")
+		return frappe.db.get_value("AI Agent Configuration", config, "system_prompt") or ""
+
+	def test_a_401_names_the_invalid_key_and_gives_no_steps(self):
+		code = self._fetch_tool()
+		branch = code[code.index("if status == 401:") : code.index("if status == 403:")]
+
+		self.assertIn(KEY_INVALID, branch)
+		for step in ("API Key", "API Integration record", "marked as Active", "check"):
+			self.assertNotIn(step, branch)
+
+	def test_a_403_keeps_the_share_hint(self):
+		code = self._fetch_tool()
+
+		self.assertIn("_lucrusher_share_hint(frappe, base_url, auth_headers)", code)
+
+	def test_a_fetch_with_no_pages_fails_and_asks_for_a_retry(self):
+		code = self._fetch_tool()
+
+		self.assertIn(f'if not parsed_pages:\n        return _fail(document_id, "{NO_PAGES}")', code)
+		for word in ("plan", "tier"):
+			self.assertNotIn(word, NO_PAGES.lower())
+
+	def test_the_prompt_stops_explaining_a_tier_and_gives_no_key_steps(self):
+		prompt = self._prompt()
+
+		self.assertNotIn("tier", prompt.lower())
+		self.assertIn(KEY_INVALID, prompt)
+		self.assertNotIn("Generate a new key", prompt)
+		self.assertIn("share the document with that email", prompt)
+
+	def test_the_seed_prompts_carry_the_new_wording(self):
+		self.assertNotIn("tier", skills_seed.SYSTEM_PROMPT.lower())
+		self.assertIn("try again in a minute", skills_seed.SYSTEM_PROMPT)
+		self.assertIn(KEY_INVALID, memory_cleanup.LUCIDCHART_ERRORS)
+		self.assertNotIn("Generate a new key", memory_cleanup.LUCIDCHART_ERRORS)
+
+	def test_a_zero_page_fetch_then_a_four_page_fetch_keeps_the_four_pages(self):
+		empty = {"document_id": UUID, "title": "", "pages": [], "page_count": 0, "error": NO_PAGES}
+		first = _run_save_response(empty, prev={})
+		self.assertIsNone(first["document"])
+		self.assertEqual(first["last_fetch_error"]["error"], NO_PAGES)
+
+		second = _run_save_response(FOUR_PAGES, prev=first)
+
+		self.assertEqual(len(second["document"]["pages"]), 4)
+		self.assertIsNone(second["last_fetch_error"])
