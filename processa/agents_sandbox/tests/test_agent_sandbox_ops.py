@@ -782,3 +782,40 @@ class TestTheSandboxIsPostedToWithRetries(FrappeTestCase):
 		self.assertIn("write_file", ops._IDEMPOTENT_ACTIONS)
 		for action in ("edit_file", "apply_edits", "delete_file"):
 			self.assertNotIn(action, ops._IDEMPOTENT_ACTIONS)
+
+
+class TestSlowActionCommandKind(FrappeTestCase):
+	"""Which session command kind each slow action is queued as: only the pull request is a finalize."""
+
+	def _kind(self, action):
+		run = SimpleNamespace(name="RUN-1", caller_instance=None)
+		payload = {
+			"work_item_id": "WI-1", "target_app": "one_bpmn", "git_branch": "staging",
+			"agent_name": "Testing Agent", "work_item_description": "Test it.",
+		}
+		with patch.object(ops.sessions, "ensure_session", return_value=SimpleNamespace(name="S-1")), \
+				patch.object(ops.sessions, "enqueue") as enqueue:
+			ops._slow_action_in_session(run, action, payload, {"x": 1})
+		enqueue.assert_called_once()
+		return enqueue.call_args.args[1], enqueue.call_args.args[2]
+
+	def test_the_pull_request_is_finalize_and_run_tests_is_run_tests(self):
+		self.assertEqual(self._kind("open_pull_request"), ("finalize", "open_pull_request"))
+		self.assertEqual(self._kind("run_tests"), ("run_tests", "run_tests"))
+
+	def test_any_other_slow_action_is_queued_as_its_own_kind_never_finalize(self):
+		for action in ("prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"):
+			self.assertEqual(self._kind(action), (action, action))
+
+	def test_the_command_doctype_allows_those_kinds(self):
+		import json
+		import os
+
+		path = os.path.join(
+			os.path.dirname(ops.__file__), "..", "doctype", "agent_sandbox_session_command", "agent_sandbox_session_command.json",
+		)
+		with open(path) as fh:
+			kind = next(f for f in json.load(fh)["fields"] if f["fieldname"] == "kind")
+		options = kind["options"].split("\n")
+		for expected in ("tool", "run_tests", "finalize", "close", "prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"):
+			self.assertIn(expected, options)
