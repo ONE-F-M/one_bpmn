@@ -44,7 +44,8 @@ PROMPT_EDITS = (
 	(
 		'- CRITICAL: When the user asks to "fix warnings"',
 		'- CRITICAL: When the only complaint is the layout, for example "fix the spacing", "remove the crossing '
-		'lines", "tidy the diagram" or overlapping shapes, with no step to add or change, classify as RELAYOUT, not '
+		'lines", "tidy the diagram", overlapping shapes, how a line or label is aligned or placed, which way an '
+		"arrow runs, or a colour, with no step, lane or gateway to add or change, classify as RELAYOUT, not "
 		"MODIFY_EXISTING, and write the confirmation as laying the diagram out again with every step, arrow and "
 		"setting kept.\n"
 		"- CRITICAL: When the message pastes a list or specification and asks what is missing from the diagram, or "
