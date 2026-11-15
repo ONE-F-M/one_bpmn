@@ -423,7 +423,7 @@ frappe.provide('one_bpmn');
 	/**
 	 * Handle a BPMN action click, respecting per-action flags:
 	 *   - confirmTransition: show confirmation dialog before applying
-	 *   - requireDigitalSignature: show placeholder notification (future: signature capture)
+	 *   - requireDigitalSignature: run the DSS signing process and wait for the signature
 	 *
 	 * @param {Object} frm - Frappe form instance
 	 * @param {Object} task - task object from the API
@@ -438,17 +438,9 @@ frappe.provide('one_bpmn');
 			_apply_bpmn_action(frm, task, action);
 		};
 
-		// Digital signature check (placeholder — actual capture UI is a follow-up)
 		const doSignatureCheck = function () {
 			if (needsSignature) {
-				frappe.confirm(
-					__('<b>Digital Signature Required</b><br><br>' +
-						'This action requires a digital signature to proceed. ' +
-						'By clicking "Proceed", you acknowledge and authorize this action with your identity.'),
-					function () {
-						doApply();
-					}
-				);
+				_sign_then_apply(task, action, doApply);
 			} else {
 				doApply();
 			}
@@ -497,6 +489,61 @@ frappe.provide('one_bpmn');
 			message: message,
 			indicator: 'red',
 		});
+	}
+
+	// Start the DSS signing process for the action, then call onSigned once the document is signed.
+	function _sign_then_apply(task, action, onSigned) {
+		frappe.dom.freeze(__("Starting digital signing..."));
+
+		frappe.call({
+			method: "one_bpmn.api.instance_api.start_dss_signing",
+			type: "POST",
+			args: {
+				instance_name: task.instance_name,
+				task_id: task.task_id,
+				action: action,
+			},
+			callback: function (r) {
+				if (!r || r.exc) {
+					frappe.dom.unfreeze();
+					return;
+				}
+				frappe.dom.freeze(__("Approve the signing request on your Mobile ID app..."));
+				_poll_dss_signing(r.message.instance, action, onSigned);
+			},
+			error: function () {
+				frappe.dom.unfreeze();
+			},
+		});
+	}
+
+	function _poll_dss_signing(signing_instance, action, onSigned) {
+		const poll = setInterval(function () {
+			frappe.call({
+				method: "one_bpmn.api.instance_api.get_dss_signing_status",
+				args: { signing_instance: signing_instance, action: action },
+				callback: function (r) {
+					const status = r && r.message;
+					if (!status || !status.finished) return;
+
+					clearInterval(poll);
+					if (status.signed || status.exempt) {
+						onSigned();
+						return;
+					}
+					frappe.dom.unfreeze();
+					frappe.msgprint({
+						title: __("Signing Not Completed"),
+						message: status.reason || __("The document was not signed. Please try again."),
+						indicator: "red",
+					});
+				},
+				error: function () {
+					clearInterval(poll);
+					frappe.dom.unfreeze();
+				},
+			});
+		}, 5000);
 	}
 
 	/**
