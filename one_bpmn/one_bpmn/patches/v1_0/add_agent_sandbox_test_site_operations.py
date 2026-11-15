@@ -58,13 +58,6 @@ OPERATIONS = [
 				"required": True,
 				"help": "The roles to test, one per line or separated by commas. Each gets its own test user.",
 			},
-			{
-				"name": "password",
-				"label": "Test password",
-				"type": "String",
-				"required": True,
-				"help": "The one password every test user gets. It is not stored on the run record.",
-			},
 		],
 	},
 	{
