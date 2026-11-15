@@ -30,14 +30,16 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
-# Frontend build output (equivalent to helpdesk's public/frontend)
-one_bpmn/public/processa
-# one-ai desk bundle (WI-001678) — built by `npm run build:oneai` in spiff/
-one_bpmn/public/one_ai
-one_bpmn/www/processa/index.html
+# Frontend build output (frappe-ui / Frappe CRM default location)
+processa/public/frontend
+processa/www/processa.html
+# Old build output locations, kept so stale local builds stay untracked
+processa/public/processa
+# one-ai desk bundle, built by `npm run build:oneai` in frontend/
+processa/public/one_ai
+processa/www/processa/index.html
 
 # Auto-generated type declarations
-spiff/components.d.ts
-spiff/auto-imports.d.ts
-spiff/stats.html
-one_bpmn/public/processa/assets/
+frontend/components.d.ts
+frontend/auto-imports.d.ts
+frontend/stats.html

@@ -1,0 +1,1301 @@
+"""
+Instrumentation layer for AI Agent observability.
+
+Three core functions that sit between the dispatcher and the executor:
+
+- create_ai_run(instance, bpmn_id, element_type, config) → AI Agent Run
+- record_ai_step(run, step_index, role, content, tokens, latency_ms) → AI Agent Step
+- finalize_ai_run(run, result) → None (updates run status, duration, costs)
+- finalize_ai_run_on_exception(run, exception) → None (error handling)
+"""
+
+from __future__ import annotations
+
+import hashlib
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+import json
+import re
+
+import frappe
+from datetime import timedelta
+
+from frappe.utils import cint, flt, get_datetime, now_datetime
+from rq import get_current_job
+
+from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult
+from processa.ai_agent_observability.pricing import compute_token_cost
+
+# Max size for final_output stored on the Run (64 KB)
+_MAX_OUTPUT_CHARS = 64 * 1024
+
+_STEP_METRIC_KEYS = (
+	"prompt_tokens",
+	"completion_tokens",
+	"cache_read_tokens",
+	"cache_write_tokens",
+	"cost",
+	"input_cost",
+	"output_cost",
+	"cache_read_cost",
+	"cache_write_cost",
+	"agent_latency_ms",
+)
+
+
+# Guardrail for what a tool call may carry inline. Anything longer is written
+# to a private File attached to the Run instead — the record stays complete
+# without a single generated script turning every list query into a table scan.
+_MAX_INLINE_CHARS = 20 * 1024
+
+# Artifacts stashed by the tool that produced them, drained when the call's row
+# is written. A list per tool: one turn can call the same tool twice, and the
+# second artifact must not overwrite the first.
+_ARTIFACT_FLAG = "bpmn_tool_artifacts"
+
+
+def record_tool_artifact(tool_name: str, artifact: str, preview_chars: int = 400) -> str:
+	"""Hand the full work product of *tool_name* to the audit record, and return
+	the preview to show the model.
+
+	A tool that generates something — a script, a DocType schema, a process IR —
+	shows the model a short preview, because the whole artifact costs more context
+	than it is worth. That preview was then all the run record kept, so the agent's
+	actual output could not be reviewed afterwards. Returning the preview from the
+	same call is deliberate: a tool cannot show one without recording the other.
+
+	The preview ends on a word boundary — a mid-word cut left both the reviewer
+	and the model reading its own transcript looking at half a token.
+
+	Called from the tool Server Scripts on the maps, which arrive by export and
+	import: Docu's write schema, Logix's write script and write agent tool, and
+	ProsAlly's generate and modify process. A map imported without them records
+	nothing, silently.
+	"""
+	if not (tool_name and (artifact or "").strip()):
+		return ""
+	artifact = str(artifact)
+	stash = frappe.flags.get(_ARTIFACT_FLAG)
+	if not isinstance(stash, dict):
+		stash = {}
+		frappe.flags[_ARTIFACT_FLAG] = stash
+	stash.setdefault(tool_name, []).append(artifact)
+	return _preview(artifact, preview_chars)
+
+
+def _preview(text: str, limit: int) -> str:
+	"""*text* up to *limit* chars, ending on a word boundary."""
+	if limit <= 0 or len(text) <= limit:
+		return text
+	head = text[:limit]
+	cut = max(head.rfind(" "), head.rfind("\n"))
+	if cut > limit // 2:
+		head = head[:cut]
+	return head.rstrip() + "\u2026"
+
+
+def pop_tool_artifact(tool_name: str) -> str:
+	"""Take the oldest artifact stashed for *tool_name*, or "" if there is none."""
+	stash = frappe.flags.get(_ARTIFACT_FLAG)
+	if not isinstance(stash, dict):
+		return ""
+	queue = stash.get(tool_name) or []
+	return queue.pop(0) if queue else ""
+
+
+def clear_tool_artifacts() -> None:
+	"""Drop anything left over, so an artifact never lands on a later run."""
+	frappe.flags[_ARTIFACT_FLAG] = {}
+
+
+def _offload(run, tool_name: str, kind: str, text: str) -> str:
+	"""Write *text* to a private File attached to *run*; return the File name.
+
+	Returns "" when the file cannot be written — an unrecorded artifact is a
+	gap in the audit trail, never a failed agent run.
+	"""
+	try:
+		stamp = now_datetime().strftime("%Y%m%d-%H%M%S")
+		file_doc = frappe.get_doc({
+			"doctype": "File",
+			"file_name": f"{frappe.scrub(tool_name or 'tool')}-{kind}-{stamp}.txt",
+			"content": text,
+			"is_private": 1,
+			"attached_to_doctype": "AI Agent Run",
+			"attached_to_name": getattr(run, "name", None),
+		}).insert(ignore_permissions=True)
+		return file_doc.name
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: {kind} offload failed ({tool_name})",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+
+def _fit_arguments(run, tool_name: str, args) -> Any:
+	"""The arguments as stored: always something, never silently dropped.
+
+	``{}`` is a real answer — the shape tools on the chat maps declare no
+	parameters, so the model sends nothing — and recording it says so, where a
+	blank cell reads as "we did not capture this".
+	"""
+	if args is None:
+		args = {}
+	if not isinstance(args, (dict, list)):
+		args = {"value": args}
+	try:
+		serialized = frappe.as_json(args)
+	except Exception:
+		serialized = str(args)
+	if len(serialized) <= _MAX_INLINE_CHARS:
+		return args
+	file_name = _offload(run, tool_name, "arguments", serialized)
+	return {"offloaded": True, "chars": len(serialized), "file": file_name}
+
+
+def _fit_artifact(run, tool_name: str, artifact: str) -> tuple:
+	"""(inline artifact, File name) under the size guardrail."""
+	if not artifact:
+		return "", None
+	if len(artifact) <= _MAX_INLINE_CHARS:
+		return artifact, None
+	return "", _offload(run, tool_name, "artifact", artifact) or None
+
+
+def sum_step_metrics(run_name: str) -> Dict[str, Any]:
+	"""Sum every per-step metric of *run_name* in one query.
+
+	``agent_latency_ms`` is the sum of the steps' own latencies — the time the
+	agent was actually working (provider round-trips plus inline tool calls).
+	A sub-call made from a tool is left out: the turn that ran the tool already
+	contains it. Compaction runs between turns, so it is counted.
+	It deliberately excludes wall-clock gaps between steps, which for a
+	human-in-the-loop run can be days of waiting (WI-001643).
+
+	Never raises: a failed rollup returns zeros rather than blocking finalize.
+	"""
+	zeros = {k: 0 for k in _STEP_METRIC_KEYS}
+	try:
+		row = frappe.db.sql(
+			"""
+			select
+				coalesce(sum(prompt_tokens), 0),
+				coalesce(sum(completion_tokens), 0),
+				coalesce(sum(cache_read_tokens), 0),
+				coalesce(sum(cache_write_tokens), 0),
+				coalesce(sum(cost), 0),
+				coalesce(sum(input_cost), 0),
+				coalesce(sum(output_cost), 0),
+				coalesce(sum(cache_read_cost), 0),
+				coalesce(sum(cache_write_cost), 0),
+				coalesce(sum(case
+					when step_kind = 'sub_call' and content not like %s then 0
+					else latency_ms end), 0)
+			from `tabAI Agent Step` where run = %s
+			""",
+			("[sub-call: compaction via %", run_name),
+		)[0]
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: step metric rollup failed ({run_name})",
+			message=frappe.get_traceback(),
+		)
+		return zeros
+
+	totals = dict(zip(_STEP_METRIC_KEYS, row))
+	for key in ("prompt_tokens", "completion_tokens", "cache_read_tokens",
+	            "cache_write_tokens", "agent_latency_ms"):
+		totals[key] = int(totals[key] or 0)
+	for key in ("cost", "input_cost", "output_cost", "cache_read_cost", "cache_write_cost"):
+		totals[key] = flt(totals[key])
+	return totals
+
+
+def _turn_correlation_id():
+	"""The current turn's correlation id, if a screened turn is in progress.
+
+	Imported lazily and defensively: observability must never fail because the
+	security package is unavailable or misbehaving.
+	"""
+	try:
+		from processa.ai_agent_security.turn import current_correlation_id
+
+		return current_correlation_id()
+	except Exception:
+		return None
+
+
+def snapshot_prompt(system_prompt: str, agent_configuration: str | None = None) -> str:
+	"""Fingerprint a system prompt, storing the text once (WI-002190).
+
+	Returns the hash to stamp on the run, or "" when there is no prompt.
+
+	The prompt was recorded nowhere before this: no Step is ever written with
+	role "system", and AI Agent Run held the model and the configuration but
+	never the text. So when a prompt changed, nothing said which runs used
+	which version, and the results either side could not be compared.
+
+	Content addressed, so an unchanged prompt costs one row no matter how many
+	thousand runs use it, and "compare these two versions" is a group-by on a
+	short string instead of on several kilobytes of text.
+	"""
+	text = (system_prompt or "").strip()
+	if not text:
+		return ""
+	digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
+
+	try:
+		if not frappe.db.exists("AI Prompt Snapshot", digest):
+			frappe.get_doc({
+				"doctype": "AI Prompt Snapshot",
+				"prompt_hash": digest,
+				"system_prompt": text,
+				"char_count": len(text),
+				"agent_configuration": agent_configuration or None,
+				"first_seen_at": now_datetime(),
+			}).insert(ignore_permissions=True)
+	except frappe.DuplicateEntryError:
+		# Two runs starting at once is the normal case, not an error: they
+		# agree on the text, so whichever landed first is the row we want.
+		pass
+	except Exception:
+		# A prompt we could not store is still a prompt we can identify. The
+		# hash goes on the run either way; only the text is lost.
+		frappe.log_error(
+			title="AI Observability: prompt snapshot not stored",
+			message=frappe.get_traceback(),
+		)
+	return digest
+
+
+def create_ai_run(
+	instance,
+	bpmn_id: str,
+	element_type: str,
+	config: ExecutorConfig,
+	bpmn_label: str = "",
+	process_model: str = "",
+	recall_query: str = "",
+	memory_injected_tokens: int = 0,
+) -> "frappe.Document":
+	"""Create an AI Agent Run record with status="Running".
+
+	Args:
+	    instance: BPMN Process Instance document
+	    bpmn_id: Element ID on the diagram
+	    element_type: "task" or "subprocess"
+	    config: ExecutorConfig from the dispatcher
+	    bpmn_label: Human-readable element name from the BPMN diagram
+	    process_model: Name of the BPMN Process Model
+	    recall_query: The text long-term memory was searched with this run, if
+	        any — the user's actual message, not the driving prompt template.
+	        Blank when memory is off, the query was small talk, or nothing was
+	        searched. Recorded here (rather than only visible baked into the
+	        rendered user step) because a transcript alone can't tell "searched
+	        with X, found nothing" apart from "never searched".
+	    memory_injected_tokens: Estimated size of the recalled memory block
+	        actually injected, after aiMemoryTokenBudget truncation. 0 when
+	        nothing was injected.
+
+	Returns:
+	    The created AI Agent Run document.
+	"""
+	import frappe
+
+	# WI-001636/WI-001608: attribute the run to its AI Agent Configuration.
+	# Primary: config.agent_config_name, the aiAgentConfig actually resolved for
+	# THIS dispatch — covers a Script Task's internal execute_shape call too,
+	# unlike the _service_task_extensions fallback below it.
+	agent_configuration = None
+	try:
+		cfg_name = getattr(config, "agent_config_name", "") or ""
+		if cfg_name and frappe.db.exists("AI Agent Configuration", cfg_name):
+			agent_configuration = cfg_name
+	except Exception:
+		agent_configuration = None
+	if not agent_configuration:
+		try:
+			shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {}).get("aiAgentConfig")
+			if shape_cfg and frappe.db.exists("AI Agent Configuration", shape_cfg):
+				agent_configuration = shape_cfg
+		except Exception:
+			agent_configuration = None
+	owning_model = process_model or getattr(instance, "process_model", "") or ""
+	if not agent_configuration and owning_model:
+		try:
+			agent_configuration = frappe.db.get_value(
+				"AI Agent Configuration",
+				{"process_model": owning_model, "enabled": 1},
+				"name",
+			)
+		except Exception:
+			agent_configuration = None
+
+	# A non-dict flag (or none) means this is not an eval run; guard rather than
+	# trust the flag's shape, since any caller can set it.
+	eval_origin = getattr(frappe.flags, "eval_origin", None)
+	if not isinstance(eval_origin, dict):
+		eval_origin = {} if not eval_origin else {"eval_case": None, "eval_run": None}
+
+	job = get_current_job()
+	queue_wait = job.started_at - job.enqueued_at if job and job.started_at and job.enqueued_at else None
+
+	run = frappe.get_doc({
+		"doctype": "AI Agent Run",
+		"instance": instance.name,
+		"bpmn_id": bpmn_id,
+		"bpmn_label": bpmn_label or "",
+		"process_model": process_model or "",
+		"agent_configuration": agent_configuration,
+		"element_type": element_type,
+		"backend": config.backend,
+		"provider": config.provider_name,
+		"model": config.model,
+		# WI-001751: runs produced while an eval is invoking the agent are
+		# tagged so Insights can show them under a separate "Evals" segment.
+		# The flag also names WHICH case and run, so reviewing an eval no longer
+		# means filtering by origin and matching on a time window.
+		"origin": "eval" if eval_origin else "production",
+		"eval_case": eval_origin.get("eval_case") or None,
+		"eval_run": eval_origin.get("eval_run") or None,
+		"status": "Running",
+		"queue_wait_ms": int(queue_wait.total_seconds() * 1000) if queue_wait else 0,
+		"started_at": now_datetime(),
+		"max_retries": config.max_retries,
+		"recall_query": recall_query or "",
+		"memory_injected_tokens": memory_injected_tokens or 0,
+		# WI-001967: reuse the turn's correlation id when one was minted upstream,
+		# so a security event recorded before this run existed can be joined to it.
+		# Falls back to a fresh id for runs that start outside a screened turn.
+		"correlation_id": _turn_correlation_id() or frappe.generate_hash(length=16),
+		# WI-002190: which text ran, and what started this run. A run begun by
+		# a tool inside another run used to share only a correlation_id with
+		# its parent, which made a turn a flat list of runs that happened near
+		# each other instead of the tree it actually is.
+		"prompt_hash": snapshot_prompt(getattr(config, "system_prompt", ""), agent_configuration),
+		"parent_run": current_run_name() or _delegating_run(instance),
+	})
+	try:
+		run.insert(ignore_permissions=True)
+	except Exception as e:
+		frappe.log_error(
+			title=f"AI Observability: create_ai_run failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		# Return a lightweight stub so callers don't need to null-check
+		run.stub = True
+	else:
+		# WI-002190: the tool scripts that call the model have no handle on the
+		# run they belong to, and the step loop that does never sees them. This
+		# is where both ends can be joined, so a sub-call knows what to attach
+		# itself to. Cleared by finalize_ai_run.
+		frappe.flags[CURRENT_RUN_FLAG] = run.name
+	return run
+
+
+STEP_KINDS = ("prompt", "model_call", "tool_turn", "sub_call")
+
+
+def classify_step(role: str, content: str = "", tool_calls: list | None = None) -> str:
+	"""Which kind of step this is, from what the recorder already knows."""
+	if role in ("system", "user"):
+		return "prompt"
+	if parse_sub_call(content):
+		return "sub_call"
+	if role == "tool" or tool_calls:
+		return "tool_turn"
+	return "model_call"
+
+
+def step_window(started_at=None, ended_at=None, latency_ms: int = 0) -> tuple:
+	"""(started_at, ended_at) as datetimes, filling whichever side is missing
+	from the other and the latency."""
+	start = get_datetime(started_at) if started_at else None
+	end = get_datetime(ended_at) if ended_at else None
+	span = timedelta(milliseconds=cint(latency_ms))
+	if start and not end:
+		end = start + span
+	elif end and not start:
+		start = end - span
+	elif not start and not end:
+		end = now_datetime()
+		start = end - span
+	return start, end
+
+
+def record_ai_step(
+	run,
+	step_index: int,
+	role: str,
+	content: str,
+	*,
+	prompt_tokens: int = 0,
+	completion_tokens: int = 0,
+	cache_read_tokens: int = 0,
+	cache_write_tokens: int = 0,
+	latency_ms: int = 0,
+	model_latency_ms: int | None = None,
+	tool_calls: list | None = None,
+	error_code: str = None,
+	error_message: str = None,
+	started_at=None,
+	ended_at=None,
+	step_kind: str | None = None,
+) -> Optional["frappe.Document"]:
+	"""Record a single AI Agent Step linked to *run*.
+
+	Computes cost if pricing data is available for the run's model, splitting the
+	prompt across its three billing rates (WI-001643).
+
+	Args:
+	    run: AI Agent Run document
+	    step_index: 0-based step index
+	    role: "system", "user", "assistant", or "tool"
+	    content: The rendered prompt text or response text
+	    prompt_tokens: FULL consumed input context for this step — inclusive of
+	        the two cache figures below, never exclusive of them
+	    completion_tokens: Token count for this step's completion
+	    cache_read_tokens: Part of prompt_tokens served from the prompt cache
+	    cache_write_tokens: Part of prompt_tokens written into the prompt cache
+	    latency_ms: Step latency in milliseconds
+	    model_latency_ms: the provider part of latency_ms; all of it when the
+	        step called no tools, unknown (0) when it did and none was given
+	    error_code: Error code if this step is a failed retry attempt
+	    error_message: Error details for failed retry attempts
+	    started_at, ended_at: when the step ran. A step written after the
+	        fact gets ended_at = now and started_at = ended_at - latency_ms,
+	        so every step has a window even when only its duration was kept.
+	    step_kind: prompt, model_call, tool_turn or sub_call; derived from
+	        the role, the tool calls and the sub-call tag when not given
+
+	Returns:
+	    The created AI Agent Step document, or None on failure.
+	"""
+	if getattr(run, "stub", False):
+		return None
+
+	started_at, ended_at = step_window(started_at, ended_at, latency_ms)
+	if model_latency_ms is None:
+		model_latency_ms = 0 if tool_calls else latency_ms
+	step_kind = step_kind or classify_step(role, content, tool_calls)
+
+	# Cost split by billing rate: uncached input / cache read / cache write /
+	# output. Charging the whole prompt at the input rate (pre-WI-001643)
+	# overstated spend wherever prompt caching was active.
+	costs = compute_token_cost(
+		getattr(run, "model", None) or "",
+		prompt_tokens=prompt_tokens,
+		completion_tokens=completion_tokens,
+		cache_read_tokens=cache_read_tokens,
+		cache_write_tokens=cache_write_tokens,
+	)
+
+	step = frappe.get_doc({
+		"doctype": "AI Agent Step",
+		"run": run.name,
+		"step_index": step_index,
+		"role": role,
+		"content": content,
+		"prompt_tokens": prompt_tokens,
+		"completion_tokens": completion_tokens,
+		"cache_read_tokens": cache_read_tokens,
+		"cache_write_tokens": cache_write_tokens,
+		"cost": costs["total_cost"],
+		"input_cost": costs["input_cost"],
+		"output_cost": costs["output_cost"],
+		"cache_read_cost": costs["cache_read_cost"],
+		"cache_write_cost": costs["cache_write_cost"],
+		"latency_ms": latency_ms,
+		"model_latency_ms": model_latency_ms,
+		"started_at": started_at,
+		"ended_at": ended_at,
+		"step_kind": step_kind,
+		"error_code": error_code or None,
+		"error_message": error_message or None,
+	})
+	# WI-001358: one child row per tool actually called in this turn. A
+	# single LLM turn can contain several calls — they stay grouped under
+	# this Step with its one shared token/cost figure. (The legacy flat
+	# tool_name/tool_args/tool_result fields were removed 2026-07-04 —
+	# the child table is the sole record of tool calls.)
+	for call in tool_calls or []:
+		name = call.get("name") or call.get("tool_name") or ""
+		args = call.get("arguments")
+		if args is None:
+			args = call.get("tool_args")
+		args = _fit_arguments(run, name, args)
+		artifact, artifact_file = _fit_artifact(run, name, pop_tool_artifact(name))
+		step.append(
+			"tool_calls",
+			{
+				"tool_name": name,
+				"tool_source": call.get("tool_source") or "",
+				"tool_args": args,
+				"tool_result": call.get("result") or call.get("tool_result") or "",
+				"tool_artifact": artifact,
+				"artifact_file": artifact_file,
+				"status": call.get("status") or "Success",
+			},
+		)
+	try:
+		step.insert(ignore_permissions=True)
+		return step
+	except Exception as e:
+		frappe.log_error(
+			title=f"AI Observability: record_ai_step failed (run={run.name}, idx={step_index})",
+			message=frappe.get_traceback(),
+		)
+		return None
+
+
+def latest_ordinary_step(run_name: str) -> str | None:
+	"""The most recently recorded Step of *run_name* that is not a sub-call.
+
+	This is the Step a deferred tool call's resolved answer belongs to: the
+	turn that made the call is the last one written before a suspension
+	checkpoints.
+	"""
+	for row in frappe.get_all(
+		"AI Agent Step",
+		filters={"run": run_name},
+		fields=["name", "content"],
+		order_by="step_index desc",
+		limit_page_length=10,
+	):
+		if not parse_sub_call(row.content):
+			return row.name
+	return None
+
+
+def attach_resolved_call(step_name: str, run, name: str, arguments, result: str) -> bool:
+	"""Append a deferred call's resolved answer to the Step that made it,
+	instead of a separate Step carrying none of that turn's own cost.
+
+	Returns False, touching nothing, when *step_name* no longer exists.
+	"""
+	if not (step_name and frappe.db.exists("AI Agent Step", step_name)):
+		return False
+	step = frappe.get_doc("AI Agent Step", step_name)
+	artifact, artifact_file = _fit_artifact(run, name, pop_tool_artifact(name))
+	step.append(
+		"tool_calls",
+		{
+			"tool_name": name,
+			"tool_source": "diagram_task",
+			"tool_args": _fit_arguments(run, name, arguments),
+			"tool_result": result,
+			"tool_artifact": artifact,
+			"artifact_file": artifact_file,
+			"status": "Success",
+		},
+	)
+	step.save(ignore_permissions=True)
+	return True
+
+
+# ── Sub-calls made from inside tool scripts (WI-002190) ──────────────────────
+#
+# ProsAlly, Docu and Logix all call the model from Server Scripts through
+# get_llm_adapter_from_settings().complete(). Those calls never reached the
+# step writer, so the cost dashboard metered the orchestrator's cheap Haiku
+# turns and missed the Sonnet turns doing the actual work.
+#
+# The scope below is what makes metering them safe. It is opened ONLY around a
+# tool script, so the executor's own turns — which go through adapter.step()
+# and are already recorded — can never be counted twice. No scope, no step.
+_SUB_CALL_FLAG = "bpmn_ai_sub_call"
+CURRENT_RUN_FLAG = "bpmn_ai_current_run"
+# The 1-based number of the loop turn whose tools are running right now. Set by
+# the step loop before it executes a turn's tool calls; read here so a sub-call
+# step records which turn made it. None outside a tool loop.
+SUB_CALL_TURN_FLAG = "bpmn_ai_sub_call_turn"
+
+_SUB_CALL_TAG = re.compile(r"^\[sub-call: (?P<tool>.+?) via (?P<model>[^;\]]*?)(?:; turn (?P<turn>\d+))?\]")
+
+
+def sub_call_tag(tool: str, model: str, turn_no: int | None = None) -> str:
+	"""The first line of a sub-call step: which tool spent this, on which
+	model, and (when known) during which turn of the loop."""
+	suffix = f"; turn {int(turn_no)}" if turn_no else ""
+	return f"[sub-call: {tool or 'tool'} via {model}{suffix}]"
+
+
+def parse_sub_call(content: str) -> dict | None:
+	"""Read a sub-call step's tag back. None for an ordinary step."""
+	match = _SUB_CALL_TAG.match(content or "")
+	if not match:
+		return None
+	turn = match.group("turn")
+	return {
+		"tool": match.group("tool"),
+		"model": match.group("model").strip(),
+		"turn_no": int(turn) if turn else None,
+	}
+
+
+def _delegating_run(instance) -> str | None:
+	"""The run that delegated this one, for a run started by an A2A Task.
+
+	A delegated run executes in its own request, so the in-request flag
+	current_run_name() reads is empty and the chain would break at every
+	handover. The task already records who asked, which is the only place
+	the two sides meet.
+	"""
+	if getattr(instance, "context_doctype", "") != "A2A Task":
+		return None
+	task = getattr(instance, "context_docname", None)
+	if not task:
+		return None
+	try:
+		return frappe.db.get_value("A2A Task", task, "caller_agent_run") or None
+	except Exception:
+		return None
+
+
+def current_run_name() -> str | None:
+	"""The AI Agent Run this request is executing, if any."""
+	return frappe.flags.get(CURRENT_RUN_FLAG) or None
+
+
+@contextmanager
+def sub_call_scope(run, tool_name: str):
+	"""Meter model calls made by *tool_name*'s script against *run*.
+
+	Nested scopes keep the innermost tool, because that is the one making the
+	call. The previous scope is restored on exit, so a tool that runs another
+	tool does not lose its own attribution.
+	"""
+	previous = frappe.flags.get(_SUB_CALL_FLAG)
+	run_name = getattr(run, "name", None) or (run if isinstance(run, str) else None)
+	frappe.flags[_SUB_CALL_FLAG] = {"run": run_name, "tool": tool_name} if run_name else None
+	try:
+		yield
+	finally:
+		frappe.flags[_SUB_CALL_FLAG] = previous
+
+
+def current_sub_call():
+	"""The open sub-call scope, or None when we are not inside a tool script."""
+	return frappe.flags.get(_SUB_CALL_FLAG) or None
+
+
+def record_sub_call(model: str, result, latency_ms: int = 0) -> frappe.Document | None:
+	"""Record one model call made from inside a tool script as a Step.
+
+	Returns None outside a sub-call scope, which is what keeps this off every
+	other path. The step is tagged with the calling tool and the model, so a
+	turn that looks like one orchestrator call can be read as what it really
+	was: an orchestrator call plus the sub-calls its tools made.
+	"""
+	scope = current_sub_call()
+	if not scope:
+		return None
+	try:
+		run = frappe.get_doc("AI Agent Run", scope["run"])
+	except Exception:
+		return None
+
+	try:
+		step_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
+	except Exception:
+		step_index = 1
+
+	# The sub-call's own model, not the run's: the whole point is that a run
+	# on Haiku can be spending most of its money on Sonnet.
+	run_model = getattr(run, "model", None)
+	try:
+		run.model = model or run_model
+		return record_ai_step(
+			run,
+			step_index,
+			"assistant",
+			sub_call_tag(scope.get("tool") or "tool", model, frappe.flags.get(SUB_CALL_TURN_FLAG))
+			+ "\n"
+			+ (getattr(result, "text", "") or ""),
+			prompt_tokens=getattr(result, "prompt_tokens", 0) or 0,
+			completion_tokens=getattr(result, "completion_tokens", 0) or 0,
+			cache_read_tokens=getattr(result, "cache_read_tokens", 0) or 0,
+			cache_write_tokens=getattr(result, "cache_write_tokens", 0) or 0,
+			latency_ms=latency_ms,
+		)
+	finally:
+		run.model = run_model
+
+
+def record_truncated_calls(cut_offs: list) -> None:
+	"""Record each (latency_ms, what) cut-off model call of the open sub-call scope as a sub_call step with error code TRUNCATED."""
+	scope = current_sub_call()
+	if not scope or not cut_offs:
+		return
+	run = frappe.get_doc("AI Agent Run", scope["run"])
+	tag = sub_call_tag(scope.get("tool") or "tool", run.model or "", frappe.flags.get(SUB_CALL_TURN_FLAG))
+	for latency_ms, what in cut_offs:
+		record_ai_step(
+			run,
+			frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
+			"assistant",
+			f"{tag}\n{what} cut off at the token ceiling",
+			latency_ms=latency_ms,
+			error_code="TRUNCATED",
+			step_kind="sub_call",
+		)
+
+
+def record_failed_attempts(run, result: ExecutorResult) -> int:
+	"""Write one AI Agent Step per failed attempt (WI-002190).
+
+	The executor already builds an AttemptRecord for every try that failed,
+	carrying the error, its tokens and its latency, and ``finalize_ai_run``
+	then used the list for one thing: ``len()`` as retry_count. So a run knew
+	how many times it failed and never what went wrong, which is why zero of
+	roughly 3,000 steps carried an error while the fields to hold one had
+	existed all along.
+
+	Recorded BEFORE the rollups in finalize_ai_run on purpose: a failed
+	attempt burned real tokens and real seconds, and ``sum_step_metrics``
+	reads the steps. Leaving these out did not only lose the error, it
+	undercounted the cost of every run that had to retry.
+
+	Returns the number of Steps written.
+	"""
+	if run is None or getattr(run, "stub", False):
+		return 0
+	attempts = getattr(result, "attempts", None) or []
+	if not attempts:
+		return 0
+
+	try:
+		start_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
+	except Exception:
+		start_index = 1
+
+	written = 0
+	for offset, attempt in enumerate(attempts):
+		usage = getattr(attempt, "token_usage", None)
+		step = record_ai_step(
+			run,
+			start_index + offset,
+			# The attempt IS the model's reply, it just did not survive
+			# validation or the call itself failed. "assistant" keeps it in
+			# the same lane as the try that eventually worked.
+			"assistant",
+			getattr(attempt, "content", "") or "",
+			prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+			completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+			cache_read_tokens=getattr(usage, "cache_read_tokens", 0) or 0,
+			cache_write_tokens=getattr(usage, "cache_write_tokens", 0) or 0,
+			latency_ms=getattr(attempt, "latency_ms", 0) or 0,
+			error_code=getattr(attempt, "error_code", "") or None,
+			error_message=getattr(attempt, "error_message", "") or None,
+		)
+		if step is not None:
+			written += 1
+	return written
+
+
+def finalize_ai_run(
+	run, result: ExecutorResult, goal_key: str | None = None, request_text: str | None = None
+) -> None:
+	"""Finalize an AI Agent Run after executor completion.
+
+	On SUCCESS: sets status, duration, tokens, cost, output.
+	On ERROR:   sets status="Error", error_code, error_message (partial tokens recorded).
+
+	Args:
+	    run:  AI Agent Run document (status="Running")
+	    result: ExecutorResult from the executor call
+	    goal_key: optional reply key the map declares as its definition of done
+	        (WI-001823). When absent, completion falls back to error/turn-cap/
+	        output signals; either way the run never records a guess.
+	    request_text: what this run was asked to do, when the caller has it in
+	        scope (e.g. the rendered user prompt) — quoted into completion_basis
+	        so it names the actual request instead of a fixed sentence (WI-002188).
+	"""
+	if run is None or getattr(run, "stub", False):
+		return
+
+	ended = now_datetime()
+	started = run.started_at
+
+	# Compute duration
+	if started and isinstance(started, datetime):
+		duration = (ended - started).total_seconds() * 1000
+	else:
+		duration = 0
+
+	# Failed attempts become Steps FIRST, so the rollups below see the tokens
+	# and the time they really cost (WI-002190).
+	record_failed_attempts(run, result)
+
+	# Cost + agent-latency rollups come from the recorded Steps either way — a
+	# failed run still consumed tokens and still spent real time.
+	step_totals = sum_step_metrics(run.name)
+
+	update = {
+		"ended_at": ended,
+		"duration_ms": int(duration),
+		"agent_latency_ms": step_totals["agent_latency_ms"],
+		"estimated_cost": step_totals["cost"],
+		"total_input_cost": step_totals["input_cost"],
+		"total_output_cost": step_totals["output_cost"],
+		"total_cache_read_cost": step_totals["cache_read_cost"],
+		"total_cache_write_cost": step_totals["cache_write_cost"],
+		"retry_count": len(result.attempts),
+	}
+
+	# WI-002187: whether `output` is a terminal tool's own answer or the
+	# platform's best-effort scrape of the model's narration — recorded
+	# regardless of outcome, since a hit-turn-cap error still carries a
+	# last-said text worth telling apart from a genuine finalize reply.
+	update["no_terminal_tool"] = bool(getattr(result, "no_terminal_tool", False))
+
+	if result.error_code == ErrorCode.SUCCESS:
+		# Final output (truncated)
+		output = str(result.output or "")
+		if len(output) > _MAX_OUTPUT_CHARS:
+			output = output[:_MAX_OUTPUT_CHARS]
+		update["status"] = "Success"
+		update["final_output"] = output
+	else:
+		update["status"] = "Error"
+		update["error_code"] = result.error_code.value
+		update["error_message"] = (result.error_message or "")[:_MAX_OUTPUT_CHARS]
+
+	# WI-001823: what the executor itself knows about the outcome, folded into
+	# the same write. The stronger signal — whether the map reached its end
+	# event — arrives later, from settle_for_instance.
+	from processa.ai_agent_observability import goal_completion
+
+	state, basis = goal_completion.determine(result, goal_key, request_text)
+	update["goal_completion"] = state
+	update["completion_basis"] = basis
+
+	# Token totals from the result (partial tokens are recorded on error too).
+	if result.token_usage:
+		update["total_prompt_tokens"] = result.token_usage.prompt_tokens
+		update["total_completion_tokens"] = result.token_usage.completion_tokens
+		update["total_tokens"] = result.token_usage.total_tokens
+		update["total_cache_read_tokens"] = getattr(result.token_usage, "cache_read_tokens", 0) or 0
+		update["total_cache_write_tokens"] = getattr(result.token_usage, "cache_write_tokens", 0) or 0
+
+	run.db_set(update)
+	# The run is over, so restore its PARENT as the current one. Clearing to
+	# None instead would orphan the rest of the parent's work: a tool that
+	# started a nested run would silently stop metering everything it did
+	# afterwards.
+	frappe.flags[CURRENT_RUN_FLAG] = getattr(run, "parent_run", None) or None
+
+	# WI-002191: a run that died for a credential reason marks its model
+	# Unhealthy, which is what stops the next message from producing another
+	# identical failure; a success on a model that was Unhealthy clears it.
+	from processa.ai_agent_registry import model_health
+
+	model_health.note_run_outcome(
+		getattr(run, "model", None), update.get("error_code") or "SUCCESS", update.get("error_message")
+	)
+
+
+def finalize_ai_run_on_exception(run, exception: Exception) -> None:
+	"""Finalize an AI Agent Run when an unexpected exception occurs.
+
+	Records the error without an ExecutorResult.
+
+	Args:
+	    run: AI Agent Run document (status="Running")
+	    exception: The unhandled exception
+	"""
+	if run is None or getattr(run, "stub", False):
+		return
+
+	ended = now_datetime()
+	started = run.started_at
+
+	if started and isinstance(started, datetime):
+		duration = (ended - started).total_seconds() * 1000
+	else:
+		duration = 0
+
+	try:
+		run.db_set({
+			"ended_at": ended,
+			"goal_completion": "Not Achieved",
+			"completion_basis": "The run raised an unhandled exception.",
+			"duration_ms": int(duration),
+			"agent_latency_ms": sum_step_metrics(run.name)["agent_latency_ms"],
+			"status": "Error",
+			"error_code": "UNEXPECTED_ERROR",
+			"error_message": str(exception)[:_MAX_OUTPUT_CHARS],
+		})
+	except Exception:
+		frappe.log_error(
+			title="AI Observability: finalize_ai_run_on_exception failed",
+			message=frappe.get_traceback(),
+		)
+
+
+# ─────────────────────────────────────────────────────────────
+# Ad-hoc / AI Task Selector instrumentation (WI-001358)
+#
+# One ad-hoc subprocess's ENTIRE agent loop is one AI Agent Run
+# (element_type="subprocess"), reused across decision points; one AI Agent
+# Step per real LLM turn from the executor trace (WI-001356); one AI Agent
+# Tool Call child row per tool actually called within a turn. All helpers
+# swallow their own failures — instrumentation must never block dispatch
+# (same guarantee dispatch_ai_agent's instrumentation documents, AI-009).
+# ─────────────────────────────────────────────────────────────
+
+
+def get_or_create_selector_run(instance, bpmn_id: str, config, bpmn_label: str = "", process_model: str = ""):
+	"""Return the open subprocess Run for (instance, bpmn_id), or create one.
+
+	Subsequent decision points of the same ad-hoc subprocess reuse the same
+	AI Agent Run, appending Steps — a subprocess run is one Run, not one per
+	LLM call.
+	"""
+	try:
+		existing = frappe.get_all(
+			"AI Agent Run",
+			filters={
+				"instance": instance.name,
+				"bpmn_id": bpmn_id,
+				"element_type": "subprocess",
+				"status": "Running",
+			},
+			pluck="name",
+			limit_page_length=1,
+		)
+		if existing:
+			return frappe.get_doc("AI Agent Run", existing[0])
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: selector run lookup failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+	return create_ai_run(
+		instance, bpmn_id, "subprocess", config,
+		bpmn_label=bpmn_label, process_model=process_model,
+	)
+
+
+def tool_call_status(result) -> str:
+	"""Classify a tool result string into a Tool Call status.
+
+	Three outcomes, not two: a call the policy interceptor refused (WI-001645)
+	never executed, so calling it "Error" would conflate a blocked action with
+	a broken tool and make policy activity impossible to query.
+	"""
+	text = str(result or "")
+	if text.startswith("Blocked by policy:"):
+		return "Denied"
+	if text.startswith(("Error calling", "Unknown tool:")):
+		return "Error"
+	# WI-002195 argument validation refuses the call before the script runs;
+	# WI-002190 wants that failure on the step, so it has to classify as one.
+	if text.startswith(("Missing required argument", "Argument '", "Invalid argument for tool", "Arguments for tool")):
+		return "Error"
+	# Shape tools answer in JSON, and a connector that failed, did not run or
+	# was refused says so under "error" — a row reading Success above a body
+	# reading connector_failed is the telemetry version of the problem the
+	# report exists to fix.
+	if text.lstrip().startswith("{"):
+		try:
+			body = json.loads(text)
+		except ValueError:
+			return "Success"
+		if isinstance(body, dict) and body.get("error"):
+			return "Denied" if body.get("error") == "not_permitted" else "Error"
+	return "Success"
+
+
+def _existing_steps(run_name: str) -> list:
+	"""The steps already on a run, oldest first, each with its parsed
+	sub-call tag (None for an ordinary step)."""
+	try:
+		rows = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run_name},
+			fields=["name", "step_index", "content", "creation"],
+			order_by="creation asc, name asc",
+		)
+	except Exception:
+		return []
+	for row in rows:
+		row.sub_call = parse_sub_call(row.content)
+	return rows
+
+
+_TOOL_ERROR_MESSAGE_CHARS = 2000
+
+
+def _tool_failure(tool_calls: list) -> tuple:
+	"""(error_code, error_message) for a turn whose tool calls include a
+	failure, or (None, None). A refused call outranks nothing: an Error is
+	reported as TOOL_ERROR even when another call in the turn was Denied."""
+	failed = [c for c in tool_calls or [] if c.get("status") in ("Error", "Denied")]
+	if not failed:
+		return None, None
+	code = "TOOL_ERROR" if any(c.get("status") == "Error" for c in failed) else "TOOL_DENIED"
+	message = "; ".join(
+		f"{c.get('name') or 'tool'}: {str(c.get('result') or '').strip()}" for c in failed
+	)
+	return code, message[:_TOOL_ERROR_MESSAGE_CHARS]
+
+
+def record_selector_turns(
+	run, trace: list, source_map: dict | None = None, already_recorded: int = 0
+) -> int:
+	"""Append one AI Agent Step per NEW turn of an executor trace to *run*.
+
+	Turns with tool calls become role="tool" Steps carrying one AI Agent
+	Tool Call row per call (tool_source resolved via *source_map*,
+	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
+	becomes a role="assistant" Step with no Tool Call rows.
+
+	*already_recorded* is how many leading turns of *trace* are already Steps; a
+	resumed segment's trace is seeded with earlier segments' turns, and only the
+	turns after them are written.
+
+	Returns the number of Steps recorded.
+	"""
+	if getattr(run, "stub", False):
+		return 0
+	source_map = source_map or {}
+	new_turns = (trace or [])[already_recorded:]
+
+	# Numbering (WI-002190). Sub-call steps are written WHILE the loop runs,
+	# each taking "count + 1" at that moment; the loop's own turns are written
+	# here, afterwards. Numbering these from count + 1 too gave a sub-call and
+	# a turn the same index (seen live: two steps numbered 1 on run
+	# jt89pn9jur). The turns are numbered after every ordinary step already
+	# on the run, and each sub-call step is moved to sit right after the turn
+	# that made it, so the run reads in the order it happened.
+	existing = _existing_steps(run.name)
+	sub_calls = [s for s in existing if s.sub_call]
+	ordinary = [s for s in existing if not s.sub_call]
+	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
+	next_index = max(next_index, len(ordinary) + 1)
+	# Sub-call steps at or below this index were placed by an earlier segment.
+	segment_start_max = next_index - 1
+	placed: set = set()
+
+	def _place(step_name: str) -> None:
+		nonlocal next_index
+		frappe.db.set_value(
+			"AI Agent Step", step_name, "step_index", next_index, update_modified=False
+		)
+		placed.add(step_name)
+		next_index += 1
+
+	this_segment_sub_calls = [s for s in sub_calls if s.step_index > segment_start_max]
+
+	recorded = 0
+	for turn in new_turns:
+		tool_calls = [
+			{
+				"name": call.get("name", ""),
+				"tool_source": source_map.get(call.get("name", ""), ""),
+				"arguments": call.get("arguments") or {},
+				"result": call.get("result", ""),
+				# WI-001645: a policy refusal is neither a success nor a tool
+				# error — the tool never ran. Recording it distinctly is what
+				# makes "what has the policy blocked this week" answerable.
+				"status": tool_call_status(call.get("result", "")),
+			}
+			for call in turn.get("tool_calls") or []
+		]
+		# A tool that failed, was refused, or was never known is a failure of
+		# this step (WI-002190): the fields existed, nothing wrote them.
+		error_code, error_message = _tool_failure(tool_calls)
+		step = record_ai_step(
+			run,
+			next_index,
+			turn.get("role") or ("tool" if tool_calls else "assistant"),
+			turn.get("content") or "",
+			prompt_tokens=turn.get("prompt_tokens", 0),
+			completion_tokens=turn.get("completion_tokens", 0),
+			cache_read_tokens=turn.get("cache_read_tokens", 0),
+			cache_write_tokens=turn.get("cache_write_tokens", 0),
+			latency_ms=turn.get("latency_ms", 0),
+			model_latency_ms=turn.get("model_latency_ms", 0),
+			tool_calls=tool_calls,
+			error_code=error_code,
+			error_message=error_message,
+			started_at=turn.get("started_at") or None,
+			ended_at=turn.get("ended_at") or None,
+		)
+		next_index += 1
+		if step is not None:
+			recorded += 1
+		# The sub-calls this turn's tools made come straight after it.
+		turn_no = cint(turn.get("turn_no"))
+		if turn_no:
+			for sub in this_segment_sub_calls:
+				if sub.name not in placed and sub.sub_call.get("turn_no") == turn_no:
+					_place(sub.name)
+
+	# Sub-calls that named no turn (older data, or a call made outside the
+	# loop) keep their order and follow the turns.
+	for sub in this_segment_sub_calls:
+		if sub.name not in placed:
+			_place(sub.name)
+
+	# Selector runs stay "Running" for the whole subprocess — roll the
+	# totals up after every decision so the instance page shows live
+	# token/cost/duration numbers instead of zeros until finalize.
+	if recorded:
+		update_selector_run_rollups(run)
+	return recorded
+
+
+def record_activation_outcome(instance_name: str, task_bpmn_id: str, outcome: str) -> bool:
+	"""Attach the real-world outcome to the tool call that activated a
+	diagram task, once that task has completed in the engine.
+
+	The tool_result stays the honest transcript of what the model was told
+	at call time ("will be activated…"); outcome is what actually happened.
+	Targets the most recent outcome-less call of *task_bpmn_id* across the
+	instance's runs. Returns True when a row was updated.
+	"""
+	if not (instance_name and task_bpmn_id and (outcome or "").strip()):
+		return False
+	try:
+		rows = frappe.db.sql(
+			"""
+			select tc.name
+			from `tabAI Agent Tool Call` tc
+			join `tabAI Agent Step` s on tc.parent = s.name
+			join `tabAI Agent Run` r on s.run = r.name
+			where r.instance = %s
+			  and tc.tool_name = %s
+			  and tc.tool_source = 'diagram_task'
+			  and ifnull(tc.outcome, '') = ''
+			order by tc.creation desc
+			limit 1
+			""",
+			(instance_name, task_bpmn_id),
+		)
+		if not rows:
+			return False
+		frappe.db.set_value(
+			"AI Agent Tool Call", rows[0][0], "outcome", outcome.strip(), update_modified=False
+		)
+		return True
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: activation outcome failed ({task_bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def update_selector_run_rollups(run) -> None:
+	"""Refresh a Running selector run's token/cost/duration rollups from its
+	recorded Steps. Cheap (one aggregate query) and idempotent; finalize
+	still owns status/ended_at/final_output."""
+	if getattr(run, "stub", False):
+		return
+	try:
+		totals = sum_step_metrics(run.name)
+		duration_ms = 0
+		if getattr(run, "started_at", None):
+			duration_ms = int(
+				(now_datetime() - frappe.utils.get_datetime(run.started_at)).total_seconds() * 1000
+			)
+		run.db_set(
+			{
+				"total_prompt_tokens": totals["prompt_tokens"],
+				"total_completion_tokens": totals["completion_tokens"],
+				"total_tokens": totals["prompt_tokens"] + totals["completion_tokens"],
+				"total_cache_read_tokens": totals["cache_read_tokens"],
+				"total_cache_write_tokens": totals["cache_write_tokens"],
+				"estimated_cost": totals["cost"],
+				"total_input_cost": totals["input_cost"],
+				"total_output_cost": totals["output_cost"],
+				"total_cache_read_cost": totals["cache_read_cost"],
+				"total_cache_write_cost": totals["cache_write_cost"],
+				"duration_ms": duration_ms,
+				"agent_latency_ms": totals["agent_latency_ms"],
+			},
+			update_modified=False,
+		)
+	except Exception:
+		frappe.log_error(
+			title="AI Observability: selector rollup failed",
+			message=frappe.get_traceback(),
+		)
+
+
+def finalize_open_selector_runs(instance_name: str, bpmn_id: str) -> int:
+	"""Finalize every still-Running selector run for (instance, subprocess).
+	Called when the ad-hoc subprocess completes — the moment a selector run
+	is actually over. Returns the number of runs finalized."""
+	count = 0
+	try:
+		for name in frappe.get_all(
+			"AI Agent Run",
+			filters={
+				"instance": instance_name,
+				"bpmn_id": bpmn_id,
+				"element_type": "subprocess",
+				"status": "Running",
+			},
+			pluck="name",
+		):
+			finalize_selector_run(frappe.get_doc("AI Agent Run", name))
+			count += 1
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: finalize_open_selector_runs failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+	return count
+
+
+def finalize_selector_run(run) -> None:
+	"""Finalize a subprocess Run exactly once, when the ad-hoc subprocess
+	completes: status, ended_at, duration, token/cost rollups summed across
+	all Steps, and final_output = the last role="assistant" Step's content —
+	the turn where the loop ended because the LLM stopped calling tools.
+	"""
+	if getattr(run, "stub", False) or getattr(run, "status", "") != "Running":
+		return
+	try:
+		steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["role", "content", "prompt_tokens", "completion_tokens", "cost"],
+			order_by="step_index asc",
+		)
+		final_output = ""
+		for step in steps:
+			if step.role == "assistant" and (step.content or "").strip():
+				final_output = step.content
+
+		# Full rollup (prompt/completion split, costs, duration) shared with
+		# the per-decision live update.
+		update_selector_run_rollups(run)
+
+		ended = now_datetime()
+		duration_ms = 0
+		if getattr(run, "started_at", None):
+			duration_ms = int(
+				(ended - frappe.utils.get_datetime(run.started_at)).total_seconds() * 1000
+			)
+		run.db_set(
+			{
+				"status": "Success",
+				"ended_at": ended,
+				"duration_ms": duration_ms,
+				"agent_latency_ms": sum_step_metrics(run.name)["agent_latency_ms"],
+				"final_output": final_output,
+			},
+			update_modified=True,
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: finalize_selector_run failed ({getattr(run, 'name', '?')})",
+			message=frappe.get_traceback(),
+		)

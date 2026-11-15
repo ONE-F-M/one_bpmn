@@ -1,0 +1,9 @@
+{% autoescape true %}{% from "processa/templates/emails/partials/status.html" import hideable, action_block with context %}
+{% include "processa/templates/emails/partials/tap_receipt.html" %}
+<div{% if is_amp %} [hidden]="ui.done"{% endif %}>
+{% call hideable() %}<p class="kick">{{ kick[lang] }}</p>
+<h3 class="hero">{{ question[lang] }}</h3>
+{% include "processa/templates/emails/partials/facts.html" %}
+{% include "processa/templates/emails/partials/details.html" %}{% endcall %}
+{% call action_block() %}{% include "processa/templates/emails/partials/action_form.html" %}{% endcall %}
+</div>{% endautoescape %}

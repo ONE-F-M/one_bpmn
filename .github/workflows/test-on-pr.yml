@@ -2,20 +2,20 @@ name: Server Tests
 
 on:
   pull_request:
-    branches: [staging, test-production, version-15]
+    branches: [staging, test-production, version-15, processa-refactor]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: tests-one_bpmn-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  group: tests-processa-${{ github.event_name }}-${{ github.event.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   tests:
     name: Server Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     services:
@@ -45,7 +45,7 @@ jobs:
           python-version: '3.10'
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -60,11 +60,11 @@ jobs:
           bench set-redis-cache-host 127.0.0.1:13000
           bench set-redis-queue-host 127.0.0.1:11000
           bench set-redis-socketio-host 127.0.0.1:12000
-          bench get-app one_bpmn "$GITHUB_WORKSPACE"
+          bench get-app processa "$GITHUB_WORKSPACE"
           bench new-site --db-root-password root --admin-password admin --mariadb-root-password root test_site
-          bench --site test_site install-app one_bpmn
+          bench --site test_site install-app processa
           bench --site test_site set-config allow_tests true
       - name: Run tests
         run: |
           cd ~/frappe-bench
-          bench --site test_site run-tests --app one_bpmn --failfast
+          bench --site test_site run-tests --app processa

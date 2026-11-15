@@ -1,0 +1,4 @@
+/* Logix AI Assistant: wider than the standard 7xl cap */
+.logix-window {
+	width: min(92vw, 1520px);
+}

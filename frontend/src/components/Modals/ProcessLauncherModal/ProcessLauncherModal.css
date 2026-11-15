@@ -1,0 +1,10 @@
+/* Force TextEditor to fill full dialog width */
+:deep(.ProseMirror) {
+	max-width: 100% !important;
+	width: 100% !important;
+}
+
+:deep(.tiptap) {
+	max-width: 100% !important;
+	width: 100% !important;
+}

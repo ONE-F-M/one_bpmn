@@ -1,0 +1,270 @@
+"""AMP validation tests using golden samples.
+
+These tests render AMP documents from fixture data and validate them
+against the official AMP validator.  They also validate the committed
+golden-sample HTML files for regression coverage.
+
+Requirements:
+	- Node.js with ``amphtml-validator`` available via ``npx``
+	  (install globally: ``npm install -g amphtml-validator``)
+
+Run with: bench --site SITE run-tests --app processa --module processa.tests.test_amp_validation
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from frappe.tests.utils import FrappeTestCase
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+# Validator binary — try global first, fall back to npx
+_VALIDATOR_CMD: list[str] | None = None
+
+
+def _get_validator_cmd() -> list[str]:
+	"""Locate the amphtml-validator binary."""
+	global _VALIDATOR_CMD
+	if _VALIDATOR_CMD is not None:
+		return _VALIDATOR_CMD
+
+	if shutil.which("amphtml-validator"):
+		_VALIDATOR_CMD = ["amphtml-validator"]
+	elif shutil.which("npx"):
+		_VALIDATOR_CMD = ["npx", "--yes", "amphtml-validator"]
+	else:
+		raise unittest.SkipTest("amphtml-validator not found; install via: npm install -g amphtml-validator")
+
+	return _VALIDATOR_CMD
+
+
+def _validate_amp4email(html: str, label: str = "amp_doc") -> None:
+	"""Write *html* to a temp file and run the AMP validator against it.
+
+	Raises AssertionError unless the validator exits with code 0 (PASS).
+	"""
+	cmd = _get_validator_cmd()
+	with tempfile.NamedTemporaryFile(
+		mode="w", suffix=".html", prefix=f"amp_{label}_", delete=False
+	) as f:
+		f.write(html)
+		f.flush()
+		tmp_path = f.name
+
+	result = subprocess.run(
+		[*cmd, "--html_format", "AMP4EMAIL", tmp_path],
+		capture_output=True,
+		text=True,
+		timeout=30,
+	)
+	Path(tmp_path).unlink(missing_ok=True)
+
+	assert result.returncode == 0, (
+		f"AMP validation FAILED for {label}:\n"
+		f"STDOUT: {result.stdout}\n"
+		f"STDERR: {result.stderr}"
+	)
+
+
+# ---------------------------------------------------------------------------
+# Fixture data
+# ---------------------------------------------------------------------------
+
+INFO_CONTENT = {
+	"subject": "Document Updated",
+	"body": "<p>The purchase order <strong>PO-2024-001</strong> has been updated.</p>",
+	"open_link": "https://erp.one-fm.com/app/purchase-order/PO-2024-001",
+	"doctype": "Purchase Order",
+	"name": "PO-2024-001",
+}
+
+ACTION_CONTENT = {
+	"subject": "Approval Required",
+	"body": "<p>Please review and take action on this leave application.</p>",
+	"actions": [
+		{"label": "Approve", "url": "https://erp.one-fm.com/api/approve", "primary": True},
+		{"label": "Reject", "url": "https://erp.one-fm.com/api/reject", "primary": False},
+	],
+	"open_link": "https://erp.one-fm.com/app/leave-application/LA-2024-001",
+	"doctype": "Leave Application",
+	"name": "LA-2024-001",
+}
+
+COMMENT_CONTENT = {
+	"subject": "New Comment on Task",
+	"body": "<p>Kartik posted a comment on your task.</p>",
+	"comment": True,
+	"open_link": "https://erp.one-fm.com/app/todo/TODO-001",
+	"doctype": "ToDo",
+	"name": "TODO-001",
+}
+
+
+# ---------------------------------------------------------------------------
+# Golden sample tests (committed files)
+# ---------------------------------------------------------------------------
+
+
+class TestGoldenSamples(FrappeTestCase):
+	"""Validate the committed golden AMP sample files."""
+
+	def test_golden_file_passes_validation(self) -> None:
+		"""Each committed golden sample must pass AMP4EMAIL validation."""
+		for filename in (
+			"golden_amp_info.html",
+			"golden_amp_action.html",
+			"golden_amp_comment.html",
+		):
+			with self.subTest(filename=filename):
+				path = FIXTURES_DIR / filename
+				if not path.exists():
+					self.skipTest(f"Golden sample not yet generated: {filename}")
+				html = path.read_text(encoding="utf-8")
+				_validate_amp4email(html, label=filename)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic render + validate tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderedAmpValidation(FrappeTestCase):
+	"""Render AMP docs from fixture data and validate them."""
+
+	def setUp(self):
+		"""Mock Frappe so render_amp() works without a site."""
+		import jinja2
+
+		app_root = Path(__file__).resolve().parent.parent.parent
+		env = jinja2.Environment(
+			loader=jinja2.FileSystemLoader(str(app_root)),
+			autoescape=False,
+		)
+
+		frappe_patch = patch("processa.processa_engine.notifications.renderer.frappe")
+		self.mock_frappe = frappe_patch.start()
+		self.addCleanup(frappe_patch.stop)
+		self.mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
+
+		template_patch = patch("processa.processa_engine.notifications.renderer._get_template")
+		mock_tmpl = template_patch.start()
+		self.addCleanup(template_patch.stop)
+		mock_tmpl.side_effect = lambda p: env.get_template(p)
+
+	def test_info_only_renders_valid_amp(self) -> None:
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		html = render_amp(INFO_CONTENT)
+		_validate_amp4email(html, label="info_only")
+
+	def test_action_renders_valid_amp(self) -> None:
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		html = render_amp(ACTION_CONTENT)
+		_validate_amp4email(html, label="action")
+
+	def test_token_actions_render_live_status_and_validate(self) -> None:
+		"""Token actions go inside an amp-list gated on live task status."""
+		from processa.processa_engine.notifications.actions import build_email_actions
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		actions = build_email_actions(
+			"INST-VALID", "task-valid",
+			[{"label": "Start Work", "primary": True}],
+			"admin@test.com",
+		)
+		html = render_amp({**ACTION_CONTENT, "actions": actions})
+
+		assert 'items="message.items"' in html
+		assert "{{#is_waiting}}" in html and "{{#is_completed}}" in html
+		assert "{{ action_taken }}" in html and "{{ completed_by }}" in html
+		assert "{{#doc_state}}" in html and "{{ doc_state }}" in html
+		assert "}}d</div>" not in html
+		# Form and its buttons live inside the amp-list template
+		assert html.index("<amp-list") < html.index('name="token"') < html.index("</amp-list>")
+		_validate_amp4email(html, label="token_actions")
+
+	def test_a_confirm_action_asks_for_a_second_tap_and_validates(self) -> None:
+		from processa.processa_engine.notifications.actions import build_email_actions
+		from processa.processa_engine.notifications.renderer import _get_template, render_amp
+
+		_get_template("processa/templates/emails/amp_shell.html").environment.globals["_"] = lambda text: text
+		actions = build_email_actions(
+			"INST-VALID", "task-valid",
+			[{"label": "Approve", "key": "approve", "confirm": True, "primary": True}, {"label": "Reject"}],
+			"admin@test.com",
+		)
+		html = render_amp({**ACTION_CONTENT, "actions": actions})
+
+		assert 'custom-element="amp-bind"' in html
+		assert "on=\"tap:AMP.setState({armed: 'approve'})\"" in html
+		assert "[hidden]=\"armed != 'approve'\"" in html
+		assert "Tap again to approve" in html
+		assert html.count('name="token"') == 2
+		# Both button rows sit inside a wrapper, so the hide-after-success rule must target the wrapper
+		assert html.count('class="tap-row"') == 2
+		assert "form.amp-form-submit-success > .tap-row" in html
+		assert '<div submitting><p class="saving">Saving...</p></div>' in html
+		_validate_amp4email(html, label="confirm_actions")
+
+	def test_comment_renders_valid_amp(self) -> None:
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		html = render_amp(COMMENT_CONTENT)
+		_validate_amp4email(html, label="comment")
+
+	def test_sanitised_body_still_validates(self) -> None:
+		"""A body with dangerous HTML still produces valid AMP after sanitisation."""
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		dirty_content = {
+			**INFO_CONTENT,
+			"body": (
+				'<p>Hello</p><script>alert("xss")</script>'
+				'<style>body{display:none}</style>'
+				'<img src="https://example.com/photo.jpg">'
+				'<iframe src="evil.html"></iframe>'
+			),
+		}
+		html = render_amp(dirty_content)
+		_validate_amp4email(html, label="sanitised_body")
+
+	def test_styled_body_keeps_its_css_and_validates(self) -> None:
+		"""Inline styles and style block rules reach the AMP part and it still validates."""
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		styled_content = {
+			**INFO_CONTENT,
+			"body": (
+				"<style>.banner { background-color: #0b5394; color: #ffffff; padding: 12px }"
+				"@media (max-width: 600px) { .banner { padding: 6px } }</style>"
+				'<div class="banner">Leave approved</div>'
+				'<p style="color: #cc0000; font-weight: bold">Starts Sunday</p>'
+				'<img src="https://example.com/logo.png" width="120" height="40" alt="logo">'
+			),
+		}
+		html = render_amp(styled_content)
+
+		assert ".banner { background-color: #0b5394; color: #ffffff; padding: 12px }" in html
+		assert "@media (max-width: 600px)" in html
+		assert 'style="color: #cc0000; font-weight: bold;"' in html
+		assert 'width="120"' in html and 'height="40"' in html
+		_validate_amp4email(html, label="styled_body")
+
+	def test_css_over_limit_leaves_out_the_amp_part(self) -> None:
+		"""Over 75,000 bytes of CSS gives no AMP part and logs why."""
+		from processa.processa_engine.notifications.renderer import render_amp
+
+		rules = "".join(f".c{i} {{ color: #000000; padding: 1px }}" for i in range(3000))
+		html = render_amp({**INFO_CONTENT, "body": f"<style>{rules}</style><p>Big</p>"})
+
+		self.assertEqual(html, "")
+		self.mock_frappe.log_error.assert_called_once()
+		message = self.mock_frappe.log_error.call_args.kwargs["message"]
+		self.assertIn("Purchase Order PO-2024-001", message)

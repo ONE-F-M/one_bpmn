@@ -1,0 +1,6 @@
+/* Frappe clips child grids on small screens; let the State Mapping grid scroll inside its own box instead. */
+@media (max-width: 767px) {
+	[data-page-route="Processa Legacy Migration"] [data-fieldname="state_map"] .form-grid-container {
+		overflow-x: auto;
+	}
+}

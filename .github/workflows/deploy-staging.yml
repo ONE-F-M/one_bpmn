@@ -39,18 +39,26 @@ jobs:
 
             BENCH=/home/frappe/frappe-bench
             WORKERS="$(basename "$BENCH")-workers:"
-            # One deploy at a time per bench, across one_fm, one_bpmn and frappe_agile.
+            # One deploy at a time per bench, across one_fm, processa and frappe_agile.
             exec 9>"$BENCH/config/deploy.lock"
             flock -w 1500 9
 
-            cd $BENCH/apps/one_bpmn
+            # Transition: a bench still on the one_bpmn folder name moves to processa on its first deploy.
+            if [ -d "$BENCH/apps/one_bpmn" ] && [ ! -e "$BENCH/apps/processa" ]; then
+              mv "$BENCH/apps/one_bpmn" "$BENCH/apps/processa"
+              sed -i 's/^one_bpmn$/processa/' "$BENCH/sites/apps.txt"
+            fi
+            cd $BENCH/apps/processa
             git pull upstream staging
             cd $BENCH
-            rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
-            bench setup requirements one_bpmn
-            cd $BENCH/apps/one_bpmn/spiff
+            if env/bin/pip show one_bpmn >/dev/null 2>&1; then env/bin/pip uninstall -y one_bpmn; fi
+            rm -rf env/lib/python*/site-packages/processa-*.dist-info
+            bench setup requirements processa
+            cd $BENCH/apps/processa/frontend
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
+            # Remove old build output that would shadow www/processa.html
+            rm -rf ../processa/public/processa ../processa/www/processa
             yarn build
             cd $BENCH
 
@@ -59,7 +67,8 @@ jobs:
             sudo supervisorctl stop "$WORKERS"
             # A scheduler orphaned by an earlier stop holds the lock supervisor's scheduler needs; [s] keeps pkill off this script.
             pkill -f "$BENCH/env/bin/python -m frappe.utils.bench_helper frappe [s]chedule" || true
+            (cd sites && ../env/bin/python -c "from processa.cutover import run; run()")
             bench --site staging.one-fm.com migrate
-            bench --site staging.one-fm.com build --app one_bpmn
+            bench --site staging.one-fm.com build --app processa
             bench --site staging.one-fm.com clear-cache
             bench restart

@@ -1,0 +1,46 @@
+import { createResource } from "frappe-ui";
+
+// A doctype's records, loaded once per page for every picker that lists them; add() keeps a created one.
+export function cachedRecordList(doctype, fields) {
+	let records = null;
+	let loading = null;
+
+	async function load() {
+		loading ||= createResource({
+			url: "frappe.client.get_list",
+			params: {
+				doctype: doctype,
+				fields: JSON.stringify(fields),
+				limit_page_length: 0,
+				order_by: "name asc",
+			},
+		})
+			.fetch()
+			.then((rows) => {
+				records = Array.isArray(rows) ? rows : [];
+			});
+		try {
+			await loading;
+		} catch (err) {
+			// A failed load is retried by the next picker that opens, not cached.
+			loading = null;
+			throw err;
+		}
+		return records;
+	}
+
+	function add(record) {
+		records = [...(records || []), record];
+	}
+
+	// The loaded records, or null before the first load finishes.
+	function get() {
+		return records;
+	}
+
+	function remove(name) {
+		records = (records || []).filter((r) => r.name !== name);
+	}
+
+	return { load, add, get, remove };
+}

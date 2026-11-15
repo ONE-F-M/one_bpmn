@@ -1,0 +1,85 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-13 20:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "document_doctype",
+  "document_name",
+  "old_instance",
+  "column_break_1",
+  "reason",
+  "error_message",
+  "column_break_2",
+  "timestamp"
+ ],
+ "fields": [
+  {
+   "fieldname": "document_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Document DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "document_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Document",
+   "options": "document_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "old_instance",
+   "fieldtype": "Link",
+   "label": "Old Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Reason",
+   "options": "\nSub-process running\nPast a new step\nWaiting at removed step\nAlready on new map\nNo state mapping\nReplay stuck\nState not reached\nTimed out\nError\nNo longer open",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Error Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Timestamp",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-10 16:27:14.349989",
+ "modified_by": "Administrator",
+ "module": "Processa Engine",
+ "name": "Legacy Migration Error Log",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

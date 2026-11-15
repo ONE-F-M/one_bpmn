@@ -5,4 +5,4 @@
 # Caveat: union preserves "ours then theirs" per hunk, so a merged entry can
 # land out of date order. Frappe runs patches in file order, so if a new patch
 # depends on another landing first, check the resulting order before pushing.
-one_bpmn/patches.txt merge=union
+processa/patches.txt merge=union

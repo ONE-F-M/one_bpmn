@@ -1,0 +1,927 @@
+import { createResource } from "frappe-ui";
+import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
+import { useService } from "bpmn-js-properties-panel";
+import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
+import { h } from "preact";
+import { RecordPickerField } from "../shared/RecordPickerField";
+import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
+import { NotifySummaryBox } from "./notifySummaryBox";
+import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { cachedRecordList } from "../shared/cachedRecordList";
+import { CLOSE, icon } from "../shared/recordIcons";
+import { createWorkflowActionMaster } from "./workflowActionCreate";
+import { makeGatewayCheckComponent } from "./gatewayCheckComponent";
+
+// Read-only check of the task's actions against the next gateway's branches
+const GatewayCheckComponent = makeGatewayCheckComponent((raw) => parseTaskActions(raw));
+
+// Helpers
+function getAttr(bo, attr) {
+	return bo.get(`spiffworkflow:${attr}`) || "";
+}
+
+// Main entry — Assignment Configuration group
+export function UserTaskProps(props) {
+	const { element } = props;
+	const bo           = getBusinessObject(element);
+	const assigneeMode = getAttr(bo, "assigneeMode");
+
+	// DocType is always shown (used by DocField, Load Balancing)
+	const entries = [
+		{
+			id: "spiffworkflow-targetDoctype",
+			element,
+			component: TargetDoctypeComponent,
+			isEdited: isSelectEntryEdited,
+		},
+		{
+			id: "spiffworkflow-targetDoctype-launchDocu",
+			element,
+			component: makeLaunchDocuButton("targetDoctype"),
+		},
+		{
+			id: "spiffworkflow-assigneeMode",
+			element,
+			component: AssignmentModeComponent,
+			isEdited: isSelectEntryEdited,
+		},
+	];
+
+	if (assigneeMode === "User") {
+		entries.push({
+			id: "spiffworkflow-assigneeUser",
+			element,
+			component: AssigneeUserComponent,
+			isEdited: isSelectEntryEdited,
+		});
+	} else if (assigneeMode === "DocField") {
+		entries.push({
+			id: "spiffworkflow-assigneeDocfield",
+			element,
+			component: AssigneeDocfieldComponent,
+			isEdited: isSelectEntryEdited,
+		});
+	} else if (assigneeMode === "Round Robin") {
+		entries.push({
+			id: "spiffworkflow-assigneeUsers",
+			element,
+			component: RoundRobinUsersComponent,
+		});
+	} else if (assigneeMode === "Load Balancing") {
+		entries.push({
+			id: "spiffworkflow-assigneeUsers",
+			element,
+			component: LoadBalancingUsersComponent,
+		});
+	} else if (assigneeMode === "Table Field") {
+		entries.push({
+			id: "spiffworkflow-assigneeTableField",
+			element,
+			component: AssigneeTableFieldComponent,
+			isEdited: isSelectEntryEdited,
+		});
+		entries.push({
+			id: "spiffworkflow-assigneeTableUserField",
+			element,
+			component: AssigneeTableUserFieldComponent,
+			isEdited: isSelectEntryEdited,
+		});
+	}
+
+
+	// Task Actions — always shown
+	entries.push({
+		id: "spiffworkflow-taskActions",
+		element,
+		component: TaskActionsTableComponent,
+		isEdited: isSelectEntryEdited,
+	});
+
+	// Gateway check: read-only, writes nothing, never blocks deploy
+	entries.push({
+		id: "spiffworkflow-gatewayCheck",
+		element,
+		component: GatewayCheckComponent,
+	});
+
+	// Notify Assignee — checkbox + conditional Launch Editor button
+	entries.push({
+		id: "spiffworkflow-notifyAssignee",
+		element,
+		component: NotifyAssigneeCheckboxComponent,
+	});
+
+	if (getAttr(bo, "notifyAssignee") === "true") {
+		entries.push({
+			id: "spiffworkflow-notifyAssigneeAccount",
+			element,
+			component: NotifyAssigneeAccountComponent,
+		});
+		entries.push({
+			id: "spiffworkflow-notifyAssigneeEditor",
+			element,
+			component: NotifyAssigneeEditorButtonComponent,
+		});
+	}
+
+	return entries;
+}
+
+// Notify Assignee — Email Account (which mailbox it is sent FROM)
+//
+// Mirrors the send_email Service Task's Email Account field, and exists for the
+// same reason: a notification moved from a Service Task onto the User Task it
+// belongs to must be able to keep sending from the same mailbox. Left empty,
+// the site default sender is used.
+function NotifyAssigneeAccountComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "notifyAssigneeAccount");
+
+	const fetchAccounts = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Email Account", ...params } }).fetch();
+	};
+
+	return h(RecordPickerField, {
+		id,
+		// Deploy rejects Notify Assignee with no account, so the field says so
+		// here rather than letting the designer find out at deploy.
+		label: translate("Send From (Email Account) — required"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:notifyAssigneeAccount": val || undefined,
+		}),
+		fetchApi: fetchAccounts,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
+// Component 1 — DocType (always visible)
+// Used by DocField mode (which doctype to look up the user field)
+// and by Load Balancing (doctype to count open tasks)
+function TargetDoctypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const value = getAttr(bo, "targetDoctype");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:targetDoctype":    val || undefined,
+			// Clear fields that depend on the previous doctype's schema
+			"spiffworkflow:assigneeDocfield": undefined,
+			"spiffworkflow:assigneeTableField": undefined,
+			"spiffworkflow:assigneeTableUserField": undefined,
+		});
+	};
+
+	const fetchDoctypes = (txt) => {
+		const params = {
+			fields: '["name"]',
+			limit_page_length: 50,
+			order_by: "name asc",
+		};
+		if (txt) {
+			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		}
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
+	};
+
+	return h(RecordPickerField, {
+		id,
+		label: translate("DocType"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchDoctypes,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
+// Component 2 — Assignment Mode (renamed from Assignee Mode)
+// Options: User | DocField | Round Robin | Load Balancing
+function AssignmentModeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const getValue = () => getAttr(bo, "assigneeMode");
+
+	const setValue = (value) => {
+		const updates = {
+			"spiffworkflow:assigneeMode": value || undefined,
+		};
+
+		if (value === "User") {
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
+		} else if (value === "DocField") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
+		} else if (value === "Round Robin" || value === "Load Balancing") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
+		} else if (value === "Table Field") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		} else {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
+		}
+
+		modeling.updateModdleProperties(element, bo, updates);
+	};
+
+	const getOptions = () => [
+		{ label: translate("-- Select Assignment Mode --"), value: "" },
+		{ label: translate("User"),            value: "User" },
+		{ label: translate("DocField"),        value: "DocField" },
+		{ label: translate("Round Robin"),     value: "Round Robin" },
+		{ label: translate("Load Balancing"),  value: "Load Balancing" },
+		{ label: translate("Table Field"),     value: "Table Field" },
+	];
+
+	return h(SelectEntry, {
+		element,
+		id,
+		label: translate("Assignment Mode"),
+		getValue,
+		setValue,
+		getOptions,
+	});
+}
+
+// Component 3 — User (single user autocomplete, for "User" mode)
+function AssigneeUserComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const value = getAttr(bo, "assigneeUser");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeUser": val || undefined,
+		});
+	};
+
+	const fetchUsers = (txt) => {
+		const filters = [
+			["user_type", "=", "System User"],
+			["enabled", "=", 1],
+		];
+		if (txt) {
+			filters.push(["full_name", "like", `%${txt}%`]);
+		}
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "User", fields: '["name","full_name"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 50,
+			order_by: "full_name asc",
+		} }).fetch();
+	};
+
+	return h(RecordPickerField, {
+		id,
+		label: translate("User"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchUsers,
+		valueField: "name",
+		renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+	});
+}
+
+// Component 4 — DocField (user-linked field autocomplete, for "DocField" mode)
+// Requires a DocType to be selected above.
+function AssigneeDocfieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype = getAttr(bo, "targetDoctype");
+	const value   = getAttr(bo, "assigneeDocfield");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeDocfield": val || undefined,
+		});
+	};
+
+	const fetchDocfields = (txt) => {
+		if (!doctype) {
+			return Promise.resolve([
+				{ fieldname: "", label: "— Select a DocType first —" },
+			]);
+		}
+		return createResource({ url: "processa.api.lookups.get_assignee_docfields", method: "GET", params: { doctype } }).fetch()
+			.then((fields) => {
+				const list = Array.isArray(fields) ? fields : [];
+				if (!txt) return list;
+				const lower = txt.toLowerCase();
+				return list.filter(
+					(f) =>
+						(f.fieldname && f.fieldname.toLowerCase().includes(lower)) ||
+						(f.label && f.label.toLowerCase().includes(lower))
+				);
+			});
+	};
+
+	return h(RecordPickerField, {
+		id,
+		label: translate("DocField"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchDocfields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname
+				? `${opt.label || opt.fieldname} (${opt.fieldname})`
+				: opt.label,
+		noResultsText: doctype
+			? translate("No User-linked fields found")
+			: translate("Select a DocType first"),
+	});
+}
+
+// Component 4b — Table Field (Table MultiSelect field autocomplete, for
+// "Table Field" mode). Requires a DocType to be selected above. Any user
+// found in any row of this field may complete the task.
+function AssigneeTableFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype = getAttr(bo, "targetDoctype");
+	const value   = getAttr(bo, "assigneeTableField");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeTableField": val || undefined,
+			// Clear the dependent child-row user field when the table changes
+			"spiffworkflow:assigneeTableUserField": undefined,
+		});
+	};
+
+	const fetchTableFields = (txt) => {
+		if (!doctype) {
+			return Promise.resolve([
+				{ fieldname: "", label: "— Select a DocType first —" },
+			]);
+		}
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
+			doctype,
+			fieldtype_in: '["Table MultiSelect","Table"]',
+			include_options: true,
+		} }).fetch().then((fields) => {
+			const list = Array.isArray(fields) ? fields : [];
+			if (!txt) return list;
+			const lower = txt.toLowerCase();
+			return list.filter(
+				(f) =>
+					(f.fieldname && f.fieldname.toLowerCase().includes(lower)) ||
+					(f.label && f.label.toLowerCase().includes(lower))
+			);
+		});
+	};
+
+	return h(RecordPickerField, {
+		id,
+		label: translate("Table Field"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchTableFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname
+				? `${opt.label || opt.fieldname} (${opt.fieldname})`
+				: opt.label,
+		noResultsText: doctype
+			? translate("No Table/Table MultiSelect fields found")
+			: translate("Select a DocType first"),
+	});
+}
+
+// Component 4c — Table Row User Field (Link-to-User field on the child
+// doctype referenced by the selected Table Field). Chains two lookups:
+// first resolve the child doctype from the parent's table field options,
+// then list that child doctype's User-linked fields.
+function AssigneeTableUserFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype     = getAttr(bo, "targetDoctype");
+	const tableField  = getAttr(bo, "assigneeTableField");
+	const value       = getAttr(bo, "assigneeTableUserField");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeTableUserField": val || undefined,
+		});
+	};
+
+	const fetchChildUserFields = () => {
+		if (!doctype || !tableField) {
+			return Promise.resolve([
+				{ fieldname: "", label: "— Select a Table Field first —" },
+			]);
+		}
+		return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
+			doctype,
+			fieldtype_in: '["Table MultiSelect","Table"]',
+			include_options: true,
+		} }).fetch().then((tableFields) => {
+			const match = (Array.isArray(tableFields) ? tableFields : []).find(
+				(f) => f.fieldname === tableField
+			);
+			const childDoctype = match && match.options;
+			if (!childDoctype) return [];
+			return createResource({ url: "processa.api.lookups.get_doctype_fields", method: "GET", params: {
+				doctype: childDoctype,
+				fieldtype_in: '["Link"]',
+				include_options: true,
+			} }).fetch().then((childFields) =>
+				(Array.isArray(childFields) ? childFields : []).filter(
+					(f) => f.options === "User"
+				)
+			);
+		});
+	};
+
+	return h(RecordPickerField, {
+		id,
+		label: translate("Row User Field"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchChildUserFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname
+				? `${opt.label || opt.fieldname} (${opt.fieldname})`
+				: opt.label,
+		noResultsText: tableField
+			? translate("No User-linked fields found on the row doctype")
+			: translate("Select a Table Field first"),
+	});
+}
+
+// Shared helper — fetch users for multi-select
+function fetchSystemUsers(txt) {
+	const filters = [
+		["user_type", "=", "System User"],
+		["enabled", "=", 1],
+	];
+	if (txt) {
+		filters.push(["full_name", "like", `%${txt}%`]);
+	}
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "User", fields: '["name","full_name"]',
+		filters: JSON.stringify(filters),
+		limit_page_length: 50,
+		order_by: "full_name asc",
+	} }).fetch();
+}
+
+// Component 5 — Round Robin Users (multi-select + read-only Last Assigned)
+// Stores as comma-separated user names in spiffworkflow:assigneeUsers.
+// At runtime the engine cycles through the list in order (same as Frappe's
+// Assignment Rule "Round Robin" — each new task goes to the next user).
+// After each assignment the engine writes spiffworkflow:roundRobinLastUser
+// back into the BPMN XML, making it visible here as a read-only field.
+function RoundRobinUsersComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const value    = getAttr(bo, "assigneeUsers");
+	const lastUser = getAttr(bo, "roundRobinLastUser");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeUsers": val || undefined,
+		});
+	};
+
+	return h(
+		"div",
+		{},
+		[
+			h(RecordPickerField, {
+				multiple: true,
+				id,
+				label: translate("Users (Round Robin)"),
+				value,
+				onChange: handleChange,
+				fetchApi: fetchSystemUsers,
+				valueField: "name",
+				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
+			}),
+
+			// ── Read-only: Last Assigned User ─────────────────────────────────
+			h(
+				"div",
+				{
+					class: "bio-properties-panel-entry",
+					"data-entry-id": `${id}-last-user`,
+					class: "bio-properties-panel-entry bpmn-mt-6",
+				},
+				h(
+					"div",
+					{ class: "bio-properties-panel-textfield" },
+					[
+						h(
+							"label",
+							{ class: "bio-properties-panel-label" },
+							translate("Last Assigned User")
+						),
+						h("input", {
+							type: "text",
+							class: "bio-properties-panel-input",
+							value: lastUser || translate("Not assigned yet"),
+							readOnly: true,
+							disabled: true,
+							class: "bio-properties-panel-input bpmn-input-readonly",
+						}),
+					]
+				)
+			),
+
+			// Helper description
+			h(
+				"div",
+				{
+					class: "bio-properties-panel-description",
+				},
+				translate(
+					"Tasks are assigned to each user in turn, cycling through the list. Last Assigned User is updated automatically by the engine after each assignment."
+				)
+			),
+		]
+	);
+}
+
+
+// Component 6 — Load Balancing Users (multi-select)
+// Stores as comma-separated user names in spiffworkflow:assigneeUsers.
+// At runtime the engine assigns to the user with the fewest open tasks
+// (same as Frappe's Assignment Rule "Load Balancing"; ties go to first user).
+function LoadBalancingUsersComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const value = getAttr(bo, "assigneeUsers");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeUsers": val || undefined,
+		});
+	};
+
+	return h(
+		"div",
+		{},
+		[
+			h(RecordPickerField, {
+				multiple: true,
+				id,
+				label: translate("Users (Load Balancing)"),
+				value,
+				onChange: handleChange,
+				fetchApi: fetchSystemUsers,
+				valueField: "name",
+				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
+			}),
+			h(
+				"div",
+				{
+					class: "bio-properties-panel-description",
+				},
+				translate(
+					"Assigns to the user with fewest open tasks. On a tie, the first user in the list is chosen (same as Frappe Assignment Rule — Load Balancing)."
+				)
+			),
+		]
+	);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Task Actions Child Table — each action is a row with:
+//   - Action Name (autocomplete from Workflow Action Master)
+//   - Confirm Transition? (checkbox)
+//   - Require Digital Signature? (checkbox)
+//
+// Stored as JSON in spiffworkflow:taskActions:
+//   [{"action":"Approve","confirmTransition":"true","requireDigitalSignature":"true"},
+//    {"action":"Reject","confirmTransition":"true"}]
+//
+// Backward-compatible: if the stored value is a plain comma-separated string
+// (no leading "["), it is parsed as [{action: "X"}, {action: "Y"}].
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse the stored taskActions value.
+ * Handles both new JSON format and legacy comma-separated strings.
+ */
+function parseTaskActions(raw) {
+	if (!raw) return [];
+	const trimmed = raw.trim();
+	if (trimmed.startsWith("[")) {
+		try {
+			const parsed = JSON.parse(trimmed);
+			return Array.isArray(parsed) ? parsed : [];
+		} catch (_) {
+			return [];
+		}
+	}
+	// Legacy: comma-separated action names
+	return trimmed
+		.split(",")
+		.map((a) => a.trim())
+		.filter(Boolean)
+		.map((action) => ({ action }));
+}
+
+/** Serialize actions array back to JSON string for the XML attribute. */
+function serializeTaskActions(actions) {
+	if (!actions || actions.length === 0) return undefined;
+	return JSON.stringify(actions);
+}
+
+function TaskActionsTableComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const raw     = getAttr(bo, "taskActions");
+	const actions = parseTaskActions(raw);
+
+	// ── Mutate helpers ────────────────────────────────────────────
+	const commit = (nextActions) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:taskActions": serializeTaskActions(nextActions),
+		});
+	};
+
+	const updateRow = (idx, key, value) => {
+		const next = actions.map((a, i) =>
+			i === idx ? { ...a, [key]: value } : { ...a }
+		);
+		commit(next);
+	};
+
+	const removeRow = (idx) => {
+		commit(actions.filter((_, i) => i !== idx));
+	};
+
+	const addRow = () => {
+		commit([...actions, { action: "" }]);
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h(
+			"div",
+			{ class: "bio-properties-panel-textfield" },
+			[
+				h("label", { class: "bio-properties-panel-label" }, translate("Task Actions")),
+
+				h("div", { class: "bpmn-actions-table" }, [
+					// ── Column headers ──────────────────────────────
+					actions.length > 0 &&
+						h("div", { class: "bpmn-actions-table-header" }, [
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Action")),
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Confirm")),
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Sign")),
+							h("div", { class: "bpmn-actions-table-header-cell" }),  // remove col
+						]),
+
+					// ── Action rows ─────────────────────────────────
+					...actions.map((row, idx) =>
+						h(ActionRowComponent, {
+							key: `action-row-${idx}`,
+							row,
+							idx,
+							element,
+							translate,
+							onUpdate: updateRow,
+							onRemove: removeRow,
+						})
+					),
+
+					// ── Add button ──────────────────────────────────
+					h(
+						"button",
+						{
+							type: "button",
+							class: "bpmn-action-add-btn",
+							onClick: addRow,
+						},
+						[
+							h("span", {}, "+"),
+							h("span", {}, translate("Add Action")),
+						]
+					),
+				]),
+
+				// Description
+				h(
+					"div",
+					{ class: "bio-properties-panel-description" },
+					translate(
+						"Each action becomes a button visible to the user. " +
+						"'Confirm' shows a confirmation dialog before completing. " +
+						"'Sign' requires a digital signature before completing. " +
+						"The selected action is passed as the 'action' variable — " +
+						"use it in Exclusive Gateway conditions (e.g. action == \"Approve\")."
+					)
+				),
+			]
+		)
+	);
+}
+
+/**
+ * A single action row with:
+ *   - Action name input with autocomplete dropdown
+ *   - Confirm Transition checkbox
+ *   - Require Digital Signature checkbox
+ *   - Remove button
+ */
+const ACTIONS = cachedRecordList("Workflow Action Master", ["name"]);
+
+async function createAction(name) {
+	const created = await createWorkflowActionMaster((url, params) => createResource({ url, params }).fetch(), name);
+	ACTIONS.add({ name: created });
+	return created;
+}
+
+function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
+	return h("div", { class: "bpmn-action-row" }, [
+		h(
+			"div",
+			{ class: "bpmn-action-name" },
+			h(RecordPickerField, {
+				id: `task-action-${idx}`,
+				compact: true,
+				keepTyped: true,
+				value: row.action || "",
+				translate,
+				onChange: (name) => onUpdate(idx, "action", name),
+				loadOptions: ACTIONS.load,
+				createRecord: createAction,
+				recordLabel: translate("Workflow Action Master"),
+				placeholder: translate("Choose or type a Workflow Action Master"),
+				emptyText: translate("No Workflow Action Master matches"),
+				missingText: translate("Not a Workflow Action Master yet, so deploy will flag it."),
+			})
+		),
+
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.confirmTransition === "true",
+				title: translate("Confirm Transition"),
+				onChange: (e) => onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.requireDigitalSignature === "true",
+				title: translate("Require Digital Signature"),
+				onChange: (e) => onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		h(
+			"button",
+			{
+				type: "button",
+				class: "bpmn-action-remove-btn",
+				title: translate("Remove action"),
+				"aria-label": translate("Remove action"),
+				onClick: () => onRemove(idx),
+			},
+			icon(CLOSE)
+		),
+	]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Notify Assignee — Checkbox + Launch Editor button
+// ─────────────────────────────────────────────────────────────────────────
+
+function NotifyAssigneeCheckboxComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const checked = getAttr(bo, "notifyAssignee") === "true";
+
+	const handleChange = (e) => {
+		const updates = {
+			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
+		};
+		// Clear every Notification Editor value and the account when unchecking
+		if (!e.target.checked) {
+			for (const name of NOTIFY_EDITOR_ATTRS) updates[`spiffworkflow:${name}`] = undefined;
+			updates["spiffworkflow:notifyAssigneeAccount"] = undefined;
+		}
+		modeling.updateModdleProperties(element, bo, updates);
+	};
+
+	return h(
+		"div",
+		{
+			class: "bio-properties-panel-entry bpmn-notify-assignee-entry",
+			"data-entry-id": id,
+		},
+		h(
+			"div",
+			{ class: "bio-properties-panel-textfield" },
+			[
+				h(
+					"label",
+					{ class: "bpmn-notify-assignee-label" },
+					[
+						h("input", {
+							type: "checkbox",
+							checked,
+							onChange: handleChange,
+							class: "bpmn-notify-assignee-checkbox",
+						}),
+						h("span", {}, translate("Notify Assignee")),
+					]
+				),
+				h(
+					"div",
+					{ class: "bio-properties-panel-description" },
+					translate(
+						"When enabled, the assigned user receives a notification when this task is created."
+					)
+				),
+			]
+		)
+	);
+}
+
+function NotifyAssigneeEditorButtonComponent(props) {
+	const { element, id } = props;
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const eventBus  = useService("eventBus");
+
+	const values = Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)]));
+	const taskActions = parseTaskActions(getAttr(bo, "taskActions"));
+
+	const handleClick = () => {
+		eventBus.fire("spiff.userTask.notifyAssignee.edit", { element, eventBus, values, taskActions });
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h(NotifySummaryBox, {
+			values: { ...values, notifyAssigneeBody: decodeHtmlAttr(values.notifyAssigneeBody) },
+			taskActions,
+			doctype: contextDoctype(bo),
+			translate,
+			onLaunch: handleClick,
+		})
+	);
+}

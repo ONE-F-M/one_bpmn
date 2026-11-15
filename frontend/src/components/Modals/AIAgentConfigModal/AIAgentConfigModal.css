@@ -1,0 +1,169 @@
+.ai-agent-modal-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+
+.ai-agent-modal--readonly {
+	width: 560px;
+}
+
+.ai-agent-modal {
+	background: white;
+	border-radius: 8px;
+	/* 560px form + the shared chat pane */
+	width: calc(560px + var(--agui-chat-pane, 420px));
+	max-width: 95vw;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: row;
+	overflow: hidden;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Left column */
+
+.modal-main {
+	flex: 1 1 560px;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	max-height: 90vh;
+}
+
+.modal-header {
+	padding: 16px 20px;
+	border-bottom: 1px solid #e2e2e2;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.modal-header h3 {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 600;
+}
+
+.close-btn {
+	background: none;
+	border: none;
+	font-size: 1.1rem;
+	cursor: pointer;
+	color: #7c7c7c;
+}
+
+.close-btn:hover {
+	color: #171717;
+}
+
+.modal-body {
+	padding: 20px;
+	overflow-y: auto;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so the scrolling element must not be the fieldset, or the
+   body would not scroll and most of the config would be unreachable. */
+
+.field-gate {
+	border: none;
+	margin: 0;
+	padding: 0;
+	min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
+	opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+	margin-left: 8px;
+	padding: 1px 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: #92400e;
+	background: #fef3c7;
+	border-radius: 10px;
+	vertical-align: middle;
+}
+
+/* A value the agent owns, shown rather than offered. Deliberately not styled as
+   an input: a disabled <select> still reads as a control someone should fill. */
+
+.derived-value {
+	padding: 6px 8px;
+	font-size: 0.85rem;
+	color: #111827;
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+	border-radius: 4px;
+}
+
+.modal-footer {
+	padding: 12px 20px;
+	border-top: 1px solid #e2e2e2;
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.btn-cancel,
+.btn-save {
+	padding: 7px 16px;
+	border-radius: 5px;
+	font-size: 0.85rem;
+	cursor: pointer;
+	border: none;
+}
+
+.btn-cancel {
+	background: #f3f3f3;
+	color: #525252;
+}
+
+.btn-cancel:hover {
+	background: #e2e2e2;
+}
+
+.btn-save {
+	background: #171717;
+	color: white;
+}
+
+.btn-save:hover {
+	background: #171717;
+}
+
+.assistant-disabled {
+	padding: 24px 18px;
+	font-size: 0.82rem;
+	color: #7c7c7c;
+	line-height: 1.5;
+}
+
+/* Narrow screens: stack the chat pane below the form so the form gets the full width. */
+
+@media (max-width: 640px) {
+	.ai-agent-modal {
+		width: 95vw;
+		flex-direction: column;
+	}
+
+	.modal-main {
+		flex: 1 1 auto;
+		min-height: 0;
+		max-height: none;
+	}
+}
