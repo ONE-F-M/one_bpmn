@@ -37,7 +37,7 @@ def run():
 
 
 def rename_app():
-	"""Rename the app in the site records. Direct updates only, since app hooks cannot load while one_bpmn is listed."""
+	"""Rename the app in the site records. Query builder only: get_all loads every app's hooks, and one_bpmn's are gone."""
 	installed = json.loads(frappe.db.get_global("installed_apps") or "[]")
 	default_value = DocType("DefaultValue")
 	(
@@ -46,10 +46,12 @@ def rename_app():
 		.where((default_value.parent == "__global") & (default_value.defkey == "installed_apps"))
 	).run()
 	for doctype in ("Installed Application", "Module Def"):
-		for name in frappe.get_all(doctype, filters={"app_name": OLD_APP}, pluck="name"):
-			frappe.db.set_value(doctype, name, "app_name", NEW_APP, update_modified=False)
-	for row in frappe.get_all("Patch Log", filters={"patch": ["like", f"{OLD_PATCH_PREFIX}%"]}, fields=["name", "patch"]):
-		frappe.db.set_value("Patch Log", row.name, "patch", patch_line(row.patch), update_modified=False)
+		table = DocType(doctype)
+		frappe.qb.update(table).set(table.app_name, NEW_APP).where(table.app_name == OLD_APP).run()
+	patch_log = DocType("Patch Log")
+	rows = frappe.qb.from_(patch_log).select(patch_log.name, patch_log.patch).where(patch_log.patch.like(f"{OLD_PATCH_PREFIX}%")).run()
+	for name, patch in rows:
+		frappe.qb.update(patch_log).set(patch_log.patch, patch_line(patch)).where(patch_log.name == name).run()
 	frappe.cache.hdel("defaults", "__global")
 	frappe.cache.delete_value("app_hooks")
 
