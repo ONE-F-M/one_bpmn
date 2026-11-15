@@ -842,13 +842,20 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 	return {"ok": True, "response": _with_batch_hint(payload["action"], data)}
 
 
+# Args that must never reach the audit record. The test password is one, so an action that carries it is never
+# re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
+SECRET_ARGS = frozenset({"password"})
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
+
+
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
-	"""Queue run_tests or the pull request for the Work Item's Job session. The result settles the run like a callback."""
+	"""Queue a slow action for the Work Item's Job session. The result settles the run like a callback."""
 	session = sessions.ensure_session(
 		work_item=payload["work_item_id"], target_app=payload["target_app"], git_branch=payload["git_branch"],
 		agent_name=payload["agent_name"], caller_instance=run.caller_instance,
 	)
-	kind = "run_tests" if action == "run_tests" else "finalize"
+	# Only the pull request is a finalize command: the sandbox runs its PR step for that kind and no other.
+	kind = "finalize" if action == "open_pull_request" else action
 	sessions.enqueue(
 		session, kind, action, {"args": args, "work_item_description": payload["work_item_description"]}, run=run.name
 	)
@@ -936,7 +943,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"callback_url": _callback_url(),
 		"agent_name": agent_name_for(instance) or "Dev Agent",
 	}
-	audit_payload = {**payload, "github_token": "REDACTED"}
+	audit_payload = {**payload, "github_token": "REDACTED", "args": {k: ("REDACTED" if k in SECRET_ARGS else v) for k, v in args.items()}}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
 	if work_item_id and sessions.uses_job(payload["agent_name"]):
@@ -994,15 +1001,15 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 
 
 def dispatch_action(params: dict, ctx: dict) -> dict | None:
-	"""One generic handler serving every minutes-scale sandbox action -
-	currently "run_tests" and "open_pull_request" - as distinct connector
-	operations that all point here. Which action to forward is read from
-	ctx["operation"] (the operation this Service Task was configured as, set
-	by dispatch_connector), not hardcoded per function - so adding a new
-	slow, parked sandbox action needs only a new BPMN Connector Operation
-	record naming this same handlerPath, no new Python. (The sandbox itself
-	still needs to know what to do with that action name - this only removes
-	the Processa-side code requirement.)
+	"""One generic handler serving every minutes-scale sandbox action as distinct connector
+	operations that all point here. Which action to forward is read from ctx["operation"] (the
+	operation this Service Task was configured as, set by dispatch_connector), not hardcoded per
+	function.
+
+	A new slow action needs a Connector Operation record naming this handlerPath, and in Job
+	mode its name must also be an allowed Kind on Agent Sandbox Session Command: the action name
+	is the command kind, and only open_pull_request is queued as finalize. The sandbox itself
+	must also know what to do with that kind.
 
 	open_pull_request's own PR re-tests itself before opening (see
 	dev_agent_server.py's _tool_open_pull_request), so pass/fail flagging on
@@ -1019,6 +1026,8 @@ def retry_eligible(run) -> bool:
 	The supervisor decides by failure class: an infrastructure or model API failure is retried within its attempt
 	limit, an environment failure once and only when the agent's configuration allows it. A code failure goes back
 	to the agent with the failing tests, because running the same tests again almost never changes the result."""
+	if (run.action or "") in NO_AUTO_RETRY_ACTIONS:
+		return False
 	if supervisor.next_step(run)["action"] != "retry":
 		return False
 	if run.failure_class != "env":

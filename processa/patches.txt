@@ -362,3 +362,4 @@ processa.patches.v1_0.repath_observability_module_imports #10-11-2026 stored Ser
 processa.patches.v1_0.repath_docu_notification_server_script_imports #10-11-2026 stored Server Script imports follow the renamed Docu, notification and Server Script endpoint modules
 processa.patches.v1_0.delete_one_bpmn_module #11-11-2026 the ONE BPMN module is gone; records still in it move to Processa Engine
 processa.patches.v1_0.repath_stored_paths_to_processa #13-11-2026 stored connector handler, Value Transform and Choices From paths follow the app rename to processa
+processa.patches.v1_0.add_agent_sandbox_test_site_operations #15-11-2026 the agent_sandbox connector gets the prepare_site and checkout_pr_head operations the Testing Agent map calls
