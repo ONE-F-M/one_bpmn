@@ -40,6 +40,9 @@ over a no-code HTTP Request operation.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import re
 import time
 from urllib.parse import quote
@@ -845,6 +848,24 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 	return {"ok": True, "response": _with_batch_hint(payload["action"], data)}
 
 
+# Args that must never reach the audit record. The test password is one, so an action that carries it is never
+# re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
+SECRET_ARGS = frozenset({"password"})
+
+
+def test_password_for(run_id: str) -> str:
+	"""The one password every test user of a run gets, derived from the run id and a site secret.
+
+	It is derived rather than stored, so it never sits in process data (the engine copies that into the activity log and
+	the saved workflow state) and the model never sees it. Any later step of the same run gets the same value back."""
+	secret = (frappe.conf.get("encryption_key") or "").encode()
+	if not secret:
+		raise AgentSandboxError("The site has no encryption_key to derive the test password from.")
+	digest = hmac.new(secret, f"testing-agent-test-password:{run_id}".encode(), hashlib.sha256).digest()
+	return base64.urlsafe_b64encode(digest).decode().rstrip("=")[:24]
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
+
+
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
 	"""Queue a slow action for the Work Item's Job session. The result settles the run like a callback."""
 	session = sessions.ensure_session(
@@ -927,6 +948,11 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": "No GitHub token configured."}), update_modified=False)
 		raise AgentSandboxError("Processa Settings has no GitHub token configured.")
 
+	if action == "prepare_site":
+		run_id = str(params.get("run_id") or "").strip()
+		if not run_id:
+			raise AgentSandboxError("prepare_site needs a run_id.")
+		params = {**params, "password": test_password_for(run_id)}  # a password a caller passed is replaced, never forwarded
 	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
 	payload = {
 		"correlation_id": run.name,
@@ -940,7 +966,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"callback_url": _callback_url(),
 		"agent_name": agent_name_for(instance) or "Dev Agent",
 	}
-	audit_payload = {**payload, "github_token": "REDACTED"}
+	audit_payload = {**payload, "github_token": "REDACTED", "args": {k: ("REDACTED" if k in SECRET_ARGS else v) for k, v in args.items()}}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
 	if work_item_id and sessions.uses_job(payload["agent_name"]):
@@ -1024,6 +1050,8 @@ def retry_eligible(run) -> bool:
 	The supervisor decides by failure class: an infrastructure or model API failure is retried within its attempt
 	limit, an environment failure once and only when the agent's configuration allows it. A code failure goes back
 	to the agent with the failing tests, because running the same tests again almost never changes the result."""
+	if (run.action or "") in NO_AUTO_RETRY_ACTIONS:
+		return False
 	if supervisor.next_step(run)["action"] != "retry":
 		return False
 	if run.failure_class != "env":
