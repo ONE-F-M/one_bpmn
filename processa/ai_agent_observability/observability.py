@@ -27,6 +27,7 @@ from rq import get_current_job
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from processa.ai_agent_observability.pricing import compute_token_cost
+from processa.ai_agent_observability.terminal_tool import terminal_tool_failure
 
 # Max size for final_output stored on the Run (64 KB)
 _MAX_OUTPUT_CHARS = 64 * 1024
@@ -859,6 +860,7 @@ def finalize_ai_run(
 			output = output[:_MAX_OUTPUT_CHARS]
 		update["status"] = "Success"
 		update["final_output"] = output
+		update.update(terminal_tool_failure(result.trace))
 	else:
 		update["status"] = "Error"
 		update["error_code"] = result.error_code.value
