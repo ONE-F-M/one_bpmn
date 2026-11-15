@@ -260,7 +260,7 @@ scheduler_events = {
 	},
 	"hourly": [
 		# Ends a Processa Legacy Migration whose background jobs died without finishing it.
-		"processa.processa_engine.legacy_migration.fail_stalled_migrations",
+		"processa.processa_engine.doctype.processa_legacy_migration.legacy_migration.fail_stalled_migrations",
 	],
 }
 

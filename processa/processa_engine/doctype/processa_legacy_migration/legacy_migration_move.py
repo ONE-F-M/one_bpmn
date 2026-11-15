@@ -14,7 +14,10 @@ from rq.timeouts import JobTimeoutException
 from processa.processa_engine import engine as bpmn_engine
 from processa.processa_engine.assignment import add_frappe_assignment, resolve_assignee, split_users
 from processa.processa_engine.audit import apply_bpmn_workflow_state
-from processa.processa_engine.legacy_migration_replay import MigrationSkip, replay
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_replay import (
+	MigrationSkip,
+	replay,
+)
 from processa.processa_engine.runtime.common import log_task, task_bpmn_id
 
 if TYPE_CHECKING:
