@@ -171,7 +171,7 @@ def classify_failure(status: str, payload: dict) -> str:
 
 
 # The status the sandbox reports when each test-site command worked. Neither opens a pull request.
-TEST_SITE_SUCCESS = {"prepare_site": "prepared", "checkout_pr_head": "ready", "run_specs": "specs_run", "run_specs_on_base": "specs_run"}
+TEST_SITE_SUCCESS = {"prepare_site": "prepared", "checkout_pr_head": "ready", "run_specs": "specs_run", "run_specs_on_base": "specs_run", "upload_videos": "videos_uploaded"}
 
 
 def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dict:
@@ -454,11 +454,26 @@ def _test_site_answer(run) -> str:
 	result = {k: v for k, v in (frappe.parse_json(run.result or "{}") or {}).items() if k != "timings_ms"}
 	if run.state == "completed" and action in ("run_specs", "run_specs_on_base"):
 		return _specs_answer(action, result)
+	if action == "upload_videos":
+		return _videos_answer(run, result)
 	if run.state == "completed":
 		return f"{action} succeeded: {frappe.as_json(result)}"
 	text = f"{action} failed at step {result.get('step') or 'unknown'}: {run.error_message or 'no reason given'}"
 	tail = result.get("migration_tail") or result.get("build_tail") or result.get("detail") or ""
 	return text + (f"\n\nOutput (tail):\n{tail[-1500:]}" if tail else "")
+
+
+def _videos_answer(run, result: dict) -> str:
+	"""What the agent is told upload_videos returned: one URL per criterion, or what failed for which criterion."""
+	lines = [f"{u.get('criterion')} | {u.get('url')}" for u in result.get("uploads") or []]
+	if run.state == "completed":
+		if result.get("path") == "gh_pr_comment":
+			return f"upload_videos: the upload endpoint refused the token, so the machine user posted the comment itself: {result.get('comment_url') or 'no link returned'}"
+		return "upload_videos uploaded one video per criterion:\n" + "\n".join(lines)
+	text = f"upload_videos failed at step {result.get('step') or 'unknown'}: {run.error_message or 'no reason given'}"
+	errors = [f"{e.get('criterion')} | {e.get('error')}" for e in result.get("errors") or []]
+	return text + ("\nUploaded:\n" + "\n".join(lines) if lines else "") + ("\nFailed:\n" + "\n".join(errors) if errors else "") + (
+		f"\n{(result.get('detail') or '')[-500:]}" if result.get("detail") else "")
 
 
 def _specs_answer(action: str, result: dict) -> str:
