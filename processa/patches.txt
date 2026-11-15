@@ -364,3 +364,5 @@ processa.patches.v1_0.delete_one_bpmn_module #11-11-2026 the ONE BPMN module is 
 processa.patches.v1_0.repath_stored_paths_to_processa #13-11-2026 stored connector handler, Value Transform and Choices From paths follow the app rename to processa
 processa.patches.v1_0.add_agent_sandbox_test_site_operations #15-11-2026 the agent_sandbox connector gets the prepare_site and checkout_pr_head operations the Testing Agent map calls
 processa.patches.v1_0.prepare_site_operation_without_password #15-11-2026 the prepare_site operation drops its password field, which Processa now derives when it dispatches
+processa.patches.v1_0.add_agent_sandbox_spec_operations #16-11-2026 the agent_sandbox connector gets the run_specs and run_specs_on_base operations the Testing Agent map calls
+processa.patches.v1_0.add_testing_agent_sandbox_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to write a spec, look at a page and run a scheduled job
