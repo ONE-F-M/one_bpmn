@@ -1,21 +1,14 @@
 # Copyright (c) 2026, one-fm and contributors
-"""list_org_repos — the cross-app entry point frappe_agile's own repo-picker
-sync calls (Work Item's target_app Link field has no GitHub credential of
-its own, so it reuses the one already configured for the Dev Agent sandbox
-on Processa Settings, rather than a second token existing purely to
-duplicate it).
-"""
+"""org_repos, which frappe_agile's repo-picker sync calls with the GitHub token on Processa Settings."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import importlib
 from unittest.mock import MagicMock, patch
 
-import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.agents_sandbox.customization import github_sync as logic
-from processa.api import github_sync
 
 
 def _page(items, status=200):
@@ -24,7 +17,7 @@ def _page(items, status=200):
 	return resp
 
 
-class TestListOrgRepos(FrappeTestCase):
+class TestOrgRepos(FrappeTestCase):
 	def test_single_page_is_returned_as_name_description_url(self):
 		items = [
 			{"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/one_bpmn"},
@@ -54,23 +47,6 @@ class TestListOrgRepos(FrappeTestCase):
 		self.assertEqual(repos, [])
 		mock_request.assert_called_once()
 
-	def test_list_org_repos_resolves_the_token_from_processa_settings(self):
-		mock_settings = SimpleNamespace(get_password=lambda *a, **k: "settings-token")
-		with patch.object(github_sync.frappe, "get_cached_doc", return_value=mock_settings), patch.object(
-			github_sync, "org_repos", return_value=[{"name": "processa", "description": "", "html_url": "u"}]
-		) as mock_list:
-			result = github_sync.list_org_repos(org="ONE-F-M")
-		mock_list.assert_called_once_with("settings-token", "ONE-F-M")
-		self.assertEqual(result[0]["name"], "processa")
-
-	def test_missing_token_is_refused_before_any_call(self):
-		mock_settings = SimpleNamespace(get_password=lambda *a, **k: "")
-		with patch.object(github_sync.frappe, "get_cached_doc", return_value=mock_settings), patch(
-			"requests.request"
-		) as mock_request:
-			with self.assertRaises(Exception):
-				github_sync.list_org_repos()
-		mock_request.assert_not_called()
-
-	def test_list_org_repos_is_not_a_public_endpoint(self):
-		self.assertNotIn(github_sync.list_org_repos, frappe.whitelisted)
+	def test_processa_has_no_repo_list_endpoint_of_its_own(self):
+		with self.assertRaises(ImportError):
+			importlib.import_module("processa.api.github_sync")
