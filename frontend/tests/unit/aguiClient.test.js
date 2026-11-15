@@ -123,7 +123,7 @@ test("regular keep-alive comments reset the idle timer — a long turn completes
 
 // A stream that dies mid-turn: the first read delivers RUN_STARTED, the second
 // throws. `statuses` are what turn_status answers, one per poll.
-function droppedStreamFetch({ statuses, runStarted = true }) {
+function droppedStreamFetch({ statuses, runStarted = true, hang = false }) {
 	let polls = 0;
 	return (url) => {
 		if (String(url).includes("turn_status")) {
@@ -136,17 +136,18 @@ function droppedStreamFetch({ statuses, runStarted = true }) {
 			ok: true,
 			body: {
 				getReader: () => ({
-					read: () =>
-						reads++ === 0
-							? Promise.resolve({ done: false, value: encoder.encode(frame) })
-							: Promise.reject(new TypeError("network error")),
+					read: () => {
+						if (reads++ === 0) return Promise.resolve({ done: false, value: encoder.encode(frame) });
+						// hang: the stream stays open but silent, so the idle timer has to act
+						return hang ? new Promise(() => {}) : Promise.reject(new TypeError("network error"));
+					},
 				}),
 			},
 		});
 	};
 }
 
-function runDropped(fetchStub) {
+function runDropped(fetchStub, opts = {}) {
 	globalThis.fetch = fetchStub;
 	const result = { events: [], error: null, done: false };
 	streamAgentTurn({
@@ -154,6 +155,7 @@ function runDropped(fetchStub) {
 		message: "hi",
 		clientMessageId: "m-1",
 		recoverIntervalMs: 5,
+		...opts,
 		onEvent: (e) => result.events.push(e),
 		onError: (msg) => (result.error = msg),
 		onDone: () => (result.done = true),
@@ -213,4 +215,33 @@ test("a stream that drops before the conversation is known fails without polling
 
 	assert.equal(result.error, "Connection lost. Please try again.");
 	assert.equal(polled, false);
+});
+
+test("a silent stream whose turn is still running waits for the reply and replays it", async () => {
+	const result = runDropped(
+		droppedStreamFetch({
+			hang: true,
+			statuses: [{ state: "running" }, { state: "done", replies: [{ message: "msg-2", text: "Generated.", events: [] }] }],
+		}),
+		{ idleTimeoutMs: 30 }
+	);
+
+	await new Promise((r) => setTimeout(r, 150));
+
+	assert.equal(result.error, null, "a turn that finishes on the worker must not read as 'did not respond'");
+	assert.equal(result.done, true);
+	assert.deepEqual(
+		result.events.map((e) => e.type),
+		["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END"]
+	);
+	assert.equal(result.events[2].delta, "Generated.");
+});
+
+test("a silent stream whose turn is lost still reports 'The agent did not respond'", async () => {
+	const result = runDropped(droppedStreamFetch({ hang: true, statuses: [{ state: "lost" }] }), { idleTimeoutMs: 30 });
+
+	await new Promise((r) => setTimeout(r, 120));
+
+	assert.equal(result.error, "The agent did not respond");
+	assert.equal(result.done, true);
 });
