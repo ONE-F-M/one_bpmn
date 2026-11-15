@@ -859,7 +859,26 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 
 # Args that must never reach the audit record. The test password is one, so an action that carries it is never
 # re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
-SECRET_ARGS = frozenset({"password"})
+SECRET_ARGS = frozenset({"password", "token"})
+
+
+UPLOAD_CONNECTOR = "github_video_upload"
+
+
+def video_upload_token() -> str:
+	"""The machine user's token, read from the github_video_upload connector's Bearer secret.
+
+	The token is only ever read here, at dispatch, and handed to the sandbox inside the upload_videos command. It is never a
+	parameter the map or the model supplies, and the run record shows it as REDACTED."""
+	row = frappe.db.get_value("BPMN Connector", UPLOAD_CONNECTOR, ["enabled", "auth_type"], as_dict=True)
+	if not row:
+		raise AgentSandboxError(f"upload_videos needs the {UPLOAD_CONNECTOR} connector: create it with the machine user's token (WI-004219).")
+	if not row.enabled or row.auth_type != "Bearer Token":
+		raise AgentSandboxError(f"The {UPLOAD_CONNECTOR} connector must be enabled and use the Bearer Token auth type.")
+	token = (frappe.get_doc("BPMN Connector", UPLOAD_CONNECTOR).get_password("auth_secret", raise_exception=False) or "").strip()
+	if not token:
+		raise AgentSandboxError(f"The {UPLOAD_CONNECTOR} connector has no token in its Auth Secret.")
+	return token
 
 
 def test_password_for(run_id: str) -> str:
@@ -872,7 +891,7 @@ def test_password_for(run_id: str) -> str:
 		raise AgentSandboxError("The site has no encryption_key to derive the test password from.")
 	digest = hmac.new(secret, f"testing-agent-test-password:{run_id}".encode(), hashlib.sha256).digest()
 	return base64.urlsafe_b64encode(digest).decode().rstrip("=")[:24]
-NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base"})
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"})
 # Fast spec tools exist only in a sandbox Job session (the HTTP /tool_call path does not know them). A page capture can take
 # up to 60 seconds in the sandbox, so its answer is waited for longer than the 60 seconds every other fast tool gets.
 SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job"})
@@ -934,6 +953,12 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	if progress_error:
 		raise AgentSandboxError(progress_error)
 
+	upload_token = None
+	if action == "upload_videos":  # checked before any run record exists, so a missing token leaves nothing half-created
+		if missing := [k for k in ("run_id", "repository", "pr_number") if not str(params.get(k) or "").strip()]:
+			raise AgentSandboxError(f"upload_videos needs {', '.join(missing)}.")
+		upload_token = video_upload_token()
+
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
@@ -966,6 +991,8 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		if not run_id:
 			raise AgentSandboxError("prepare_site needs a run_id.")
 		params = {**params, "password": test_password_for(run_id)}  # a password a caller passed is replaced, never forwarded
+	if upload_token:
+		params = {**params, "token": upload_token}  # likewise: the connector's token replaces anything a caller passed
 	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
 	payload = {
 		"correlation_id": run.name,

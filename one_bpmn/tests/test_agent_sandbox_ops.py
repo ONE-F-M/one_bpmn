@@ -189,7 +189,10 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertNotIn(caller_value, row.request_payload)
 		args = frappe.parse_json(row.request_payload)["args"]
 		self.assertEqual(args["run_id"], run_a)
-		self.assertEqual({k: v for k, v in args.items() if k != "run_id"}, dict.fromkeys(ops.SECRET_ARGS, "REDACTED"))
+		secret = {k: v for k, v in args.items() if k in ops.SECRET_ARGS}
+		self.assertIn("password", secret)
+		self.assertEqual(secret, {k: "REDACTED" for k in secret})  # every secret arg that was sent is redacted, whatever the set holds
+		self.assertEqual({k for k in args if k not in ops.SECRET_ARGS}, {"run_id"})
 
 	def test_the_derived_password_is_stable_per_run_different_between_runs_and_acceptable_to_the_sandbox(self):
 		run_a, run_b = "run-1", "run-2"
