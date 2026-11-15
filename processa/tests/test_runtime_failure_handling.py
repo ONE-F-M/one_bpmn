@@ -183,6 +183,35 @@ class TestCompleteTaskPermissionError(FrappeTestCase):
 		self.assertIn(message, str(ctx.exception))
 		self.assertEqual(frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Active")
 
+	def test_a_validation_error_in_a_step_after_a_user_task_reaches_the_user(self):
+		instance = self._instance()
+		message = "Missing Resignation Letter"
+
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._complete(instance, frappe.ValidationError(message))
+
+		self.assertIn(message, str(ctx.exception))
+		self.assertEqual(frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Active")
+
+	def test_a_mandatory_error_in_a_step_after_a_user_task_reaches_the_user(self):
+		instance = self._instance()
+		message = "Value missing for: Resignation Letter"
+
+		with self.assertRaises(frappe.MandatoryError) as ctx:
+			self._complete(instance, frappe.MandatoryError(message))
+
+		self.assertIn(message, str(ctx.exception))
+		self.assertEqual(frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Active")
+
+	def test_any_other_error_writes_an_error_log(self):
+		instance = self._instance()
+
+		with patch.object(frappe, "log_error") as m_err:
+			self._complete(instance, ValueError("boom"))
+
+		self.assertTrue(m_err.called)
+		self.assertEqual(m_err.call_args.kwargs["title"], "BPMN complete_task failed")
+
 	def test_any_other_error_still_marks_the_instance_errored(self):
 		instance = self._instance()
 
