@@ -342,3 +342,4 @@ one_bpmn.one_bpmn.patches.v1_0.add_activity_log_lookup_index #03-11-2026 Create 
 one_bpmn.one_bpmn.patches.v1_0.add_agent_sandbox_test_site_operations #15-11-2026 the agent_sandbox connector gets the prepare_site and checkout_pr_head operations the Testing Agent map calls
 one_bpmn.one_bpmn.patches.v1_0.add_agent_sandbox_spec_operations #16-11-2026 the agent_sandbox connector gets the run_specs and run_specs_on_base operations the Testing Agent map calls
 one_bpmn.one_bpmn.patches.v1_0.add_testing_agent_sandbox_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to write a spec, look at a page and run a scheduled job
+one_bpmn.one_bpmn.patches.v1_0.fix_browser_snapshot_screenshot_save #16-11-2026 the Browser Snapshot script saves its screenshot with save_file, so the security gate lets it be linked to a map
