@@ -82,7 +82,7 @@ def task_actors(row) -> set:
 	"""Everyone who may action a Waiting task row: its assignees, the recorded relieved/reliever
 	pair, and the live reliever of any assignee or relieved user."""
 	actors = set()
-	for field in (row.assigned_user, row.relieved_user, row.reliever_user):
+	for field in (row.assigned_user, row.relieved_user, row.reliever_user, row.other_allowed_users):
 		actors.update(split_users(field or ""))
 	owners = set(split_users(row.assigned_user or "")) | set(split_users(row.relieved_user or ""))
 	for owner in owners:
@@ -90,6 +90,14 @@ def task_actors(row) -> set:
 		if reliever:
 			actors.add(reliever)
 	return actors
+
+
+def users_in_roles(roles: str) -> str:
+	"""Every enabled user holding any of the comma-separated roles, as one comma-separated string."""
+	from frappe.utils.user import get_users_with_role
+
+	users = sorted({user for role in split_users(roles) for user in get_users_with_role(role)})
+	return ",".join(users)
 
 
 def resolve_assignee(

@@ -70,6 +70,7 @@ export function registerSpiffExtensions() {
 					{ name: "assigneeUsers", isAttr: true, type: "String" },
 					{ name: "assigneeTableField", isAttr: true, type: "String" },
 					{ name: "assigneeTableUserField", isAttr: true, type: "String" },
+					{ name: "extendToRole", isAttr: true, type: "String" },
 					{ name: "roundRobinLastUser", isAttr: true, type: "String" },
 					{ name: "taskActions", isAttr: true, type: "String" },
 					{ name: "notifyAssignee", isAttr: true, type: "String" },

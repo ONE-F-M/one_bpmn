@@ -12,6 +12,7 @@ import { cachedRecordList } from "../shared/cachedRecordList";
 import { CLOSE, icon } from "../shared/recordIcons";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
 import { makeGatewayCheckComponent } from "./gatewayCheckComponent";
+import { fetchRoles } from "../shared/fetchRoles";
 
 // Read-only check of the task's actions against the next gateway's branches
 const GatewayCheckComponent = makeGatewayCheckComponent((raw) => parseTaskActions(raw));
@@ -89,6 +90,12 @@ export function UserTaskProps(props) {
 		});
 	}
 
+	// Extend to Role: everyone holding one of these roles may act besides the assignee.
+	entries.push({
+		id: "spiffworkflow-extendToRole",
+		element,
+		component: ExtendToRoleComponent,
+	});
 
 	// Task Actions — always shown
 	entries.push({
@@ -502,6 +509,28 @@ function fetchSystemUsers(txt) {
 		limit_page_length: 50,
 		order_by: "full_name asc",
 	} }).fetch();
+}
+
+// Extend to Role: stored as comma-separated role names in spiffworkflow:extendToRole.
+function ExtendToRoleComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(RecordPickerField, {
+		multiple: true,
+		id,
+		label: translate("Extend to Role"),
+		value: getAttr(bo, "extendToRole"),
+		onChange: (val) => {
+			modeling.updateModdleProperties(element, bo, { "spiffworkflow:extendToRole": val || undefined });
+		},
+		fetchApi: fetchRoles,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+		itemLabel: "role",
+	});
 }
 
 // Component 5 — Round Robin Users (multi-select + read-only Last Assigned)

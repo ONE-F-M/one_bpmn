@@ -191,8 +191,8 @@ def _rank_instances(filters, search: str) -> list:
 
 def _instances_pending_on(user: str) -> list:
 	"""Names of process instances holding a Waiting task ``user`` must act on, by the rule complete_task applies.
-	A task reaches a user through assigned_user (a comma-joined list, so the LIKE only pre-filters) or,
-	while no user is resolved onto the row, through assigned_role."""
+	A task reaches a user through assigned_user or other_allowed_users (comma-joined lists, so the LIKE only
+	pre-filters) or, while no user is resolved onto the row, through assigned_role."""
 	# Imported lazily: assignment.py pulls in engine.py, which is fragile across SpiffWorkflow versions.
 	from processa.processa_engine.assignment import task_actors
 
@@ -201,7 +201,7 @@ def _instances_pending_on(user: str) -> list:
 	or_filters = [
 		["BPMN Active Task", field, "like", f"%{name}%"]
 		for name in {user, *_users_covered_by(user)}
-		for field in ("assigned_user", "relieved_user", "reliever_user")
+		for field in ("assigned_user", "relieved_user", "reliever_user", "other_allowed_users")
 	]
 	if roles:
 		or_filters.append(["BPMN Active Task", "assigned_role", "in", roles])
@@ -210,7 +210,14 @@ def _instances_pending_on(user: str) -> list:
 		"BPMN Active Task",
 		filters={"parenttype": "BPMN Process Instance", "status": "Waiting"},
 		or_filters=or_filters,
-		fields=["parent", "assigned_user", "relieved_user", "reliever_user", "assigned_role"],
+		fields=[
+			"parent",
+			"assigned_user",
+			"relieved_user",
+			"reliever_user",
+			"assigned_role",
+			"other_allowed_users",
+		],
 	)
 
 	role_set = set(roles)

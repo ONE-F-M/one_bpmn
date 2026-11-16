@@ -205,3 +205,56 @@ class TestTheOtherWaysAModelIsCreated(FrappeTestCase):
 		doc = frappe.get_doc("BPMN Process Model", out["name"])
 		self.assertTrue(doc.process_id.startswith("pid_editor_"), doc.process_id)
 		self.assertEqual(xml_process_id(doc.bpmn_xml), doc.process_id)
+
+
+class TestAnIdIsALegalXmlId(FrappeTestCase):
+	"""bpmn-js rejects an id that starts with a digit and draws the map as one collapsed pool."""
+
+	def test_a_process_named_with_a_leading_digit_gets_a_letter_first(self):
+		process_id = new_process_id("7 Days Absence Creation")
+
+		self.assertTrue(process_id.startswith("p_7_days_absence_creation_"), process_id)
+		self.assertRegex(process_id, r"^[A-Za-z_][\w.-]*$")
+
+	def test_a_process_named_with_a_letter_keeps_its_plain_stem(self):
+		self.assertTrue(new_process_id("Leave Request").startswith("leave_request_"))
+
+
+class TestRepairingDigitLeadingIds(FrappeTestCase):
+	def setUp(self):
+		from processa.patches.v1_0 import repair_digit_leading_process_ids
+
+		self.patch = repair_digit_leading_process_ids
+		self.old_id = f"7_days_{frappe.generate_hash(length=6)}"
+		self.target = self._model(f"Digit Target {self.old_id}", self.old_id, _diagram(self.old_id))
+		self.caller = self._model(
+			f"Digit Caller {self.old_id}",
+			f"caller_{self.old_id}",
+			_diagram(f"caller_{self.old_id}", calls=self.old_id),
+		)
+
+	def _model(self, title, process_id, xml):
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.update({"title": title, "process_id": process_id, "bpmn_xml": xml})
+		doc.flags.skip_editability_check = True
+		doc.flags.skip_script_security_check = True
+		doc.flags.skip_process_id_regeneration = True
+		doc.insert()
+		self.addCleanup(frappe.delete_doc, "BPMN Process Model", doc.name, force=1)
+		return doc.name
+
+	def test_the_record_its_diagram_and_its_callers_move_to_the_prefixed_id(self):
+		self.patch.execute()
+		self.patch.execute()
+
+		new_id = "p_" + self.old_id
+		self.assertEqual(frappe.db.get_value("BPMN Process Model", self.target, "process_id"), new_id)
+		self.assertEqual(
+			xml_process_id(frappe.db.get_value("BPMN Process Model", self.target, "bpmn_xml")), new_id
+		)
+		self.assertIn(
+			f'calledElement="{new_id}"', frappe.db.get_value("BPMN Process Model", self.caller, "bpmn_xml")
+		)
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Model", self.caller, "process_id"), f"caller_{self.old_id}"
+		)

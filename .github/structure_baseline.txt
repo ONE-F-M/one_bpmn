@@ -113,8 +113,8 @@ size processa/ai_agent_conversations/tests/test_ai_clarification.py 854
 size processa/tests/test_connector_agent.py 957
 size processa/ai_agent_memory/tests/test_memory_tools.py 867
 size frontend/src/components/Editor/FormattingToolbar/FormattingToolbar.vue 763
-size frontend/src/components/Logix/LogixCanvas/LogixCanvas.vue 1433
-size frontend/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1121
+size frontend/src/components/Logix/LogixCanvas/LogixCanvas.vue 1443
+size frontend/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1122
 size frontend/src/components/Instances/BpmnDiagramViewer/BpmnDiagramViewer.vue 796
 size frontend/src/components/Instances/ElementInspector/ElementInspector.vue 799
 size frontend/src/pages/EvalRun.vue 516
