@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import inspect
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.processa_connectors.operations import github as gh
@@ -74,6 +76,27 @@ class TestPostPrComment(FrappeTestCase):
 		source = inspect.getsource(gh)
 		for word in ("/reviews", "pulls/", "APPROVE", "REQUEST_CHANGES", "dismissals"):
 			self.assertNotIn(word, source)
+
+
+class TestToken(FrappeTestCase):
+	def _token(self, connector, secret, settings):
+		doc = SimpleNamespace(get_password=lambda field, raise_exception=False: secret)
+		cached = SimpleNamespace(get_password=lambda field, raise_exception=False: settings)
+		with patch("frappe.db.get_value", return_value=connector), patch("frappe.get_doc", return_value=doc), patch("frappe.get_cached_doc", return_value=cached):
+			return gh._token()
+
+	def test_the_connectors_token_is_used_first_and_the_settings_token_is_the_fallback(self):
+		on = frappe._dict(enabled=1, auth_type="Bearer Token")
+		self.assertEqual(self._token(on, " connector-secret ", "settings-secret"), "connector-secret")
+		self.assertEqual(self._token(on, "", "settings-secret"), "settings-secret")
+		self.assertEqual(self._token(frappe._dict(enabled=0, auth_type="Bearer Token"), "connector-secret", "settings-secret"), "settings-secret")
+		self.assertEqual(self._token(frappe._dict(enabled=1, auth_type="None"), "connector-secret", "settings-secret"), "settings-secret")
+		self.assertEqual(self._token(None, "connector-secret", "settings-secret"), "settings-secret")
+
+	def test_with_no_token_anywhere_it_says_where_to_set_one(self):
+		with self.assertRaises(gh.GitHubCommentError) as caught:
+			self._token(frappe._dict(enabled=1, auth_type="Bearer Token"), "", "")
+		self.assertIn("Auth Secret on the github connector", str(caught.exception))
 
 
 class TestSeed(FrappeTestCase):
