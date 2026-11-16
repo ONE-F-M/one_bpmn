@@ -207,7 +207,7 @@ class TestFieldProjection(FrappeTestCase):
 
         manifest = next(m for m in load_manifests() if m["connectorId"] == "cfg_test")
         self.assertEqual(
-            manifest["icon"], {"path": "M1 2h3v4z", "color": "#ff0000", "label": "Cfg Test"}
+            manifest["icon"], {"path": "M1 2h3v4z", "color": "#ff0000", "label": "Cfg Test", "stroke": False}
         )
 
     def test_parse_choices_forms(self):
