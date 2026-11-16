@@ -50,9 +50,16 @@ jobs:
             exec 9>"$BENCH/config/deploy.lock"
             flock -w 1500 9
 
+            # Transition: a bench still on the one_bpmn folder name moves to processa on its first deploy.
+            if [ -d "$BENCH/apps/one_bpmn" ] && [ ! -e "$BENCH/apps/processa" ]; then
+              mv "$BENCH/apps/one_bpmn" "$BENCH/apps/processa"
+              sed -i 's/^one_bpmn$/processa/' "$BENCH/sites/apps.txt"
+            fi
             cd $BENCH/apps/processa
             git pull upstream version-15
             cd $BENCH
+            if env/bin/pip show one_bpmn >/dev/null 2>&1; then env/bin/pip uninstall -y one_bpmn; fi
+            if ! env/bin/pip show processa >/dev/null 2>&1; then env/bin/pip install -q -e apps/processa; fi
             trap 'status=$?; if [ $status -ne 0 ]; then sudo supervisorctl start $WORKERS; sudo supervisorctl restart $NAME-web:; fi' EXIT
             cd $BENCH/apps/processa/frontend
             yarn install
@@ -66,6 +73,7 @@ jobs:
             sudo supervisorctl stop $WORKERS
             # A scheduler orphaned by an earlier stop holds the lock supervisor's scheduler needs; [s] keeps pkill off this script.
             pkill -f "$BENCH/env/bin/python -m frappe.utils.bench_helper frappe [s]chedule" || true
+            (cd sites && ../env/bin/python -c "from processa.cutover import run; run()")
             bench migrate
             bench build --app processa
             bench clear-cache

@@ -350,6 +350,7 @@ processa.patches.v1_0.frontend_agent_follows_the_pages_folder #05-11-2026 Locate
 processa.patches.v1_0.seed_processa_instance_type #05-11-2026 Give Processa Settings an Instance Type on sites that have none
 processa.patches.v1_0.delete_processa_comment_doctype #06-11-2026 canvas comments live in Comment, so the Processa Comment doctype and its table go
 processa.patches.v1_0.release_stale_engine_gates #05-11-2026 Clear engine_in_progress on instances untouched for 20 minutes
+processa.patches.v1_0.rename_stored_one_bpmn_paths #15-11-2026 stored scripts, connector paths and maps say processa before the repath patches below look for them
 processa.patches.v1_0.repath_connector_handlers #07-11-2026 stored connector handler, Value Transform and Choices From paths follow the modules that moved into processa_connectors
 processa.patches.v1_0.frontend_agent_eval_cases_follow_the_pages_folder #07-11-2026 Frontend Agent eval cases and their A2A Task fixtures name the Processa pages by their spiff/src/pages paths
 processa.patches.v1_0.repath_sandbox_handlers #08-11-2026 stored sandbox handler and Choices From paths follow the modules that moved into agents_sandbox
@@ -364,7 +365,13 @@ processa.patches.v1_0.delete_one_bpmn_module #11-11-2026 the ONE BPMN module is 
 processa.patches.v1_0.repath_stored_paths_to_processa #13-11-2026 stored connector handler, Value Transform and Choices From paths follow the app rename to processa
 processa.patches.v1_0.add_agent_sandbox_test_site_operations #15-11-2026 the agent_sandbox connector gets the prepare_site and checkout_pr_head operations the Testing Agent map calls
 processa.patches.v1_0.prepare_site_operation_without_password #15-11-2026 the prepare_site operation drops its password field, which Processa now derives when it dispatches
+processa.patches.v1_0.repath_stored_imports_to_processa_modules #15-11-2026 stored imports and dotted paths follow the modules the refactor moved, and stale maps recompile
 processa.patches.v1_0.add_agent_sandbox_spec_operations #16-11-2026 the agent_sandbox connector gets the run_specs and run_specs_on_base operations the Testing Agent map calls
 processa.patches.v1_0.add_testing_agent_sandbox_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to write a spec, look at a page and run a scheduled job
 processa.patches.v1_0.fix_browser_snapshot_screenshot_save #16-11-2026 the Browser Snapshot script saves its screenshot with save_file, so the security gate lets it be linked to a map
 processa.patches.v1_0.seed_logix_refusal_regression_cases
+processa.patches.v1_0.add_agent_sandbox_upload_videos_operation #16-11-2026 the agent_sandbox connector gets the upload_videos operation the Testing Agent map calls
+processa.patches.v1_0.add_testing_agent_seed_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to seed test data and read what a DocType needs
+processa.patches.v1_0.add_agent_sandbox_fast_operations #16-11-2026 the agent_sandbox connector gets the fast Testing Agent operations a map can call
+processa.patches.v1_0.seed_github_connector #16-11-2026 the github connector with the post_pr_comment operation the Testing Agent publishes its verdict through
+processa.patches.v1_0.seed_github_video_upload_connector #16-11-2026 the github_video_upload connector that holds the machine user token for upload_videos, without the token

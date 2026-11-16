@@ -6,9 +6,15 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from processa.processa_engine import legacy_migration
+from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration
+from processa.processa_engine.doctype.processa_legacy_migration.test_processa_legacy_migration import (
+	DRAFT,
+	DT,
+	OLD,
+	definitions,
+	deploy,
+)
 from processa.processa_engine.instances.starting import start_process
-from processa.tests.factories.legacy_migration_maps import DRAFT, DT, OLD, definitions, deploy
 
 
 class TestLegacyMigrationFinishFlow(FrappeTestCase):

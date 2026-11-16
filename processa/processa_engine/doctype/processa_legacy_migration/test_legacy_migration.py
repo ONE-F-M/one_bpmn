@@ -9,11 +9,15 @@ from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from rq.timeouts import JobTimeoutException
 
-from processa.processa_engine import legacy_migration, legacy_migration_move
-from processa.processa_engine.engine import TaskState
-from processa.processa_engine.legacy_migration_move import migrate_record
-from processa.processa_engine.legacy_migration_replay import MigrationSkip, build_context, replay, wait_ids
-from processa.tests.factories.legacy_migration_maps import (
+from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration, legacy_migration_move
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_move import migrate_record
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_replay import (
+	MigrationSkip,
+	build_context,
+	replay,
+	wait_ids,
+)
+from processa.processa_engine.doctype.processa_legacy_migration.test_processa_legacy_migration import (
 	APPROVED,
 	DONE,
 	DRAFT,
@@ -27,6 +31,7 @@ from processa.tests.factories.legacy_migration_maps import (
 	run_start,
 	with_changes,
 )
+from processa.processa_engine.engine import TaskState
 
 
 class TestLegacyMigrationReplay(FrappeTestCase):
@@ -337,7 +342,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 
 	def test_an_error_after_the_insert_rolls_the_record_back_and_logs_reason_error(self):
 		with patch(
-			"processa.processa_engine.legacy_migration_move._repoint_todos",
+			"processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_move._repoint_todos",
 			side_effect=RuntimeError("todo update failed"),
 		):
 			moved, plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
@@ -385,7 +390,12 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 		self.assertEqual([k["job_id"] for _m, k in jobs], [f"plm::{name}::1", f"plm::{name}::2"])
 		self.assertEqual(
 			{(m, k["queue"]) for m, k in jobs},
-			{("processa.processa_engine.legacy_migration.run_batch", "long")},
+			{
+				(
+					"processa.processa_engine.doctype.processa_legacy_migration.legacy_migration.run_batch",
+					"long",
+				)
+			},
 		)
 
 	def test_batch_size_or_fewer_open_instances_queue_one_job(self):
@@ -566,6 +576,6 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 
 	def test_the_check_is_scheduled_hourly(self):
 		self.assertIn(
-			"processa.processa_engine.legacy_migration.fail_stalled_migrations",
+			"processa.processa_engine.doctype.processa_legacy_migration.legacy_migration.fail_stalled_migrations",
 			frappe.get_hooks("scheduler_events")["hourly"],
 		)
