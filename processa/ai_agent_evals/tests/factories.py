@@ -56,7 +56,9 @@ def make_agent_configuration(**kwargs) -> "frappe.model.document.Document":
     doc = frappe.get_doc(defaults)
     doc.flags.ignore_mandatory = True
     doc.flags.ignore_links = True
-    return doc.insert(ignore_permissions=True)
+    # A site's own agent-creation map would otherwise take the agent off Live.
+    with patch("processa.processa_engine.triggers.on_doc_event"):
+        return doc.insert(ignore_permissions=True)
 
 
 def make_eval_suite(**kwargs) -> "frappe.model.document.Document":

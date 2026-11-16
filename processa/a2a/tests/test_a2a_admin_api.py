@@ -523,6 +523,12 @@ class TestHandingBackFromTheScreen(FrappeTestCase):
 	door is part of the feature and is pinned here.
 	"""
 
+	def setUp(self):
+		super().setUp()
+		worker_turn = patch("processa.a2a.execute.run_for_task")
+		worker_turn.start()
+		self.addCleanup(worker_turn.stop)
+
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
