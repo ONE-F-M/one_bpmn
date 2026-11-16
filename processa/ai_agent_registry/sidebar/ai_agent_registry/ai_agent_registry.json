@@ -1,0 +1,62 @@
+{
+ "app": "processa",
+ "creation": "2026-11-16 12:11:13.260017",
+ "docstatus": 0,
+ "doctype": "Sidebar",
+ "header_icon": "hammer",
+ "idx": 0,
+ "items": [
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Agent Configuration",
+   "link_to": "AI Agent Configuration",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Model",
+   "link_to": "AI Model",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Provider",
+   "link_to": "AI Provider",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-11-16 12:11:13.260017",
+ "modified_by": "Administrator",
+ "module": "AI Agent Registry",
+ "name": "AI Agent Registry",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "AI Agent Registry"
+}

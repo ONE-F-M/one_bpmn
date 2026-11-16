@@ -1,0 +1,47 @@
+{
+ "app": "processa",
+ "creation": "2026-11-16 12:11:11.826980",
+ "docstatus": 0,
+ "doctype": "Sidebar",
+ "header_icon": "hammer",
+ "idx": 0,
+ "items": [
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "BPMN Connector",
+   "link_to": "BPMN Connector",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "BPMN Connector Operation",
+   "link_to": "BPMN Connector Operation",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-11-16 12:11:11.826980",
+ "modified_by": "Administrator",
+ "module": "Processa Connectors",
+ "name": "Processa Connectors",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "Processa Connectors"
+}
