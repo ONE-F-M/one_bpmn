@@ -9,6 +9,14 @@ from frappe.utils import now
 
 from processa.utils.session import as_user
 
+# Export key, DocType. Tools before skills before configurations: each links to the one before it.
+AGENT_RECORD_SETS = (
+	("agent_tools", "AI Agent Tool"),
+	("ai_skills", "AI Skill"),
+	("agent_configurations", "AI Agent Configuration"),
+)
+AGENT_DOCTYPES = {doctype for _key, doctype in AGENT_RECORD_SETS}
+
 
 # ============================================
 # Configuration Export / Import API
@@ -41,10 +49,12 @@ def export_bpmn_config(xml_content: str) -> dict:
 	from processa.processa_engine.maps.references import extract_bpmn_references
 
 	refs = extract_bpmn_references(xml_content)
+	agent_records = _agent_records(refs["agent_configurations"])
+	tool_scripts = {tool["script"] for tool in agent_records["agent_tools"] if tool.get("script")}
 
 	# ── Collect Server Scripts ────────────────────────────────────────────
 	server_scripts = []
-	for script_name in sorted(refs["server_scripts"]):
+	for script_name in sorted(refs["server_scripts"] | tool_scripts):
 		if not frappe.db.exists("Server Script", script_name):
 			continue
 		doc = frappe.get_doc("Server Script", script_name)
@@ -101,12 +111,43 @@ def export_bpmn_config(xml_content: str) -> dict:
 		"server_scripts": server_scripts,
 		"workflow_states": workflow_states,
 		"workflow_action_masters": workflow_action_masters,
+		**agent_records,
 		"counts": {
 			"server_scripts": len(server_scripts),
 			"workflow_states": len(workflow_states),
 			"workflow_action_masters": len(workflow_action_masters),
+			**{key: len(records) for key, records in agent_records.items()},
 		},
 	}
+
+
+def _agent_records(agent_names: set) -> dict:
+	"""The referenced agent configurations with their child tables, plus the skills and tools they link to."""
+	configurations, skills, tools = [], [], []
+	skill_names, tool_names = set(), set()
+	for name in sorted(agent_names):
+		if not frappe.db.exists("AI Agent Configuration", name):
+			continue
+		doc = frappe.get_doc("AI Agent Configuration", name)
+		configurations.append(_record_payload(doc))
+		skill_names.update(row.skill for row in doc.enabled_skills if row.skill)
+	for name in sorted(skill_names):
+		if not frappe.db.exists("AI Skill", name):
+			continue
+		doc = frappe.get_doc("AI Skill", name)
+		skills.append(_record_payload(doc))
+		tool_names.update(row.tool for row in doc.allowed_tools if row.tool)
+	for name in sorted(tool_names):
+		if frappe.db.exists("AI Agent Tool", name):
+			tools.append(_record_payload(frappe.get_doc("AI Agent Tool", name)))
+	return {"agent_configurations": configurations, "ai_skills": skills, "agent_tools": tools}
+
+
+def _record_payload(doc) -> dict:
+	"""The document's own fields and child rows, without the metadata a site stamps on them."""
+	data = doc.as_dict(no_default_fields=True, no_child_table_fields=True, no_private_properties=True)
+	data["name"] = doc.name
+	return json.loads(frappe.as_json(data))
 
 
 @frappe.whitelist()
@@ -136,6 +177,7 @@ def import_bpmn_config(config_json: str) -> dict:
 	created = []
 	skipped = []
 	needs_confirmation = []
+	failed = []
 
 	# ── Import Workflow States ────────────────────────────────────────────
 	for ws_data in config.get("workflow_states", []):
@@ -218,13 +260,73 @@ def import_bpmn_config(config_json: str) -> dict:
 					"incoming_script": incoming_script,
 				})
 
+	# Import agent tools, skills and configurations
+	for key, doctype in AGENT_RECORD_SETS:
+		for data in config.get(key, []):
+			_import_agent_record(doctype, data, created, skipped, needs_confirmation, failed)
+
 	frappe.db.commit()
 
 	return {
 		"created": created,
 		"skipped": skipped,
 		"needs_confirmation": needs_confirmation,
+		"failed": failed,
 	}
+
+
+def _import_agent_record(
+	doctype: str, data: dict, created: list, skipped: list, needs_confirmation: list, failed: list
+):
+	"""Create a missing record, skip an identical one, or queue a changed one for the user's decision."""
+	name = data.get("name", "")
+	if not name:
+		return
+	incoming = {k: v for k, v in data.items() if k != "name"}
+	if frappe.db.exists(doctype, name):
+		existing = _record_payload(frappe.get_doc(doctype, name))
+		existing.pop("name", None)
+		if existing == incoming:
+			skipped.append({"name": name, "type": doctype})
+			return
+		needs_confirmation.append({
+			"name": name,
+			"type": doctype,
+			"existing_text": json.dumps(existing, indent=2, sort_keys=True),
+			"incoming_text": json.dumps(incoming, indent=2, sort_keys=True),
+			"incoming_data": data,
+		})
+		return
+	frappe.db.savepoint("config_import_record")
+	try:
+		_write_agent_record(doctype, name, incoming, is_new=True)
+	except (frappe.ValidationError, frappe.LinkValidationError, frappe.MandatoryError) as exc:
+		# A record that cannot be saved here (a model or user the site lacks) is reported, not dropped silently.
+		frappe.db.rollback(save_point="config_import_record")
+		failed.append({"name": name, "type": doctype, "reason": str(exc)})
+		return
+	created.append({"name": name, "type": doctype})
+
+
+def _write_agent_record(doctype: str, name: str, fields: dict, is_new: bool):
+	"""Insert or overwrite one agent record from its payload; child tables are replaced whole."""
+	if is_new:
+		doc = frappe.new_doc(doctype)
+		doc.__newname = name
+	else:
+		doc = frappe.get_doc(doctype, name)
+	doc.update(fields)
+	# in_import skips the agent's provider credential re-check and mutes Notifications and Webhooks for this save.
+	previous = frappe.flags.in_import
+	frappe.flags.in_import = True
+	try:
+		with as_user("Administrator"):
+			if is_new:
+				doc.insert(ignore_permissions=True)  # the import runs as Administrator, like the script import above
+			else:
+				doc.save(ignore_permissions=True)  # confirm_overwrite_config checked the caller's write access first
+	finally:
+		frappe.flags.in_import = previous
 
 
 @frappe.whitelist()
@@ -266,6 +368,43 @@ def confirm_overwrite_scripts(overwrites: str) -> dict:
 			doc.save(ignore_permissions=True)
 
 		updated.append({"name": name, "type": "Server Script"})
+
+	frappe.db.commit()
+
+	return {"updated": updated}
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_overwrite_config(overwrites: str) -> dict:
+	"""Overwrite agent tools, skills or configurations the user confirmed in the import dialog.
+
+	overwrites: JSON list of objects with doctype, name and data (the exported record).
+	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		items = json.loads(overwrites) if isinstance(overwrites, str) else overwrites
+	except (json.JSONDecodeError, ValueError):
+		frappe.throw(_("Invalid overwrites data"))
+
+	is_manager = "System Manager" in frappe.get_roles()
+	updated = []
+	for item in items:
+		doctype = item.get("doctype", "")
+		name = item.get("name", "")
+		if doctype not in AGENT_DOCTYPES:
+			frappe.throw(_("{0} cannot be overwritten from a config file.").format(doctype or _("This record")))
+		if not is_manager and not frappe.has_permission(doctype, "write"):
+			frappe.throw(
+				_("You need write access to {0} or the System Manager role to overwrite it.").format(doctype),
+				frappe.PermissionError,
+			)
+		if not name or not frappe.db.exists(doctype, name):
+			continue
+		fields = {k: v for k, v in (item.get("data") or {}).items() if k != "name"}
+		_write_agent_record(doctype, name, fields, is_new=False)
+		updated.append({"name": name, "type": doctype})
 
 	frappe.db.commit()
 

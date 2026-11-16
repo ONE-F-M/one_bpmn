@@ -47,6 +47,7 @@
 					<span v-if="isSaving" class="lc-save-status lc-autosaving">
 						<span class="lc-spinner-sm"></span> Saving…
 					</span>
+					<span v-else-if="saveProblem" class="lc-save-status lc-unsaved lc-save-error" :title="saveProblem">● {{ saveProblem }}</span>
 					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
 					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
 
@@ -322,6 +323,7 @@ import { frappeRequest } from "frappe-ui";
 // test cases as onefm.test_cases cards that run against the linked script.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
+import { saveStatusLabel } from "@/utils/logixSaveStatus";
 
 const props = defineProps({
 	element:        { type: Object,  default: null },
@@ -346,6 +348,11 @@ const isDirty          = ref(false);
 const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
+const saveError        = ref(""); // the last save request's error, shown in the status area
+// Read-only shows at once; the other reasons only once the user has changed something.
+const saveProblem = computed(() => (props.readonly || isDirty.value)
+	? saveStatusLabel({ readonly: props.readonly, name: canvasScriptName.value, error: saveError.value })
+	: "");
 
 // ── Live security lint ────────────────────────────────────────────────
 // Mirrors the pre-deployment gate so the author sees blocking issues as they
@@ -820,6 +827,7 @@ async function saveScript() {
 			});
 		}
 
+		saveError.value = "";
 		isDirty.value = false;
 		isSaved.value = true;
 		setTimeout(() => { isSaved.value = false; }, 3000);
@@ -828,6 +836,7 @@ async function saveScript() {
 		await fetchVersionHistory();
 	} catch (err) {
 		console.error("Auto-save failed:", err);
+		saveError.value = err?.messages?.[0] || err?.message || "Auto-save failed";
 	} finally {
 		isSaving.value = false;
 	}
@@ -970,6 +979,7 @@ async function saveScript() {
 }
 .lc-unsaved   { color: #e65100; }
 .lc-saved     { color: #2e7d32; }
+.lc-save-error { white-space: normal; max-width: 16rem; }
 .lc-autosaving { color: #888; }
 .lc-lint-status { color: #c62828; font-weight: 600; cursor: default; }
 
