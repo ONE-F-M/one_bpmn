@@ -155,6 +155,7 @@ import { onMounted, ref, watch } from "vue";
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { A2A_API } from "@/utils/a2aApi";
 import { statusTheme } from "@/utils/a2aFormat";
+import { serverMessage } from "@/utils/serverMessage";
 
 const emit = defineEmits(["error", "count"]);
 
@@ -197,7 +198,7 @@ async function loadRemotes() {
 	try {
 		remotes.value = (await frappeRequest({ url: A2A_API + "list_remote_agents" })) || [];
 	} catch (e) {
-		emit("error", e.message || String(e));
+		emit("error", serverMessage(e));
 	} finally {
 		loading.value = false;
 	}
@@ -253,7 +254,7 @@ async function saveRemote() {
 		remoteFormOpen.value = false;
 		await loadRemotes();
 	} catch (e) {
-		formError.value = e.message || String(e);
+		formError.value = serverMessage(e);
 	} finally {
 		saving.value = false;
 	}
@@ -265,7 +266,7 @@ async function fetchCard(remote) {
 		await frappeRequest({ url: A2A_API + "fetch_remote_card", params: { name: remote.name } });
 		await loadRemotes();
 	} catch (e) {
-		emit("error", e.message || String(e));
+		emit("error", serverMessage(e));
 	}
 }
 
@@ -278,7 +279,7 @@ async function setRemote(remote, status) {
 		});
 		await loadRemotes();
 	} catch (e) {
-		emit("error", e.message || String(e));
+		emit("error", serverMessage(e));
 	}
 }
 

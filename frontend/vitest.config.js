@@ -12,6 +12,6 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		include: ["tests/unit/**/*.test.js"],
-		testTransformMode: { web: ["**/docuCanvasLifecycle.test.js"] },
+		testTransformMode: { web: ["**/docuCanvasLifecycle.test.js", "**/a2aRemoteAgentsErrors.test.js"] },
 	},
 })
