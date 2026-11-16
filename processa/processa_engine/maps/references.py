@@ -183,9 +183,27 @@ def extract_bpmn_references(xml_content: str) -> dict:
 		"apply_workflow_doctypes": apply_workflow_doctypes,
 		"context_doctypes": context_doctypes,
 		"call_activities": call_activities,
+		"agent_configurations": _agent_configurations(root, BPMN_NS, SPIFF_NS),
 		"root": root,
 		"process_el": _process_el,
 	}
+
+
+def _agent_configurations(root, bpmn_ns: str, spiff_ns: str) -> set[str]:
+	"""Names of the AI Agent Configurations the map's tasks run or delegate to."""
+	names = set()
+	for tag in ("serviceTask", "scriptTask"):
+		for task in root.iter(f"{{{bpmn_ns}}}{tag}"):
+			for attr in ("aiAgentConfig", "aiSubAgentConfig"):
+				value = (task.get(f"{{{spiff_ns}}}{attr}") or "").strip()
+				if value:
+					names.add(value)
+			params = _notify_json(
+				{"connectorParams": task.get(f"{{{spiff_ns}}}connectorParams", "")}, "connectorParams", task.get("id", "")
+			)
+			if isinstance(params, dict) and str(params.get("agent") or "").strip():
+				names.add(str(params["agent"]).strip())
+	return names
 
 
 def _notify_fieldnames(attrs: dict, element_id: str) -> list[str]:
