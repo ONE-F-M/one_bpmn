@@ -4,7 +4,7 @@
 import frappe
 from frappe.model.document import Document
 
-from processa.processa_engine.legacy_migration import validate_setup
+from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration import validate_setup
 
 
 class ProcessaLegacyMigration(Document):

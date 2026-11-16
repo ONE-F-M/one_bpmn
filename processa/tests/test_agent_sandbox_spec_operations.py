@@ -15,6 +15,7 @@ from processa.api import agent_callback as callback
 from processa.agents_sandbox.sandbox import ops
 from processa.patches.v1_0 import add_agent_sandbox_spec_operations as spec_ops
 from processa.patches.v1_0 import add_testing_agent_sandbox_tools as tools_patch
+from processa.patches.v1_0 import add_testing_agent_seed_tools as seed_patch
 from processa.agents_sandbox.tests.test_agent_sandbox_ops import AgentSandboxCase, _scoped_get_cached_doc
 
 OPERATION = "BPMN Connector Operation"
@@ -109,7 +110,7 @@ class TestSpecToolDispatch(AgentSandboxCase):
 		self.assertEqual(frappe.get_all("Agent Sandbox Run", filters={"action": "write_spec"}, pluck="state")[0], "failed")
 
 	def test_in_a_job_session_a_page_capture_is_waited_for_longer_and_every_other_tool_gets_the_default(self):
-		for action, expected in (("browser_snapshot", 90), ("write_spec", None), ("trigger_job", None), ("read_file", None)):
+		for action, expected in (("browser_snapshot", 90), ("write_spec", None), ("trigger_job", None), ("seed_docs", None), ("seed_context", None), ("read_file", None)):
 			with patch.object(ops.sessions, "ensure_session", return_value=SimpleNamespace(name="S")), patch.object(ops.sessions, "enqueue") as enqueue, \
 					patch.object(ops.sessions, "wait_for", return_value={"ok": True, "found": True}) as wait:
 				result, _post = self._dispatch(action, job=True)
@@ -120,7 +121,7 @@ class TestSpecToolDispatch(AgentSandboxCase):
 
 class TestSpecToolScripts(FrappeTestCase):
 	def setUp(self):
-		for name in tools_patch.SCRIPTS:
+		for name in (*tools_patch.SCRIPTS, *seed_patch.SCRIPTS):
 			if frappe.db.exists("Server Script", name):
 				frappe.delete_doc("Server Script", name, force=True, ignore_permissions=True)
 
@@ -136,7 +137,7 @@ class TestSpecToolScripts(FrappeTestCase):
 		namespace = {"task_data": task_data, "result": result, "context_docname": "A2A-1", "context_doctype": "A2A Task", "bpmn_id": "b",
 		             "instance": None, "frappe": fake}
 		with patch.object(ops, "sandbox_dispatch", side_effect=dispatch):
-			exec(compile(tools_patch.SCRIPTS[name], name, "exec"), namespace)
+			exec(compile({**tools_patch.SCRIPTS, **seed_patch.SCRIPTS}[name], name, "exec"), namespace)
 		return result, sent, fake
 
 	BRIEF = {"target_app": "processa", "git_branch": "staging", "work_item_description": "Test it.", "run_id": "run-1"}
@@ -160,15 +161,32 @@ class TestSpecToolScripts(FrappeTestCase):
 
 	def test_browser_snapshot_saves_the_screenshot_as_a_private_file_and_returns_a_link_not_base64(self):
 		response = {"ok": True, "response": {"snapshot": "- heading", "screenshot_base64": "QUJD", "url": "/app", "role": "Sales User"}}
-		created = []
-		result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app", "role": "Sales User"}, response,
-		                            file_cls=lambda d: created.append(d) or MagicMock(insert=lambda **k: SimpleNamespace(file_url="/private/files/snap.jpg")))
+		with patch("frappe.utils.file_manager.save_file", return_value=SimpleNamespace(file_url="/private/files/snap.jpg")) as save:
+			result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app", "role": "Sales User"}, response)
 		self.assertEqual(sent[0][4], {"run_id": "run-1", "url": "/app", "role": "Sales User"})
 		self.assertNotIn("screenshot_base64", result)
 		self.assertEqual((result["snapshot"], result["screenshot_file"]), ("- heading", "/private/files/snap.jpg"))
-		self.assertEqual((created[0]["is_private"], created[0]["attached_to_doctype"], created[0]["attached_to_name"]), (1, "A2A Task", "A2A-1"))
+		args, kwargs = save.call_args
+		self.assertEqual((args[0], args[1], args[2], args[3]), ("snapshot-run-1.jpg", "QUJD", "A2A Task", "A2A-1"))
+		self.assertEqual((kwargs["decode"], kwargs["is_private"]), (True, 1))
 		result, sent, _ = self._run("Sandbox Tool: Browser Snapshot", {**self.BRIEF, "url": "/app"})
 		self.assertIn("error", result)
+
+	def test_every_tool_script_passes_the_security_gate_so_it_can_be_linked_to_a_map(self):
+		from processa.ai_agent_security.code_checks.script_validator import validate_script
+
+		for name, code in tools_patch.SCRIPTS.items():
+			self.assertEqual(validate_script(code)["findings"], [], name)
+
+	def test_a_site_that_ran_the_first_patch_gets_the_corrected_script(self):
+		from processa.patches.v1_0 import fix_browser_snapshot_screenshot_save as fix
+
+		tools_patch.execute()
+		frappe.db.set_value("Server Script", "Sandbox Tool: Browser Snapshot", "script", "result['old'] = frappe.get_doc({}).insert(ignore_permissions=True)")
+		fix.execute()
+		script = frappe.db.get_value("Server Script", "Sandbox Tool: Browser Snapshot", "script")
+		self.assertIn("save_file", script)
+		self.assertNotIn("ignore_permissions", script)
 
 	def test_trigger_job_passes_the_method_and_an_error_answer_comes_back_as_an_error(self):
 		result, sent, _ = self._run("Sandbox Tool: Trigger Job", {**self.BRIEF, "method": "processa.tasks.daily"})
@@ -177,3 +195,32 @@ class TestSpecToolScripts(FrappeTestCase):
 		self.assertEqual(result, {"error": "refused"})
 		result, sent, _ = self._run("Sandbox Tool: Trigger Job", {**self.BRIEF, "method": ""})
 		self.assertEqual((("error" in result), sent), (True, []))
+
+
+	def test_seed_docs_sends_the_run_id_from_the_map_and_the_documents_from_the_model(self):
+		docs = [{"doctype": "ToDo", "description": "x"}]
+		result, sent, _ = self._run("Sandbox Tool: Seed Docs", {**self.BRIEF, "docs": docs})
+		self.assertEqual((sent[0][0], sent[0][4]), ("seed_docs", {"run_id": "run-1", "docs": docs}))
+		self.assertEqual(result, {"fine": True})
+		for bad in ({"docs": None}, {"docs": []}, {"docs": {"doctype": "ToDo"}}, {"run_id": ""}):
+			result, sent, _ = self._run("Sandbox Tool: Seed Docs", {**self.BRIEF, "docs": docs, **bad})
+			self.assertIn("error", result)
+			self.assertEqual(sent, [])
+		result, _, _ = self._run("Sandbox Tool: Seed Docs", {**self.BRIEF, "docs": docs}, {"ok": False, "error": "refused"})
+		self.assertEqual(result, {"error": "refused"})
+
+	def test_seed_context_sends_the_doctype_names(self):
+		result, sent, _ = self._run("Sandbox Tool: Seed Context", {**self.BRIEF, "doctypes": ["Sales Order"]})
+		self.assertEqual((sent[0][0], sent[0][4]), ("seed_context", {"run_id": "run-1", "doctypes": ["Sales Order"]}))
+		for bad in ({"doctypes": []}, {"doctypes": None}, {"run_id": ""}):
+			result, sent, _ = self._run("Sandbox Tool: Seed Context", {**self.BRIEF, "doctypes": ["A"], **bad})
+			self.assertEqual((("error" in result), sent), (True, []))
+
+	def test_the_seed_scripts_are_created_once_and_pass_the_security_gate(self):
+		from processa.ai_agent_security.code_checks.script_validator import validate_script
+
+		seed_patch.execute()
+		seed_patch.execute()
+		for name, code in seed_patch.SCRIPTS.items():
+			self.assertEqual(frappe.db.count("Server Script", {"name": name}), 1)
+			self.assertEqual(validate_script(code)["findings"], [], name)

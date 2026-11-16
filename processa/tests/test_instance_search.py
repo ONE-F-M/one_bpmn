@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.api.instances import list_process_instances
+from processa.processa_engine.instances import listing
 from processa.processa_engine.instances.listing import _search_rank
 
 test_ignore = ["BPMN Process Model"]
@@ -71,3 +74,12 @@ class TestListSearch(FrappeTestCase):
 	def test_no_match_returns_empty(self):
 		self._instance(SD5)
 		self.assertEqual(list_process_instances(search="qqqzzz"), [])
+
+	def test_search_never_loads_unrelated_rows(self):
+		sd5 = self._instance(SD5)
+		other = self._instance("Procurement v1")
+		with patch.object(listing, "_search_rank", wraps=_search_rank) as rank:
+			names = [d.name for d in list_process_instances(search="SD5", limit_page_length=500)]
+		ranked = {call.args[1].get("name") for call in rank.call_args_list}
+		self.assertIn(sd5, names)
+		self.assertNotIn(other, ranked)
