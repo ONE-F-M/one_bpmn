@@ -11,7 +11,7 @@
 			:loading="busy === primary.method"
 			@click="start(primary)"
 		>
-			{{ primary.label }}
+			{{ primaryLabel }}
 		</Button>
 		<Dropdown
 			v-if="menuOptions.length"
@@ -79,7 +79,14 @@ const props = defineProps({
 const emit = defineEmits(["changed", "notice"])
 
 const ACTIONS = [
-	{ method: "retry_failed_step", label: "Retry failed step", icon: "rotate-ccw", when: ["Errored"], primary: true },
+	{
+		method: "retry_failed_step",
+		label: "Retry failed step",
+		busyLabel: "Retrying…",
+		icon: "rotate-ccw",
+		when: ["Errored"],
+		primary: true,
+	},
 	{ method: "resume_instance", label: "Resume", icon: "play", when: ["Suspended"], primary: true },
 	{
 		method: "suspend_instance",
@@ -107,6 +114,9 @@ const canManage = computed(() => currentRoles.value.some((r) => r === "System Ma
 const available = computed(() => ACTIONS.filter((a) => a.when.includes(props.details.status)))
 const primary = computed(() =>
 	available.value.find((a) => a.primary && !(props.parkedAi && a.method === "retry_failed_step"))
+)
+const primaryLabel = computed(() =>
+	busy.value === primary.value.method && primary.value.busyLabel ? primary.value.busyLabel : primary.value.label
 )
 const menuOptions = computed(() =>
 	available.value
