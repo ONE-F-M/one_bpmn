@@ -36,6 +36,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 			frappe.get_doc(
 				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
 			).insert(ignore_permissions=True)
+		frappe.db.set_value("AI Model", MODEL_CHAT, "enable_model", 1)
 		self.agent = frappe.get_doc(
 			{
 				"doctype": "AI Agent Configuration",
@@ -170,7 +171,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 		def fake_distill(*args, **kwargs):
 			captured["distill_model"] = kwargs.get("model")
-			return [{"content": "a durable fact", "topic": "t"}]
+			return [{"content": "a durable fact", "topic": "t", "dedup_key": "Act_1:t"}]
 
 		def fake_write(*args, **kwargs):
 			captured["reconcile_ctx"] = kwargs.get("reconcile_ctx")
@@ -318,7 +319,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 		with patch(
 			"processa.ai_agent_memory.distill.distill_memories",
-			lambda *a, **k: [{"content": "f", "topic": "t"}],
+			lambda *a, **k: [{"content": "f", "topic": "t", "dedup_key": "Act_1:t"}],
 		), patch(
 			"processa.ai_agent_memory.tools.memory_write",
 			lambda *a, **k: captured.update(ctx=k.get("reconcile_ctx")) or {"name": "MEM-1"},
