@@ -1,0 +1,62 @@
+{
+ "app": "processa",
+ "creation": "2026-11-16 12:11:13.340282",
+ "docstatus": 0,
+ "doctype": "Sidebar",
+ "header_icon": "hammer",
+ "idx": 0,
+ "items": [
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Skill",
+   "link_to": "AI Skill",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Skill Activation",
+   "link_to": "AI Skill Activation",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "added": 0,
+   "child": 0,
+   "collapsible": 1,
+   "hidden": 0,
+   "indent": 0,
+   "is_default_module": 0,
+   "keep_closed": 0,
+   "label": "AI Agent Tool",
+   "link_to": "AI Agent Tool",
+   "link_type": "DocType",
+   "open_in_new_tab": 1,
+   "show_arrow": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-11-16 12:11:13.340282",
+ "modified_by": "Administrator",
+ "module": "AI Agent Skills",
+ "name": "AI Agent Skills",
+ "owner": "Administrator",
+ "standard": 1,
+ "title": "AI Agent Skills"
+}

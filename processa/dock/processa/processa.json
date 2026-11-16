@@ -1,0 +1,119 @@
+{
+ "app": "processa",
+ "creation": "2026-11-16 12:12:06.704969",
+ "docstatus": 0,
+ "doctype": "Dock",
+ "idx": 0,
+ "items": [
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "workflow-builder-soft",
+   "link_to": "Processa",
+   "link_type": "Sidebar",
+   "title": "Processa"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "integrations-cable-soft",
+   "link_to": "Processa Connectors",
+   "link_type": "Sidebar",
+   "title": "Connectors"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "code-app-soft",
+   "link_to": "Agents Sandbox",
+   "link_type": "Sidebar",
+   "title": "Agents Sandbox"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "contacts-cards-soft",
+   "link_to": "A2A",
+   "link_type": "Sidebar",
+   "title": "A2A"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "data-table-soft",
+   "link_to": "AI Agent Registry",
+   "link_type": "Sidebar",
+   "title": "Agent Registry"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "system-monitor-soft",
+   "link_to": "AI Agent Security",
+   "link_type": "Sidebar",
+   "title": "Agent Security"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "system-monitor-soft",
+   "link_to": "AI Agent Guardrails",
+   "link_type": "Sidebar",
+   "title": "Agent Guardrails"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "data-table-soft",
+   "link_to": "AI Agent Memory",
+   "link_type": "Sidebar",
+   "title": "Agent Memory"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "email-envelope-soft",
+   "link_to": "AI Agent Conversations",
+   "link_type": "Sidebar",
+   "title": "Agent Conversations"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "code-app-soft",
+   "link_to": "AI Agent Skills",
+   "link_type": "Sidebar",
+   "title": "Agent Skills"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "automation-cycle-soft",
+   "link_to": "AI Agent Evals",
+   "link_type": "Sidebar",
+   "title": "Agent Evals"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "system-monitor-soft",
+   "link_to": "AI Agent Observability",
+   "link_type": "Sidebar",
+   "title": "Agent Observability"
+  },
+  {
+   "added": 0,
+   "hidden": 0,
+   "icon": "website-browser-soft",
+   "link_to": "Threat Intel",
+   "link_type": "Sidebar",
+   "title": "Threat Intel"
+  }
+ ],
+ "modified": "2026-11-16 12:12:06.704969",
+ "modified_by": "Administrator",
+ "name": "processa",
+ "owner": "Administrator",
+ "standard": 1,
+ "user": ""
+}
