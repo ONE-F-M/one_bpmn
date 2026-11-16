@@ -1,7 +1,8 @@
-"""Logix's tool functions: the debug stage, the revert to the previous version and read-only Server Script lookups."""
+"""Logix's tool functions: the debug stage, the revert, the reply that matches the applied script, and read-only lookups."""
 
 import difflib
 import json
+import re
 
 import frappe
 from frappe import _
@@ -100,6 +101,19 @@ def revert_output(conversation: str) -> dict:
 		script, history[1]["author"], history[1]["creation"][:16]
 	)
 	return _reply(conversation, say, original=current, fixed=previous, diff=diff)
+
+
+CODE_FENCE = re.compile(r"(```python\s*\n)(.*?)(```)", re.DOTALL)
+
+
+def reply_with_code(text: str, code: str) -> str:
+	"""The reply text with its first python block replaced by code, so what is shown is what gets applied."""
+	if not code:
+		return text
+	block = code.rstrip("\n") + "\n"
+	if CODE_FENCE.search(text):
+		return CODE_FENCE.sub(lambda m: m.group(1) + block + m.group(3), text, count=1)
+	return text.rstrip() + "\n\n```python\n" + block + "```"
 
 
 def _ask(adapter, system: str, user: str, schema: dict) -> dict:

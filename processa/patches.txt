@@ -372,6 +372,7 @@ processa.patches.v1_0.seed_prosally_layout_regression_cases
 processa.patches.v1_0.fix_browser_snapshot_screenshot_save #16-11-2026 the Browser Snapshot script saves its screenshot with save_file, so the security gate lets it be linked to a map
 processa.patches.v1_0.seed_logix_refusal_regression_cases
 processa.patches.v1_0.add_agent_sandbox_upload_videos_operation #16-11-2026 the agent_sandbox connector gets the upload_videos operation the Testing Agent map calls
+processa.patches.v1_0.seed_logix_pagination_case
 processa.patches.v1_0.add_testing_agent_seed_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to seed test data and read what a DocType needs
 processa.patches.v1_0.add_agent_sandbox_fast_operations #16-11-2026 the agent_sandbox connector gets the fast Testing Agent operations a map can call
 processa.patches.v1_0.repair_digit_leading_process_ids
