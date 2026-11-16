@@ -156,10 +156,12 @@ class TestRemoteRegistry(FrappeTestCase):
 		remote = make_remote(approve=False)
 		session = MagicMock()
 		session.get.side_effect = requests.ConnectionError("connection refused")
+		frappe.clear_messages()
 		with allow_test_host(), patch.object(a2a_client, "session", return_value=session):
 			with self.assertRaises(a2a_client.A2AClientError) as caught:
 				remote.fetch_card()
 		self.assertIn("Could not fetch an agent card", str(caught.exception))
+		self.assertIn("Could not fetch an agent card", str(frappe.local.message_log[-1]))
 		self.assertIn("connection refused", str(caught.exception))
 		remote.reload()
 		self.assertFalse(remote.agent_card)
