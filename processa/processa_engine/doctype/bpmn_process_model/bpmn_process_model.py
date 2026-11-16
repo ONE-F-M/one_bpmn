@@ -33,8 +33,10 @@ def swap_process_id(bpmn_xml: str, old_id: str, new_id: str) -> str:
 
 
 def new_process_id(process_name: str) -> str:
-	"""A readable, unique process id: the scrubbed name plus a short tag."""
+	"""A readable, unique process id: the scrubbed name plus a short tag, starting with a letter as an XML id must."""
 	stem = frappe.scrub(process_name or "") or "process"
+	if stem[0].isdigit():
+		stem = "p_" + stem
 	return f"{stem}_{frappe.generate_hash(length=8)}"
 
 

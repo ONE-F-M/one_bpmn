@@ -374,5 +374,6 @@ processa.patches.v1_0.seed_logix_refusal_regression_cases
 processa.patches.v1_0.add_agent_sandbox_upload_videos_operation #16-11-2026 the agent_sandbox connector gets the upload_videos operation the Testing Agent map calls
 processa.patches.v1_0.add_testing_agent_seed_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to seed test data and read what a DocType needs
 processa.patches.v1_0.add_agent_sandbox_fast_operations #16-11-2026 the agent_sandbox connector gets the fast Testing Agent operations a map can call
+processa.patches.v1_0.repair_digit_leading_process_ids
 processa.patches.v1_0.seed_github_connector #16-11-2026 the github connector with the post_pr_comment operation the Testing Agent publishes its verdict through
 processa.patches.v1_0.seed_github_video_upload_connector #16-11-2026 the github_video_upload connector that holds the machine user token for upload_videos, without the token
