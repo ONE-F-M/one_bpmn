@@ -62,10 +62,20 @@ def render_comment(summary, routing_reason, verdict, run_id=""):
 	return body if len(body) <= MAX_BODY else body[: MAX_BODY - 40] + "\n\n(comment shortened)"
 
 
+CONNECTOR = "github"
+
+
 def _token():
+	"""The token the comment is posted with: the github connector's Auth Secret when it is enabled and uses Bearer Token auth, so the
+	comment identity is set on the connector, else the GitHub token in Processa Settings."""
+	row = frappe.db.get_value("BPMN Connector", CONNECTOR, ["enabled", "auth_type"], as_dict=True)
+	if row and row.enabled and row.auth_type == "Bearer Token":
+		secret = (frappe.get_doc("BPMN Connector", CONNECTOR).get_password("auth_secret", raise_exception=False) or "").strip()
+		if secret:
+			return secret
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token", raise_exception=False) or ""
 	if not token:
-		raise GitHubCommentError("Processa Settings has no GitHub token configured.")
+		raise GitHubCommentError("No GitHub token: set the Auth Secret on the github connector (Bearer Token), or the GitHub Token in Processa Settings.")
 	return token
 
 
