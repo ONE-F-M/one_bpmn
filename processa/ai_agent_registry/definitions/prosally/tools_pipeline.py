@@ -33,6 +33,8 @@ import os
 import re
 import subprocess
 
+from processa.ai_agent_registry.definitions.shared.helpers import find_node
+
 
 # ── IR repair hints (rule name -> IR-level fix description) ──────────────────
 # Turns cryptic linter rule ids into IR-level instructions the LLM can act on.
@@ -128,36 +130,6 @@ _ID_SKIP_TYPES: frozenset[str] = frozenset({
 
 
 # ── Node.js discovery + pipeline invocation ─────────────────────────────────
-def _find_node() -> str | None:
-    """Return the path to a Node.js ≥ 18 binary, falling back to whatever is in PATH."""
-    import shutil
-
-    nvm_dir = os.path.join(os.path.expanduser("~"), ".nvm", "versions", "node")
-    if os.path.isdir(nvm_dir):
-        try:
-            entries = os.listdir(nvm_dir)
-        except OSError:
-            entries = []
-        versions: list[tuple[tuple[int, int, int], str]] = []
-        for entry in entries:
-            if not entry.startswith("v"):
-                continue
-            candidate = os.path.join(nvm_dir, entry, "bin", "node")
-            if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
-                continue
-            try:
-                parts = entry.lstrip("v").split(".")
-                major, minor, patch = (int(parts[0]), int(parts[1]), int(parts[2]))
-            except (ValueError, IndexError):
-                continue
-            if major >= 18:
-                versions.append(((major, minor, patch), candidate))
-        if versions:
-            versions.sort(key=lambda x: x[0], reverse=True)
-            return versions[0][1]
-    return shutil.which("node")
-
-
 def _pipeline_path() -> str:
     """Absolute path to frontend/tools/bpmn-pipeline/pipeline.mjs, resolved relative to this module.
 
@@ -366,7 +338,7 @@ def compile_ir(ir: dict) -> dict:
     except Exception:  # noqa: BLE001 — configuration must never block compilation
         config_problems = []
 
-    node = _find_node()
+    node = find_node()
     if not node:
         return fail("node not found in PATH")
     try:
