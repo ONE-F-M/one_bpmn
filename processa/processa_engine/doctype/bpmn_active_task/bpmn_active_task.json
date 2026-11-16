@@ -20,6 +20,7 @@
   "column_break_bnpt",
   "assigned_role",
   "assigned_user",
+  "other_allowed_users",
   "relieved_user",
   "reliever_user",
   "status"
@@ -95,6 +96,13 @@
    "fieldname": "assigned_user",
    "fieldtype": "Data",
    "label": "Assigned User"
+  },
+  {
+   "description": "Everyone holding a role the task was extended to, comma-separated; they may act like an assignee.",
+   "fieldname": "other_allowed_users",
+   "fieldtype": "Small Text",
+   "label": "Other Allowed Users",
+   "read_only": 1
   },
   {
    "description": "Owners this task was redirected away from while they were on leave, comma-separated. Runs parallel to Reliever User and is kept after their return as history.",

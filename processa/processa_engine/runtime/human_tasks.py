@@ -13,6 +13,7 @@ from processa.processa_engine.assignment import (
 	notify_task_assignee,
 	resolve_assignment,
 	split_users,
+	users_in_roles,
 )
 from processa.processa_engine.runtime.active_tasks import close_human_row
 from processa.processa_engine.runtime.ai_jobs import RUN_PARKED_AI_TASK, ai_job_queue
@@ -71,6 +72,7 @@ def on_ai_agent_suspended(instance, task):
 			"started_at": now_datetime(),
 			"assigned_user": assigned_user,
 			"assigned_role": shape_cfg.get("assigneeRole", "") or "",
+			"other_allowed_users": users_in_roles(shape_cfg.get("extendToRole", "")),
 			"task_actions": shape_cfg.get("taskActions", "") or "",
 			"target_doctype": instance.context_doctype,
 			"target_docname": instance.context_docname,

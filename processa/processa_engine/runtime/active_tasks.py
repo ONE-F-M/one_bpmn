@@ -13,6 +13,7 @@ from processa.processa_engine.assignment import (
 	remove_frappe_assignment,
 	resolve_assignment,
 	split_users,
+	users_in_roles,
 )
 from processa.processa_engine.engine import TaskState
 from processa.processa_engine.instances.cancellation import settle_cancellation
@@ -202,6 +203,7 @@ def _append_user_task_row(instance, task, tid: str) -> list:
 			"relieved_user": ",".join(p[0] for p in relief_pairs),
 			"reliever_user": ",".join(p[1] for p in relief_pairs),
 			"assigned_role": assigned_role,
+			"other_allowed_users": users_in_roles(task_cfg.get("extendToRole", "")),
 			"task_actions": task_cfg.get("taskActions", ""),
 			"target_doctype": instance.context_doctype,
 			"target_docname": instance.context_docname,

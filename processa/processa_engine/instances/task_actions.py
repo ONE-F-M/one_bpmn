@@ -370,6 +370,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 						"task_actions_detail": actions_detail,
 						"assigned_user": row.assigned_user or "",
 						"assigned_role": row.assigned_role or "",
+						"other_allowed_users": row.other_allowed_users or "",
 						"can_action": not _task_authorization(instance, row, frappe.session.user)[0],
 					}
 				)
