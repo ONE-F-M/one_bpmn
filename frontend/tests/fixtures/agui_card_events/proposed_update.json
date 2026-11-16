@@ -1,0 +1,11 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.proposed_update",
+ "value": {
+  "summary": "Recommended task configuration",
+  "fields": {
+   "model": "claude-haiku-4-5-20251001",
+   "output_variable": "agent_decision"
+  }
+ }
+}

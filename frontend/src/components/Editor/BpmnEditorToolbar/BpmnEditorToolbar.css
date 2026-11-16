@@ -1,0 +1,65 @@
+.djs-element.hover .djs-outline {
+	stroke: #60a5fa !important;
+	stroke-width: 1.5px !important;
+}
+
+/* The toolbar shares the header with the title and actions, so it folds by its own width, not the viewport's. */
+.bpmn-toolbar {
+	container-type: inline-size;
+}
+.bpmn-toolbar-more {
+	display: none;
+}
+@container (max-width: 879px) {
+	.bpmn-toolbar-more {
+		display: flex;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		position: relative;
+	}
+	.bpmn-toolbar .bpmn-toolbar-format {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		display: flex;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+}
+@container (max-width: 469px) {
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools.bpmn-toolbar-tools--open {
+		display: flex;
+		flex-wrap: wrap;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		width: 320px;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		flex-wrap: wrap;
+		flex-basis: 100%;
+		position: static;
+		padding: 0;
+		border: 0;
+		box-shadow: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-label {
+		display: none;
+	}
+}

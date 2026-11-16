@@ -1,0 +1,78 @@
+.field-row {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.field-row label {
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: #374151;
+}
+.field-row .hint {
+	font-weight: 400;
+	color: #9ca3af;
+}
+.field-row input:not([type="checkbox"]),
+.field-row select,
+.field-row textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	border: 1px solid #d1d5db;
+	border-radius: 4px;
+	font-size: 0.85rem;
+	font-family: inherit;
+}
+.field-hint {
+	font-size: 0.75rem;
+	color: #9ca3af;
+	font-weight: 400;
+}
+.field-row textarea {
+	resize: vertical;
+	min-height: 80px;
+}
+.field-row input:focus,
+.field-row select:focus,
+.field-row textarea:focus {
+	outline: none;
+	border-color: #171717;
+	box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.agent-rerun {
+	margin-left: 6px;
+	padding: 1px 8px;
+	font-size: 11px;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 10px;
+	background: #fff;
+	cursor: pointer;
+}
+.agent-rerun:hover:not(:disabled) {
+	background: var(--fg-hover-color, #f4f5f6);
+}
+.agent-rerun:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+/* ── Linked agent lifecycle badge ── */
+.agent-status {
+	display: inline-block;
+	font-weight: 600;
+	font-size: 11px;
+	margin-right: 6px;
+	padding: 1px 6px;
+	border-radius: 10px;
+}
+.agent-status-live {
+	color: #15803d;
+	background: #dcfce7;
+}
+.agent-status-bad {
+	color: #b91c1c;
+	background: #fee2e2;
+}
+.agent-status-pending {
+	color: #92400e;
+	background: #fef3c7;
+}

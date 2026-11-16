@@ -1,0 +1,552 @@
+{
+  "name": "TRN – Fuel Requisition",
+  "lanes": [
+    {
+      "id": "operations_supervisor",
+      "name": "Operations Supervisor"
+    },
+    {
+      "id": "operations_manager",
+      "name": "Operations Manager"
+    },
+    {
+      "id": "system",
+      "name": "System (Automatic)"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Roster Opened",
+      "type": "startEvent",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "end_rostered_overfilled",
+      "name": "Employee Rostered (Overfilled)",
+      "type": "endEvent",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "end_auto_approved",
+      "name": "DSOT Auto-Approved",
+      "type": "endEvent",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "end_approved",
+      "name": "DSOT Approved by Manager",
+      "type": "endEvent",
+      "lane": "operations_manager"
+    },
+    {
+      "id": "end_rejected",
+      "name": "DSOT Rejected by Manager",
+      "type": "endEvent",
+      "lane": "operations_manager"
+    },
+    {
+      "id": "end_comment",
+      "name": "Comment Added by Manager",
+      "type": "endEvent",
+      "lane": "operations_manager"
+    },
+    {
+      "id": "task_select_staff",
+      "name": "Select Staff",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_select_site",
+      "name": "Select Site from Menu",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_show_possible_sites",
+      "name": "Select from Filtered Possible Sites",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_warning_fully_utilized",
+      "name": "Show Warning: Fully Utilized - Proceed?",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_show_alternatives",
+      "name": "Show Alternative Site Options",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_show_pending_actions",
+      "name": "Show Pending Actions - Proceed?",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_show_not_approved_warning",
+      "name": "Show Warning: Not Approved - Proceed?",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_manager_review",
+      "name": "Review and Take Action on Request",
+      "type": "userTask",
+      "lane": "operations_manager"
+    },
+    {
+      "id": "Activity_1jrh6o8",
+      "name": "Choose Double-Shift OT",
+      "type": "userTask",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "task_check_possible",
+      "name": "Check &#39;Possible?&#39; in Excel Column F",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_error_not_possible",
+      "name": "Show Error: Not Possible at This Site",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_check_utilized",
+      "name": "Check &#39;Is it being utilized?&#39; Column F",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_roster_overfilled",
+      "name": "Roster Employee and Assign Overfilled Checker",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_check_overlap",
+      "name": "Check Schedule Overlap",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_error_overlap",
+      "name": "Show Error: Shift Overlap",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_check_final_determination",
+      "name": "Check &#39;Final Determination&#39; Column L",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_auto_approve",
+      "name": "Auto-Approve DSOT Request",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_submit_to_manager",
+      "name": "Submit Request to Operations Manager",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_approve_roster",
+      "name": "Approve DSOT and Roster Employee",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_notify_supervisor_approved",
+      "name": "Send Approval Email to Supervisor",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_notify_pm_manager_approved",
+      "name": "Send Email to Project Manager",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_assign_sop_task",
+      "name": "Assign Task: Create DSOT SOP",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_reject_request",
+      "name": "Reject DSOT Request",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_notify_supervisor_rejected",
+      "name": "Send Rejection Email to Supervisor",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_notify_supervisor_comment",
+      "name": "Send Comment Email to Supervisor",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "Activity_01yttqw",
+      "name": "List Options: &#34;Assign OT Hours, Assign Day Off OT, Assign Double-Shift OT&#34;",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "Activity_0lcz907",
+      "name": "Display Message: &#39;Would you like to assign the staff to Double-Shift at the same site as their Basic?&#39;&#39;",
+      "type": "scriptTask",
+      "lane": "system"
+    },
+    {
+      "id": "task_notify_pm_approved",
+      "name": "Send Email to Project Manager",
+      "type": "serviceTask",
+      "lane": "system"
+    },
+    {
+      "id": "gw_is_possible",
+      "name": "Possible?",
+      "type": "exclusiveGateway",
+      "lane": "system"
+    },
+    {
+      "id": "gw_is_utilized",
+      "name": "Value = 1?",
+      "type": "exclusiveGateway",
+      "lane": "system"
+    },
+    {
+      "id": "gw_proceed_utilized",
+      "name": "Proceed?",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_overlap",
+      "name": "Overlap Exists?",
+      "type": "exclusiveGateway",
+      "lane": "system"
+    },
+    {
+      "id": "gw_final_determination",
+      "name": "Final Determination?",
+      "type": "exclusiveGateway",
+      "lane": "system"
+    },
+    {
+      "id": "gw_proceed_pending",
+      "name": "Proceed?",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_proceed_not_approved",
+      "name": "Proceed?",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_manager_decision",
+      "name": "Manager Decision?",
+      "type": "exclusiveGateway",
+      "lane": "operations_manager"
+    },
+    {
+      "id": "gw_join_1",
+      "name": "Select Site from Menu Join",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_join_2",
+      "name": "Check &#39;Is it being utilized?&#39; Column F Join",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_join_3",
+      "name": "Submit Request to Operations Manager Join",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    },
+    {
+      "id": "gw_same_site",
+      "name": "Same Site?",
+      "type": "exclusiveGateway",
+      "lane": "operations_supervisor"
+    }
+  ],
+  "flows": [
+    {
+      "from": "start",
+      "to": "task_select_staff",
+      "name": "Begin"
+    },
+    {
+      "from": "gw_same_site",
+      "to": "gw_join_2",
+      "name": "Yes (Same Site)"
+    },
+    {
+      "from": "gw_same_site",
+      "to": "gw_join_1",
+      "name": "No (Different Site)"
+    },
+    {
+      "from": "task_select_site",
+      "to": "task_check_possible",
+      "name": "Site Selected"
+    },
+    {
+      "from": "task_check_possible",
+      "to": "gw_is_possible",
+      "name": "Checked"
+    },
+    {
+      "from": "gw_is_possible",
+      "to": "task_error_not_possible",
+      "name": "No"
+    },
+    {
+      "from": "gw_is_possible",
+      "to": "gw_join_2",
+      "name": "Yes"
+    },
+    {
+      "from": "task_error_not_possible",
+      "to": "task_show_possible_sites",
+      "name": "Show Filtered List"
+    },
+    {
+      "from": "task_show_possible_sites",
+      "to": "gw_join_2",
+      "name": "Site Selected"
+    },
+    {
+      "from": "task_check_utilized",
+      "to": "gw_is_utilized",
+      "name": "Checked"
+    },
+    {
+      "from": "gw_is_utilized",
+      "to": "task_warning_fully_utilized",
+      "name": "Yes (Value = 1)"
+    },
+    {
+      "from": "gw_is_utilized",
+      "to": "task_check_overlap",
+      "name": "No (Value &#60; 1)"
+    },
+    {
+      "from": "task_warning_fully_utilized",
+      "to": "gw_proceed_utilized",
+      "name": "Decided"
+    },
+    {
+      "from": "gw_proceed_utilized",
+      "to": "task_show_alternatives",
+      "name": "No"
+    },
+    {
+      "from": "gw_proceed_utilized",
+      "to": "task_roster_overfilled",
+      "name": "Yes"
+    },
+    {
+      "from": "task_show_alternatives",
+      "to": "gw_join_2",
+      "name": "Alternative Selected"
+    },
+    {
+      "from": "task_roster_overfilled",
+      "to": "end_rostered_overfilled",
+      "name": "Done"
+    },
+    {
+      "from": "task_check_overlap",
+      "to": "gw_overlap",
+      "name": "Checked"
+    },
+    {
+      "from": "gw_overlap",
+      "to": "task_error_overlap",
+      "name": "Yes (Overlap)"
+    },
+    {
+      "from": "gw_overlap",
+      "to": "task_check_final_determination",
+      "name": "No (No Overlap)"
+    },
+    {
+      "from": "task_error_overlap",
+      "to": "gw_join_1",
+      "name": "Return to Site Selection"
+    },
+    {
+      "from": "task_check_final_determination",
+      "to": "gw_final_determination",
+      "name": "Checked"
+    },
+    {
+      "from": "gw_final_determination",
+      "to": "task_auto_approve",
+      "name": "Approved"
+    },
+    {
+      "from": "gw_final_determination",
+      "to": "task_show_pending_actions",
+      "name": "Pending Action"
+    },
+    {
+      "from": "gw_final_determination",
+      "to": "task_show_not_approved_warning",
+      "name": "Not Approved"
+    },
+    {
+      "from": "task_auto_approve",
+      "to": "task_notify_pm_approved",
+      "name": "Approved"
+    },
+    {
+      "from": "task_notify_pm_approved",
+      "to": "end_auto_approved",
+      "name": "Done"
+    },
+    {
+      "from": "task_show_pending_actions",
+      "to": "gw_proceed_pending",
+      "name": "Decided"
+    },
+    {
+      "from": "gw_proceed_pending",
+      "to": "gw_join_1",
+      "name": "No"
+    },
+    {
+      "from": "gw_proceed_pending",
+      "to": "gw_join_3",
+      "name": "Yes"
+    },
+    {
+      "from": "task_show_not_approved_warning",
+      "to": "gw_proceed_not_approved",
+      "name": "Decided"
+    },
+    {
+      "from": "gw_proceed_not_approved",
+      "to": "gw_join_1",
+      "name": "No"
+    },
+    {
+      "from": "gw_proceed_not_approved",
+      "to": "gw_join_3",
+      "name": "Yes"
+    },
+    {
+      "from": "task_submit_to_manager",
+      "to": "task_manager_review",
+      "name": "Submitted"
+    },
+    {
+      "from": "task_manager_review",
+      "to": "gw_manager_decision",
+      "name": "Action Taken"
+    },
+    {
+      "from": "gw_manager_decision",
+      "to": "task_approve_roster",
+      "name": "Approved"
+    },
+    {
+      "from": "gw_manager_decision",
+      "to": "task_reject_request",
+      "name": "Rejected"
+    },
+    {
+      "from": "gw_manager_decision",
+      "to": "task_notify_supervisor_comment",
+      "name": "Comment Only"
+    },
+    {
+      "from": "task_approve_roster",
+      "to": "task_notify_supervisor_approved",
+      "name": "Rostered"
+    },
+    {
+      "from": "task_notify_supervisor_approved",
+      "to": "task_notify_pm_manager_approved",
+      "name": "Supervisor Notified"
+    },
+    {
+      "from": "task_notify_pm_manager_approved",
+      "to": "task_assign_sop_task",
+      "name": "PM Notified"
+    },
+    {
+      "from": "task_assign_sop_task",
+      "to": "end_approved",
+      "name": "Done"
+    },
+    {
+      "from": "task_reject_request",
+      "to": "task_notify_supervisor_rejected",
+      "name": "Rejected"
+    },
+    {
+      "from": "task_notify_supervisor_rejected",
+      "to": "end_rejected",
+      "name": "Done"
+    },
+    {
+      "from": "task_notify_supervisor_comment",
+      "to": "end_comment",
+      "name": "Done"
+    },
+    {
+      "from": "gw_join_1",
+      "to": "task_select_site",
+      "name": ""
+    },
+    {
+      "from": "gw_join_2",
+      "to": "task_check_utilized",
+      "name": ""
+    },
+    {
+      "from": "gw_join_3",
+      "to": "task_submit_to_manager",
+      "name": ""
+    },
+    {
+      "from": "task_select_staff",
+      "to": "Activity_01yttqw",
+      "name": ""
+    },
+    {
+      "from": "Activity_01yttqw",
+      "to": "Activity_1jrh6o8",
+      "name": ""
+    },
+    {
+      "from": "Activity_1jrh6o8",
+      "to": "Activity_0lcz907",
+      "name": ""
+    }
+  ]
+}

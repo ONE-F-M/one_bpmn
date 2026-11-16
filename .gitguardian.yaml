@@ -1,0 +1,5 @@
+version: 2
+
+secret:
+  # Add a false positive here by its match hash with a name; a trailing # ggignore comment on a single line also works.
+  ignored_matches: []

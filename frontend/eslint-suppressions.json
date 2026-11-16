@@ -1,0 +1,214 @@
+{
+  "src/App.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/aiTaskSelectorPropertiesProvider/AiTaskSelectorProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/businessRuleTaskPropertiesProvider/BusinessRuleTaskProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/conditionalStartEventPropertiesProvider/ConditionalStartEventProps.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/sendTaskPropertiesProvider/SendTaskProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/serviceTaskPropertiesProvider/ServiceTaskProps.js": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/bpmn/serviceTaskPropertiesProvider/connectorEntries.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/shared/connectorManifests.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/shared/htmlAttrCodec.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/startEventPropertiesProvider/StartEventProps.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/userTaskPropertiesProvider/UserTaskProps.js": {
+    "no-dupe-keys": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/DiffViewer/DiffViewer.vue": {
+    "no-empty": {
+      "count": 4
+    },
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "src/composables/useBpmnContextMenu.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/composables/useBpmnDiff.js": {
+    "no-empty": {
+      "count": 3
+    },
+    "no-unused-vars": {
+      "count": 5
+    }
+  },
+  "src/composables/useCallActivityName.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/composables/useModelerInit.js": {
+    "no-empty": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/main.js": {
+    "vue/no-reserved-component-names": {
+      "count": 3
+    }
+  },
+  "src/pages/EvalComparison.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/EvalFeedback.vue": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/pages/EvalResults.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/Evals.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/pages/Instance.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/Memory.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/Processes.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/pages/Runs.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/Security.vue": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/pages/Sessions.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/pages/VersionHistory.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/utils/arabicTranslation.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/utils/nativeCopyPaste.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/ProsAllyPanel.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/aguiClient.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/callActivityLaunch.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/cardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/diagramPreviewScope.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/docTypeSchemaCardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/drawProgress.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/lintExplainButton.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/scriptDiffCardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/uiPolish.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  }
+}
