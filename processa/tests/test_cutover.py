@@ -1,4 +1,6 @@
 import json
+import sys
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -28,10 +30,33 @@ class TestCutover(FrappeTestCase):
 		installed = json.loads(frappe.db.get_global("installed_apps"))
 		frappe.db.set_global("installed_apps", json.dumps(["one_bpmn" if app == "processa" else app for app in installed]))
 
-		rename_app()
-		rename_app()
+		frappe.cache.delete_value("app_hooks")
+		self.addCleanup(frappe.cache.delete_value, "app_hooks")
+		with patch.dict(sys.modules, {"one_bpmn": None}):
+			rename_app()
+			rename_app()
 
 		self.assertEqual(json.loads(frappe.db.get_global("installed_apps")), installed)
 		self.assertEqual(frappe.db.get_value("Module Def", module.name, "app_name"), "processa")
 		self.assertEqual(frappe.db.get_value("Patch Log", patch_log.name, "patch"), OLD_LINES[old])
 		self.assertEqual(frappe.db.count("Patch Log", {"patch": OLD_LINES[old]}), 1)
+
+
+class TestRenameStoredPathsBeforeApprovalFields(FrappeTestCase):
+	def test_script_is_renamed_on_a_site_without_the_approval_columns(self):
+		from processa.patches.v1_0 import rename_stored_one_bpmn_paths as rename_patch
+
+		script = frappe.get_doc({"doctype": "Server Script", "name": "Cutover Approval Probe", "script_type": "API",
+			"api_method": "cutover_approval_probe", "script": "from one_bpmn.agents.turn_state import get_turn", "disabled": 1})
+		script.db_insert()
+		real_get_value = frappe.db.get_value
+
+		def get_value(doctype, name, fieldname, *args, **kwargs):
+			if doctype == "Server Script" and "processa_approved" in str(fieldname):
+				raise frappe.db.OperationalError(1054, "Unknown column 'processa_approved'")
+			return real_get_value(doctype, name, fieldname, *args, **kwargs)
+
+		with patch.object(frappe.db, "has_column", return_value=False), patch.object(frappe.db, "get_value", side_effect=get_value):
+			rename_patch._rename_script(script.name)
+
+		self.assertEqual(frappe.db.get_value("Server Script", script.name, "script"), "from processa.agents.turn_state import get_turn")

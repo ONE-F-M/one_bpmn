@@ -7,6 +7,10 @@ import time
 import frappe
 from frappe import _
 
+# Production keeps the one_bpmn app name until it gets the processa release.
+NEW_APP_PREFIX = "processa."
+OLD_APP_PREFIX = "one_bpmn."
+
 NOT_EDITABLE_REASON = (
 	'Process is locked. Create a Process Implementation and get it '
 	'actioned to "Active" state to enable editing.'
@@ -174,6 +178,13 @@ def _call_production_api(method: str, params: dict) -> dict:
 		# As a query string it produces a multi-KB URL that nginx/proxies reject
 		# with 400 Bad Request. Sending it in the request body avoids the limit.
 		resp = requests.post(url, json=params, headers=headers, timeout=10)
+		if _production_lacks_processa(resp, method):
+			resp = requests.post(
+				f"{production_url}/api/method/{OLD_APP_PREFIX}{method[len(NEW_APP_PREFIX) :]}",
+				json=params,
+				headers=headers,
+				timeout=10,
+			)
 		resp.raise_for_status()
 		data = resp.json()
 		return data.get("message", data)
@@ -187,6 +198,15 @@ def _call_production_api(method: str, params: dict) -> dict:
 			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}",
 		)
 		frappe.throw(_("Failed to check process editability. Please try again or contact support."))
+
+
+def _production_lacks_processa(resp, method: str) -> bool:
+	"""True when Production still runs the app as one_bpmn and refused the processa path."""
+	return (
+		method.startswith(NEW_APP_PREFIX)
+		and resp.status_code == 417
+		and "App processa is not installed" in resp.text
+	)
 
 
 def _route_to_source(func, params: dict) -> dict:
