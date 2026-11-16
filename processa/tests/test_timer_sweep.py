@@ -48,8 +48,20 @@ TIMER_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+NO_TIMER_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    id="Defs_NoTimer" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_NoTimer" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1"><bpmn:incoming>Flow_1</bpmn:incoming></bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>
+"""
+
+
 class TestTimerSweep(FrappeTestCase):
-	def _start_instance(self):
+	def _model(self, xml):
 		process = frappe.get_doc({
 			"doctype": "Process",
 			"process_name": f"timer-test-{frappe.generate_hash(length=6)}",
@@ -65,12 +77,15 @@ class TestTimerSweep(FrappeTestCase):
 			"process_id": f"timer-test-{suffix}",
 			"version": 1,
 			"process_name": process.name,
-			"bpmn_xml": TIMER_XML,
+			"bpmn_xml": xml,
 		})
 		model.flags.skip_editability_check = True
 		model.insert(ignore_permissions=True)
 		compile_process_model(model.name)
+		return model
 
+	def _start_instance(self):
+		model = self._model(TIMER_XML)
 		instance = frappe.get_doc({
 			"doctype": "BPMN Process Instance",
 			"process_model": model.name,
@@ -131,3 +146,19 @@ class TestTimerSweep(FrappeTestCase):
 		)
 		self.assertIsNone(context_docname)
 		self.assertEqual(status, "Errored")
+
+	def test_sweep_skips_instances_on_maps_without_timers(self):
+		timer_instance = self._start_instance()
+		plain_instance = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": self._model(NO_TIMER_XML).name,
+			"status": "Active",
+		})
+		plain_instance.insert(ignore_permissions=True)
+
+		with patch("processa.processa_engine.timers._refresh_timer_tasks") as refresh:
+			process_timer_catch_events()
+
+		swept = {call.args[0] for call in refresh.call_args_list}
+		self.assertIn(timer_instance.name, swept)
+		self.assertNotIn(plain_instance.name, swept)

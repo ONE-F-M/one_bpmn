@@ -279,14 +279,9 @@ def _complete_task_job(
 					title="BPMN CTC expiry message failed",
 					message=str(exc),
 				)
-	except frappe.ValidationError:
-		# An engine-level validation (the task was completed elsewhere) is not an instance failure.
-		frappe.log_error(
-			title="BPMN complete_task job: validation error",
-			message=frappe.get_traceback(),
-		)
-	except frappe.PermissionError:
-		# The user sees what they lack; the request rollback leaves the task waiting for a retry.
+	except (frappe.ValidationError, frappe.MandatoryError, frappe.PermissionError):
+		# The user sees the form's own message (or what they lack); the request rollback
+		# leaves the instance Active on the same task so they can fix it and retry.
 		raise
 	except Exception:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")

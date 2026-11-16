@@ -91,9 +91,13 @@ export function streamAgentTurn({
 
 	// Called on every frame the transport actually delivers — a parsed
 	// event AND a bare keep-alive comment both count as "still alive".
+	// Idle: abort and ask turn_status before failing, like a dropped stream.
 	const resetIdleTimer = () => {
 		clearIdleTimer();
-		idleTimer = setTimeout(() => fail(TIMEOUT_FAILURE), IDLE_TIMEOUT_MS);
+		idleTimer = setTimeout(() => {
+			controller.abort();
+			recoverOrFail(TIMEOUT_FAILURE).catch(() => fail(TIMEOUT_FAILURE));
+		}, IDLE_TIMEOUT_MS);
 	};
 
 	const finish = () => {
@@ -187,8 +191,8 @@ export function streamAgentTurn({
 		return false;
 	};
 
-	const recoverOrFail = async () => {
-		if (!(await recover())) fail(GENERIC_FAILURE);
+	const recoverOrFail = async (failure = GENERIC_FAILURE) => {
+		if (!(await recover())) fail(failure);
 	};
 
 	const body = new URLSearchParams({ agent_id: agentId, message: message ?? "" });
@@ -247,7 +251,7 @@ export function streamAgentTurn({
 				}
 			}
 		} catch {
-			if (finished) return; // our own abort unwinding the reader
+			if (controller.signal.aborted) return; // our own abort unwinding the reader
 			await recoverOrFail();
 			return;
 		}

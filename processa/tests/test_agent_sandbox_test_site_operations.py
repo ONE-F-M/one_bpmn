@@ -41,9 +41,22 @@ class TestOperationRecords(FrappeTestCase):
 		patch_ops.execute()
 		fields = {a: [r.field_name for r in frappe.get_doc(OPERATION, _name(a)).fields] for a in ACTIONS}
 		self.assertEqual(fields["prepare_site"][:3], ["target_app", "git_branch", "work_item_description"])
-		for name in ("run_id", "pr_number", "base_branch", "roles", "password"):
+		for name in ("run_id", "pr_number", "base_branch", "roles"):
 			self.assertIn(name, fields["prepare_site"])
+		self.assertNotIn("password", fields["prepare_site"])  # derived at dispatch, never a map input
 		self.assertEqual(fields["checkout_pr_head"][-2:], ["run_id", "pr_number"])
+
+	def test_a_site_that_kept_the_old_password_field_gets_it_removed(self):
+		patch_ops.execute()
+		doc = frappe.get_doc(OPERATION, _name("prepare_site"))
+		doc.append("fields", {"field_name": "password", "label": "Test password", "field_type": "String", "required": 1})
+		doc.save(ignore_permissions=True)
+		from processa.patches.v1_0 import prepare_site_operation_without_password as drop
+
+		drop.execute()
+		fields = [r.field_name for r in frappe.get_doc(OPERATION, _name("prepare_site")).fields]
+		self.assertNotIn("password", fields)
+		self.assertIn("roles", fields)
 
 	def test_neither_operation_edits_application_files(self):
 		self.assertEqual({o["value"] for o in patch_ops.OPERATIONS}, set(ACTIONS))

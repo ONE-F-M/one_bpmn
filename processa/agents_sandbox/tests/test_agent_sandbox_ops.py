@@ -14,6 +14,7 @@ receives the concrete action and its arguments.
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -177,12 +178,25 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertNotIn("agent_config", kwargs["json"])
 		self.assertNotIn("tools", kwargs["json"])
 
-	def test_a_password_arg_reaches_the_sandbox_but_is_not_stored_on_the_run(self):
-		_result, ctx, mock_post = self._dispatch("prepare_site", run_id="run-1", password="Secret-pass-123")
-		self.assertEqual(mock_post.call_args.kwargs["json"]["args"]["password"], "Secret-pass-123")
+	def test_the_test_password_is_derived_from_the_run_id_forwarded_and_never_stored(self):
+		caller_value = "caller-" + uuid.uuid4().hex  # random at run time, so no credential-looking literal sits in the file
+		_result, ctx, mock_post = self._dispatch("prepare_site", run_id="run-1", password=caller_value)
+		sent = mock_post.call_args.kwargs["json"]["args"]["password"]
+		self.assertEqual(sent, ops.test_password_for("run-1"))  # a caller's own value is replaced
 		row = frappe.get_doc("Agent Sandbox Run", ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]["run"])
-		self.assertNotIn("Secret-pass-123", row.request_payload)
+		self.assertNotIn(sent, row.request_payload)
+		self.assertNotIn(caller_value, row.request_payload)
 		self.assertEqual(frappe.parse_json(row.request_payload)["args"], {"run_id": "run-1", "password": "REDACTED"})
+
+	def test_the_derived_password_is_stable_per_run_different_between_runs_and_acceptable_to_the_sandbox(self):
+		first, again, other = ops.test_password_for("run-1"), ops.test_password_for("run-1"), ops.test_password_for("run-2")
+		self.assertEqual(first, again)
+		self.assertNotEqual(first, other)
+		self.assertTrue(8 <= len(first) <= 128 and first == first.strip())
+
+	def test_prepare_site_without_a_run_id_is_refused(self):
+		with self.assertRaises(ops.AgentSandboxError):
+			self._dispatch("prepare_site")
 
 	def test_open_pull_request_parks_and_forwards_summary_as_an_arg(self):
 		result, ctx, mock_post = self._dispatch("open_pull_request", summary="Added the docstring.")
