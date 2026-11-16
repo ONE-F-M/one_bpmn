@@ -27,7 +27,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
   - `server_scripts.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
   - `canvas_comments.py`, `notifications.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
-- `processa/processa/doctype/`: DocType JSON, controllers and tests.
+- `processa/<module>/doctype/`: each module keeps its own DocType JSON, controllers and tests; the BPMN ones are in `processa/processa_engine/doctype/`.
 - `processa/processa_engine/engine/`: the SpiffWorkflow script engine.
 - `processa/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
 - `processa/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator, and the handlers the Connector Agent writes (`generated/`); `processa/api/connectors.py` holds the modeler endpoints.
