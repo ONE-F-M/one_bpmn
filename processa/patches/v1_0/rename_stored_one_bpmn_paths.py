@@ -33,9 +33,11 @@ def renamed(text: str) -> str:
 
 
 def _rename_script(name: str) -> None:
-	row = frappe.db.get_value("Server Script", name, ["script", "processa_approved", "processa_approved_hash"], as_dict=True)
-	script = renamed(row.script)
-	values = {"script": script}
-	if cint(row.processa_approved) and row.processa_approved_hash == script_hash(row.script):
-		values["processa_approved_hash"] = script_hash(script)
+	script = frappe.db.get_value("Server Script", name, "script")
+	values = {"script": renamed(script)}
+	# The approval fields come from add_server_script_approval_fields, which runs after this patch on a site moving from one_bpmn.
+	if frappe.db.has_column("Server Script", "processa_approved"):
+		approved, approved_hash = frappe.db.get_value("Server Script", name, ["processa_approved", "processa_approved_hash"])
+		if cint(approved) and approved_hash == script_hash(script):
+			values["processa_approved_hash"] = script_hash(values["script"])
 	frappe.db.set_value("Server Script", name, values, update_modified=False)

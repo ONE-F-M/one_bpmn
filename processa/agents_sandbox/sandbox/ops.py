@@ -43,6 +43,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import re
 import time
 from urllib.parse import quote
@@ -891,7 +892,7 @@ def test_password_for(run_id: str) -> str:
 NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"})
 # Fast spec tools exist only in a sandbox Job session (the HTTP /tool_call path does not know them). A page capture can take
 # up to 60 seconds in the sandbox, so its answer is waited for longer than the 60 seconds every other fast tool gets.
-SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job"})
+SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job", "seed_docs", "seed_context"})
 SPEC_WAIT_SECONDS = {"browser_snapshot": 90}
 
 
@@ -906,6 +907,59 @@ def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None
 	sessions.enqueue(
 		session, kind, action, {"args": args, "work_item_description": payload["work_item_description"]}, run=run.name
 	)
+
+
+# The fast Testing Agent actions a map can call as a connector operation: what each takes besides the shared fields. A list or
+# object may arrive as JSON text, since a map field is text.
+FAST_ACTION_ARGS = {
+	"write_spec": ("file", "content"),
+	"browser_snapshot": ("url", "role"),
+	"trigger_job": ("method",),
+	"seed_docs": ("docs",),
+	"seed_context": ("doctypes",),
+}
+_NEEDS_RUN_ID = frozenset(FAST_ACTION_ARGS) - {"trigger_job"}
+_JSON_ARGS = frozenset({"docs", "doctypes"})
+
+
+def _dispatch_fast_action(params: dict, ctx: dict, action: str) -> dict | None:
+	"""A fast action called from a map: one round trip to the Job session, answered within the fast wait, and returned as the
+	step's output (nothing parks). An eval gets dry-run text, like the slow operations. The run id comes from the map."""
+	instance, task = ctx.get("instance"), ctx.get("task")
+	target_app, git_branch = (params.get("target_app") or "").strip(), (params.get("git_branch") or "").strip()
+	work_item_description = (params.get("work_item_description") or "").strip()
+	if not (target_app and git_branch and work_item_description):
+		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+	if refused := dispatch_error(target_app, git_branch):
+		raise AgentSandboxError(refused)
+	args = {}
+	for name in FAST_ACTION_ARGS[action]:
+		value = params.get(name)
+		if name in _JSON_ARGS and isinstance(value, str):
+			try:
+				value = json.loads(value)
+			except ValueError:
+				raise AgentSandboxError(f"{name} must be a JSON list.") from None
+		if value in (None, "", []):
+			raise AgentSandboxError(f"{action} needs {name}.")
+		args[name] = value
+	if action in _NEEDS_RUN_ID:
+		run_id = (params.get("run_id") or "").strip()
+		if not run_id:
+			raise AgentSandboxError(f"{action} needs run_id.")
+		args["run_id"] = run_id
+	if (frappe.flags.eval_origin or {}).get("eval_run"):
+		task.data[EVAL_DRY_RUN_KEY] = f"Eval dry run: {action} was not sent to the sandbox."
+		return None
+	answer = sandbox_dispatch(
+		action, target_app, git_branch, work_item_description, args, a2a_task_of(instance), bpmn_id=ctx.get("bpmn_id"), instance=instance
+	)
+	if not answer.get("ok"):
+		raise AgentSandboxError(answer.get("error") or f"{action} failed.")
+	response = dict(answer["response"])
+	if response.pop("screenshot_base64", None):  # megabytes of base64 do not belong in task data
+		response["screenshot_omitted"] = True
+	return response
 
 
 def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
@@ -1077,6 +1131,8 @@ def dispatch_action(params: dict, ctx: dict) -> dict | None:
 	action = (ctx.get("operation") or "").strip()
 	if not action:
 		raise AgentSandboxError("dispatch_action was not called through a configured connector operation.")
+	if action in FAST_ACTION_ARGS:
+		return _dispatch_fast_action(params, ctx, action)
 	return _dispatch_single_action(params, ctx, action)
 
 
