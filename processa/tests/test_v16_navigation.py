@@ -2,7 +2,7 @@ import json
 import os
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 
 def _read(path: str) -> dict:
@@ -10,7 +10,7 @@ def _read(path: str) -> dict:
 		return json.load(f)
 
 
-class TestV16Navigation(FrappeTestCase):
+class TestV16Navigation(UnitTestCase):
 	def test_every_module_ships_a_standard_sidebar(self):
 		sidebars = {}
 		for module in frappe.get_module_list("processa"):

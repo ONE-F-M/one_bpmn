@@ -10,13 +10,11 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.api.evals import get_run_review
-
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 
 def _run_with_results(suite: str, case_statuses: dict, minutes_ago: int):
@@ -93,7 +91,7 @@ def _agent_run(eval_run: str, eval_case: str, bpmn_id: str = "ai_agent_task", st
 	return run.name
 
 
-class TestRunReviewTranscript(FrappeTestCase):
+class TestRunReviewTranscript(IntegrationTestCase):
 	"""The review payload carries what the agent DID, not just what it answered.
 
 	Before this, "which tools did the eval call?" could only be answered by
@@ -166,7 +164,7 @@ class TestRunReviewTranscript(FrappeTestCase):
 		self.assertEqual(review["results"][0]["agent_runs"], [])
 
 
-class TestEvalRunReviewBaseline(FrappeTestCase):
+class TestEvalRunReviewBaseline(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite().name
@@ -257,7 +255,7 @@ class TestEvalRunReviewBaseline(FrappeTestCase):
 			get_run_review(current, baseline=foreign)
 
 
-class TestEvalRunReviewInputContext(FrappeTestCase):
+class TestEvalRunReviewInputContext(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite().name

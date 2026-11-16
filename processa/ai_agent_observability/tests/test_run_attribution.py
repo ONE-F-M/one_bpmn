@@ -18,12 +18,12 @@ Three gaps, one theme: a run's record did not describe the run.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability import observability as obs
 
 
-class RunFixture(FrappeTestCase):
+class RunFixture(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		frappe.flags[obs.CURRENT_RUN_FLAG] = None

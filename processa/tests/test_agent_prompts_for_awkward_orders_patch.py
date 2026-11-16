@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import agent_prompts_for_awkward_orders as patch
 from processa.patches.v1_0 import seed_connector_agent_config as seed
 
 
-class TestAwkwardOrders(FrappeTestCase):
+class TestAwkwardOrders(IntegrationTestCase):
 	def setUp(self):
 		self.agents = [a for a in patch.RULES if frappe.db.exists("AI Agent Configuration", a)]
 		if not self.agents:

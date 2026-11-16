@@ -4,7 +4,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_writer_tools_record_their_timing as p
 from processa.ai_agent_registry.definitions.docu.tools import timed
@@ -72,7 +72,7 @@ def _script(api_method: str) -> str:
 	return frappe.db.get_value("Server Script", {"api_method": api_method}, "script")
 
 
-class TestDocuWriterToolsRecordTheirTiming(FrappeTestCase):
+class TestDocuWriterToolsRecordTheirTiming(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("writer_tool_timing")
 		for api_method, script in SCRIPTS.items():
@@ -127,7 +127,7 @@ class TestDocuWriterToolsRecordTheirTiming(FrappeTestCase):
 		self.assertEqual(_script("docu_writer_tool_list_roles"), 'result["x"] = 1')
 
 
-class TestTimedRecordsABlockThatRaises(FrappeTestCase):
+class TestTimedRecordsABlockThatRaises(IntegrationTestCase):
 	def test_the_timing_is_kept_when_the_call_fails(self):
 		timings = []
 		with self.assertRaises(ValueError):

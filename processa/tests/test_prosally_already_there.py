@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_replies import describe_changes, no_change_reply, similar_steps
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -36,7 +36,7 @@ class RecordingAdapter:
 		return SimpleNamespace(text=json.dumps(self.reply))
 
 
-class TestSimilarSteps(FrappeTestCase):
+class TestSimilarSteps(UnitTestCase):
 	def test_the_steps_that_share_the_requests_words_are_named_best_match_first(self):
 		found = similar_steps(XML, [REQUEST], "Payroll Clearance")
 		self.assertEqual(found, ["Check Pending Salary Details (From/To Date)", "Enter Pending Salary Amount"])
@@ -55,7 +55,7 @@ class TestSimilarSteps(FrappeTestCase):
 		self.assertEqual(similar_steps(XML, ["Yes, proceed"], "Payroll Clearance"), [])
 
 
-class TestNoChangeReply(FrappeTestCase):
+class TestNoChangeReply(UnitTestCase):
 	def test_it_names_the_step_that_is_already_there_and_says_what_to_do_next(self):
 		text = no_change_reply('the sub-process "Payroll Clearance"', ["Enter Pending Salary Amount"])
 		self.assertIn('already has the step "Enter Pending Salary Amount"', text)
@@ -70,7 +70,7 @@ class TestNoChangeReply(FrappeTestCase):
 		self.assertNotIn("already has", text)
 
 
-class TestClassifierSaysItIsThere(FrappeTestCase):
+class TestClassifierSaysItIsThere(IntegrationTestCase):
 	def setUp(self):
 		already_patch.execute()
 		self.script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")
@@ -104,7 +104,7 @@ class TestClassifierSaysItIsThere(FrappeTestCase):
 		self.assertNotIn("That sub-process already has", adapter.prompts[0])
 
 
-class TestModifyScriptShowsNoCardWhenNothingChanged(FrappeTestCase):
+class TestModifyScriptShowsNoCardWhenNothingChanged(IntegrationTestCase):
 	def setUp(self):
 		already_patch.execute()
 		name = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Modify Process"]}, "name")
@@ -164,7 +164,7 @@ def _lanes_xml(*lanes, attrs=""):
 	return LANES.format(lanes=body, attrs=attrs)
 
 
-class TestLaneAndConfigChanges(FrappeTestCase):
+class TestLaneAndConfigChanges(UnitTestCase):
 	def setUp(self):
 		self.base = _lanes_xml(("Finance Manager", ["a", "b"]))
 

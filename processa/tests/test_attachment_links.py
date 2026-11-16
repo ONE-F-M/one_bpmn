@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 _TEST_SECRET = "test-secret-key-for-unit-tests"
 _CONTENT = b"attachment body"
@@ -29,7 +29,7 @@ def _expired(token: str) -> str:
 	return f"{encoded}.{_sign(payload_json)}"
 
 
-class TestAttachmentLinks(FrappeTestCase):
+class TestAttachmentLinks(IntegrationTestCase):
 	def setUp(self):
 		patcher = patch("processa.processa_engine.notifications.token._get_secret", return_value=_TEST_SECRET)
 		patcher.start()

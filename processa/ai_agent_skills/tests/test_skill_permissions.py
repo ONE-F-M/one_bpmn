@@ -1,6 +1,6 @@
 import frappe
 from frappe.client import get_list, set_value
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa import hooks
 from processa.ai_agent_skills.permissions import ai_skill_query_conditions
@@ -68,7 +68,7 @@ def make_skill(name: str, as_user: str = "Administrator") -> None:
 	frappe.set_user("Administrator")
 
 
-class TestSkillPermissions(FrappeTestCase):
+class TestSkillPermissions(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

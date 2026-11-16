@@ -10,14 +10,14 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 SKILL_TOOL_NAMES = {"load_skill", "unload_skill", "load_skill_resource"}
 
 
-class TestSkillToolDispatchGating(FrappeTestCase):
+class TestSkillToolDispatchGating(IntegrationTestCase):
 	def setUp(self):
 		self.instance = frappe.get_doc(
 			{

@@ -14,15 +14,13 @@ Covers the three behavioural changes:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	create_agent_configuration,
 	get_creation_process_model,
 )
 from processa.ai_agent_registry.provisioning.agent_provisioning import is_chat_startable_map, validate_agent_config
-
-test_ignore = ["BPMN Process Model"]
 
 CHAT_XML = (
 	'<?xml version="1.0" encoding="UTF-8"?>'
@@ -76,7 +74,7 @@ def _model_fixture(xml: str, slug: str) -> str:
 	return doc.name
 
 
-class TestChatStartableMap(FrappeTestCase):
+class TestChatStartableMap(IntegrationTestCase):
 	def test_detection(self):
 		self.assertTrue(is_chat_startable_map(_model_fixture(CHAT_XML, "chat")))
 		self.assertFalse(is_chat_startable_map(_model_fixture(BUSINESS_XML, "biz")))
@@ -84,7 +82,7 @@ class TestChatStartableMap(FrappeTestCase):
 		self.assertIsNone(is_chat_startable_map("ZZ WI1997 missing"))
 
 
-class TestChatLabelAgainstMap(FrappeTestCase):
+class TestChatLabelAgainstMap(IntegrationTestCase):
 	"""Controller validation: the label must match what the map can deliver."""
 
 	def setUp(self):
@@ -214,7 +212,7 @@ class TestChatLabelAgainstMap(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
 
 
-class TestCreateAgentWithProcessModel(FrappeTestCase):
+class TestCreateAgentWithProcessModel(IntegrationTestCase):
 	"""Endpoint contract: the map is a designer-chosen link at creation."""
 
 	def setUp(self):

@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import drop_duplicated_instructions
 from processa.patches.v1_0 import seed_lucrusher_skills as seed
@@ -19,7 +19,7 @@ LUCRUSHER = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGEN
 SKILL_NAMES = {s["skill_name"] for s in seed.SKILLS}
 
 
-class TestLucrusherSkillsSeed(FrappeTestCase):
+class TestLucrusherSkillsSeed(IntegrationTestCase):
 	def test_a_site_without_lucrusher_only_gets_the_skills(self):
 		with mock_patch.object(seed, "AGENT_ID", "no_such_agent"):
 			seed.execute()

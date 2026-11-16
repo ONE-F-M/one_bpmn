@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.editability import ensure_instance_type_seeded
 
@@ -10,7 +10,7 @@ def _stored(field):
 	return frappe.db.get_single_value(SETTINGS, field, cache=False)
 
 
-class TestInstanceTypeSeed(FrappeTestCase):
+class TestInstanceTypeSeed(IntegrationTestCase):
 	def setUp(self):
 		self.original_instance_type = frappe.db.get_single_value(SETTINGS, "instance_type")
 		self.original_connect = frappe.db.get_single_value(SETTINGS, "connect_to_production")

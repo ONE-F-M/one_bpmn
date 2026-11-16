@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import hand_back_clears_the_orchestrator_flag as patch
 
 
-class TestHandBackClearsTheOrchestratorFlagPatch(FrappeTestCase):
+class TestHandBackClearsTheOrchestratorFlagPatch(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("Server Script", patch.SCRIPT):
 			self.skipTest(f"{patch.SCRIPT} is not on this site")

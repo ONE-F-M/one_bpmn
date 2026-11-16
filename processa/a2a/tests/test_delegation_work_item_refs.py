@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security import identity
 from processa.a2a import local
@@ -17,7 +17,7 @@ from processa.patches.v1_0 import add_work_item_refs_to_a2a_connector as fields_
 from processa.patches.v1_0 import grant_specialists_work_item_read as roles_patch
 
 
-class TestRequestPayload(FrappeTestCase):
+class TestRequestPayload(IntegrationTestCase):
 	def test_references_ride_alongside_the_instruction(self):
 		self.assertEqual(
 			local.request_payload("Fix it.", "WI-000001", "https://github.com/o/r/pull/9"),
@@ -28,7 +28,7 @@ class TestRequestPayload(FrappeTestCase):
 		self.assertEqual(local.request_payload("Fix it."), {"instruction": "Fix it."})
 
 
-class TestWorkItemRefs(FrappeTestCase):
+class TestWorkItemRefs(IntegrationTestCase):
 	def _row(self, **values):
 		return patch.object(frappe.db, "get_value", return_value=frappe._dict(values))
 
@@ -66,7 +66,7 @@ class TestWorkItemRefs(FrappeTestCase):
 		self.assertEqual(extra, {})
 
 
-class TestConnectorFieldsPatch(FrappeTestCase):
+class TestConnectorFieldsPatch(IntegrationTestCase):
 	def test_fields_are_added_once_and_the_override_fields_stay_last(self):
 		if not frappe.db.exists("BPMN Connector Operation", fields_patch.OPERATION):
 			self.skipTest("a2a connector not on this site")
@@ -78,7 +78,7 @@ class TestConnectorFieldsPatch(FrappeTestCase):
 		self.assertEqual(names[-2:], ["required_capability", "timeout_minutes"])
 
 
-class TestGrantSpecialistsRead(FrappeTestCase):
+class TestGrantSpecialistsRead(IntegrationTestCase):
 	def test_every_specialist_gets_an_identity_that_can_read_a_work_item(self):
 		for agent in roles_patch.AGENTS:
 			if not frappe.db.exists("AI Agent Configuration", agent):

@@ -2,12 +2,12 @@
 """The canvas learns from one call which branch a doctype sync targets."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.api.production_review import PR_BASE_BRANCH, production_review_settings
 
 
-class TestProductionReviewSettings(FrappeTestCase):
+class TestProductionReviewSettings(UnitTestCase):
 	def test_the_sync_dialog_is_told_the_pull_request_branch(self):
 		settings = production_review_settings()
 		self.assertEqual(settings["pr_base_branch"], PR_BASE_BRANCH)

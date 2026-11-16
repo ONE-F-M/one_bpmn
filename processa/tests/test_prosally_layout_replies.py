@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_replies, tools_review
 from processa.patches.v1_0 import seed_prosally_layout_regression_cases as seed
@@ -14,7 +14,7 @@ NOT_PLANAR = {"planar": False, "obstruction": ["g1", "g2"]}
 TWO_THINGS = ("drag shapes on the canvas", "change the flow structure")
 
 
-class TestCrossingNote(FrappeTestCase):
+class TestCrossingNote(IntegrationTestCase):
 	def setUp(self):
 		patcher = patch("processa.processa_engine.triggers.on_doc_event")
 		patcher.start()
@@ -58,7 +58,7 @@ class TestCrossingNote(FrappeTestCase):
 		)
 
 
-class TestRelayoutReply(FrappeTestCase):
+class TestRelayoutReply(UnitTestCase):
 	def test_a_redrawn_diagram_says_what_the_person_can_do_about_layout(self):
 		with patch.object(tools_review, "relayout", return_value=("<xml />", "")):
 			out = tools_review.relayout_output("<old />")
@@ -78,7 +78,7 @@ class TestRelayoutReply(FrappeTestCase):
 			self.assertIn(thing, out["response"])
 
 
-class TestRegressionCases(FrappeTestCase):
+class TestRegressionCases(IntegrationTestCase):
 	def _suite(self):
 		agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 		suite = agent and frappe.db.get_value(

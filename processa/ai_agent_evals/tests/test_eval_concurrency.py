@@ -26,7 +26,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
@@ -111,7 +111,7 @@ class _Recorder:
 		}
 
 
-class _ConcurrencyCase(FrappeTestCase):
+class _ConcurrencyCase(IntegrationTestCase):
 	"""Shared fixtures, committed on purpose.
 
 	A worker reads through its own database connection, so it cannot see writes
@@ -165,7 +165,7 @@ class _ConcurrencyCase(FrappeTestCase):
 		return run
 
 
-class TestLaneGrouping(FrappeTestCase):
+class TestLaneGrouping(IntegrationTestCase):
 	"""Which cases are allowed to overlap, decided before anything runs."""
 
 	def setUp(self):
@@ -212,7 +212,7 @@ class TestLaneGrouping(FrappeTestCase):
 		self.assertEqual(lanes_for([]), [])
 
 
-class TestConcurrencySetting(FrappeTestCase):
+class TestConcurrencySetting(IntegrationTestCase):
 	def test_unset_means_one(self):
 		with patch.object(frappe.db, "get_single_value", return_value=None):
 			self.assertEqual(eval_concurrency(), 1)

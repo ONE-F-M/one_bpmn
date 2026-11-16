@@ -2,7 +2,7 @@
 """A user without read permission on a process model cannot see its versions."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import versions
 
@@ -16,7 +16,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestVersionsReadPermission(FrappeTestCase):
+class TestVersionsReadPermission(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", MODEL):
 			doc = frappe.new_doc("BPMN Process Model")

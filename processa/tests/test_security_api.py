@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.api import security as S
@@ -21,7 +21,7 @@ from processa.api import security as S
 PREFIX = "ZZ SecAPI"
 
 
-class TestSecurityApi(FrappeTestCase):
+class TestSecurityApi(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._cleanup()

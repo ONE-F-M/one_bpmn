@@ -749,7 +749,7 @@ def _reconcile_and_invalidate(
 			# ignore_version=False so the supersession is always captured as a
 			# Frappe Version — preserving history is the point of invalidate-and-
 			# insert, so we don't leave it to the ambient default (which suppresses
-			# versions under frappe.flags.in_test).
+			# versions under frappe.in_test).
 			old.save(ignore_permissions=ignore_permissions, ignore_version=False)
 		except Exception:
 			frappe.log_error(

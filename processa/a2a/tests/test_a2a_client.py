@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.a2a import client_ops as a2a_client_ops
@@ -85,7 +85,7 @@ def wire_task(state="working", task_id="remote-task-1", text=""):
 	return task
 
 
-class TestRemoteRegistry(FrappeTestCase):
+class TestRemoteRegistry(IntegrationTestCase):
 	def test_approval_requires_a_card(self):
 		remote = make_remote(approve=False)
 		remote.approval_status = "Approved"
@@ -166,7 +166,7 @@ class TestRemoteRegistry(FrappeTestCase):
 		self.assertFalse(remote.card_fetched_at)
 
 
-class TestClientTransport(FrappeTestCase):
+class TestClientTransport(IntegrationTestCase):
 	def test_ssrf_guard_blocks_internal_hosts(self):
 		remote = make_remote(endpoint_url="http://127.0.0.1:8000/rpc")
 		with self.assertRaises(Exception) as caught:
@@ -231,7 +231,7 @@ class TestClientTransport(FrappeTestCase):
 		)
 
 
-class TestDelegateTask(FrappeTestCase):
+class TestDelegateTask(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		# The loopback shape: the remote's card advertises one of our own

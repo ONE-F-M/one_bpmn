@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox import criteria
 from processa.agents_sandbox.sandbox import ops
@@ -40,7 +40,7 @@ def _with_instruction(text=INSTRUCTION):
 	return patch.object(ops, "a2a_instruction", return_value=text)
 
 
-class TestReadingTheCriteria(FrappeTestCase):
+class TestReadingTheCriteria(IntegrationTestCase):
 	def test_numbered_criteria_are_read_in_order_without_duplicates(self):
 		with _with_instruction():
 			found = criteria.criteria_for(INSTANCE)
@@ -56,7 +56,7 @@ class TestReadingTheCriteria(FrappeTestCase):
 		self.assertEqual(criteria.criteria_for(None), [])
 
 
-class TestThePlanMustCoverEveryCriterion(FrappeTestCase):
+class TestThePlanMustCoverEveryCriterion(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -95,7 +95,7 @@ class TestThePlanMustCoverEveryCriterion(FrappeTestCase):
 			self.assertIsNone(criteria.plan_gap_error(INSTANCE))
 
 
-class TestEditsAreHeldUntilThePlanCovers(FrappeTestCase):
+class TestEditsAreHeldUntilThePlanCovers(IntegrationTestCase):
 	def _dispatch(self, action):
 		with patch.object(ops, "dispatch_error", return_value=None), patch.object(
 			ops, "frontend_edit_error", return_value=None
@@ -115,7 +115,7 @@ class TestEditsAreHeldUntilThePlanCovers(FrappeTestCase):
 		gap.assert_not_called()
 
 
-class TestThePullRequestWaitsForEvidence(FrappeTestCase):
+class TestThePullRequestWaitsForEvidence(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -150,7 +150,7 @@ class TestThePullRequestWaitsForEvidence(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
 
 
-class TestAGateAppliesOnlyWhereTheStepExists(FrappeTestCase):
+class TestAGateAppliesOnlyWhereTheStepExists(IntegrationTestCase):
 	"""A gate that asks for a plan or evidence the agent has no tool to give would block it for good."""
 
 	MODEL = "_Test Gate Tools"
@@ -215,7 +215,7 @@ class TestAGateAppliesOnlyWhereTheStepExists(FrappeTestCase):
 			self.assertFalse(criteria.has_tool(self.INSTANCE, "Submit Plan"))
 
 
-class TestEvidenceProblems(FrappeTestCase):
+class TestEvidenceProblems(IntegrationTestCase):
 	CRITERIA = [{"id": "AC1", "text": "a"}, {"id": "AC2", "text": "b"}]
 	FILES = ["processa/forms/todo.py", "processa/tests/test_todo.py"]
 
@@ -249,7 +249,7 @@ class TestEvidenceProblems(FrappeTestCase):
 		self.assertEqual(self._problems(rows, files=None), [])
 
 
-class TestRecordingEvidence(FrappeTestCase):
+class TestRecordingEvidence(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -286,7 +286,7 @@ class TestRecordingEvidence(FrappeTestCase):
 		self.assertFalse(out["ok"])
 
 
-class TestTheCriteriaReport(FrappeTestCase):
+class TestTheCriteriaReport(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -313,7 +313,7 @@ class TestTheCriteriaReport(FrappeTestCase):
 		self.assertIn("not reported", report["markdown"])
 
 
-class TestPublishingToThePullRequest(FrappeTestCase):
+class TestPublishingToThePullRequest(IntegrationTestCase):
 	CRITERIA = [{"id": "AC1", "text": "one"}, {"id": "AC2", "text": "two"}]
 
 	def setUp(self):
@@ -392,7 +392,7 @@ class TestPublishingToThePullRequest(FrappeTestCase):
 		self.assertIn("## Other\n\nkept", body)
 
 
-class TestTheSubmitEvidenceScript(FrappeTestCase):
+class TestTheSubmitEvidenceScript(IntegrationTestCase):
 	def setUp(self):
 		evidence_tool.execute()
 

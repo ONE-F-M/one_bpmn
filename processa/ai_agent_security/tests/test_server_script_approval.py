@@ -2,7 +2,7 @@
 """System Manager approval of blocked modules and frappe calls in Server Scripts."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks import script_gate
 from processa.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
@@ -10,8 +10,6 @@ from processa.api.deploy import compile_process_model
 from processa.api.security import lint_server_script
 from processa.api.server_scripts import create_server_script, toggle_server_script, update_server_script
 from processa.processa_engine.engine import _make_script_engine, evaluate_condition
-
-test_ignore = ["BPMN Process Model"]
 
 SCRIPT_MANAGER = "zz-a26-script-manager@example.com"
 USES_OS = "import os\nresult['sep'] = os.sep"
@@ -41,7 +39,7 @@ def _bpmn_with_server_script(script_name: str) -> str:
 </bpmn:definitions>"""
 
 
-class TestServerScriptApproval(FrappeTestCase):
+class TestServerScriptApproval(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

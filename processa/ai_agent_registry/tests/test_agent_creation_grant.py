@@ -14,7 +14,7 @@ create agents instead of stranding them as permanent Drafts.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	create_agent_configuration,
@@ -27,7 +27,7 @@ OTHER_AGENT = "Second Grant Agent"
 CREATION_MAP = "Test Agent Creation Map"
 
 
-class TestAgentCreationGrant(FrappeTestCase):
+class TestAgentCreationGrant(IntegrationTestCase):
 	def setUp(self):
 		self._purge()
 		self.map_name = self._make_map(CREATION_MAP, is_active=1)

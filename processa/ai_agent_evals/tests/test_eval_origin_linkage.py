@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import (
 	make_agent_configuration,
@@ -28,8 +28,6 @@ from processa.ai_agent_evals.runner.agent_eval import EVAL_RUN_DIRECT, eval_orig
 from processa.ai_agent_evals.runner.assertions import EVAL_RUN_JUDGE
 from processa.ai_agent_evals.runner.cases import _execute_case
 from processa.ai_agent_evals.runner.records import record_eval_run
-
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 
 class _FlagScope:
@@ -47,7 +45,7 @@ class _FlagScope:
 		frappe.flags.eval_origin = self.prev
 
 
-class TestEvalOriginFlag(FrappeTestCase):
+class TestEvalOriginFlag(IntegrationTestCase):
 	def test_flag_carries_case_and_run(self):
 		case = make_eval_case()
 		self.assertEqual(
@@ -61,7 +59,7 @@ class TestEvalOriginFlag(FrappeTestCase):
 		self.assertEqual(eval_origin_flag(case)["eval_run"], "")
 
 
-class TestRecordEvalRunStamps(FrappeTestCase):
+class TestRecordEvalRunStamps(IntegrationTestCase):
 	"""record_eval_run covers the Direct call and every llm_judge call — the
 	spend an eval incurs outside the agent's own runs."""
 
@@ -116,7 +114,7 @@ class TestRecordEvalRunStamps(FrappeTestCase):
 		self.assertFalse(run.eval_case)
 
 
-class TestCreateAiRunStamps(FrappeTestCase):
+class TestCreateAiRunStamps(IntegrationTestCase):
 	"""observability.create_ai_run records the agent's own runs — the ones that
 	carry the steps and tool calls."""
 
@@ -165,7 +163,7 @@ class TestCreateAiRunStamps(FrappeTestCase):
 		self.assertFalse(run.eval_run)
 
 
-class TestExecuteCaseFlagLifecycle(FrappeTestCase):
+class TestExecuteCaseFlagLifecycle(IntegrationTestCase):
 	def test_flag_is_set_for_the_whole_case_and_restored(self):
 		"""Set around the WHOLE case, not just the agent call: the judge calls
 		made while evaluating assertions must be attributed to the same case."""

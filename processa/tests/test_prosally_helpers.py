@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_observability.observability import terminal_tool_failure
 from processa.ai_agent_registry.definitions.prosally import helpers, tools_prompts, tools_properties, tools_replies
@@ -59,7 +59,7 @@ def _inlined_preserver():
 	return namespace["_prosally_preserver"]
 
 
-class TestPreserverMatchesTheInlinedCopy(FrappeTestCase):
+class TestPreserverMatchesTheInlinedCopy(UnitTestCase):
 	def setUp(self):
 		self.inlined = _inlined_preserver()
 
@@ -96,7 +96,7 @@ class TestPreserverMatchesTheInlinedCopy(FrappeTestCase):
 			tools_properties.transfer_properties(OLD_XML, "<bpmn:definitions")
 
 
-class TestExtractJson(FrappeTestCase):
+class TestExtractJson(UnitTestCase):
 	def test_plain_fenced_and_embedded_objects(self):
 		self.assertEqual(shared_helpers.extract_json('{"intent": "GENERATE_NEW"}'), {"intent": "GENERATE_NEW"})
 		self.assertEqual(
@@ -117,7 +117,7 @@ class TestExtractJson(FrappeTestCase):
 		self.assertIsNone(shared_helpers.extract_json("[1, 2]"))
 
 
-class TestHistoryAndBudget(FrappeTestCase):
+class TestHistoryAndBudget(IntegrationTestCase):
 	def test_history_keeps_the_last_ten_non_empty_turns(self):
 		history = [{"role": "user", "content": f"m{i}"} for i in range(12)]
 		history[-1] = {"role": "assistant", "content": "  "}
@@ -135,7 +135,7 @@ class TestHistoryAndBudget(FrappeTestCase):
 			self.assertEqual(tools_prompts.stage_max_tokens({"max_tokens": 40000, "ai_model": "m"}), 20000)
 
 
-class TestModelCalls(FrappeTestCase):
+class TestModelCalls(IntegrationTestCase):
 	def _cfg(self):
 		return {
 			"sub_prompts": {"modifier": {"prompt": "You modify BPMN.", "temperature": "0.2"}},
@@ -262,7 +262,7 @@ def _run_build_context(script, metadata, confirmed_action="GENERATE_NEW"):
 	return get_turn(CONVERSATION)
 
 
-class TestPendingConfirmation(FrappeTestCase):
+class TestPendingConfirmation(UnitTestCase):
 	def test_a_confirmation_card_gives_its_action(self):
 		with _last_bot_message(CARD):
 			self.assertEqual(helpers.pending_confirmation(CONVERSATION), "GENERATE_NEW")
@@ -288,7 +288,7 @@ class TestPendingConfirmation(FrappeTestCase):
 			self.assertEqual(helpers.answer_to_confirmation(CONVERSATION, "yes"), {})
 
 
-class TestBuildContextPatch(FrappeTestCase):
+class TestBuildContextPatch(UnitTestCase):
 	def tearDown(self):
 		clear_turn(CONVERSATION)
 
@@ -331,7 +331,7 @@ class TestBuildContextPatch(FrappeTestCase):
 		self.assertEqual(turn["confirmed_action"], "")
 
 
-class TestBuildContextPatchOlderShape(FrappeTestCase):
+class TestBuildContextPatchOlderShape(UnitTestCase):
 	"""Staging and local sites keep confirmed_action inside the dict handed to set_turn, with no assignment."""
 
 	def tearDown(self):
@@ -377,7 +377,7 @@ class TestBuildContextPatchOlderShape(FrappeTestCase):
 		self.assertEqual(build_context_patch.rewrite(script), script)
 
 
-class TestBuildContextPatchExecute(FrappeTestCase):
+class TestBuildContextPatchExecute(IntegrationTestCase):
 	def test_the_script_is_looked_up_by_api_method_not_by_name(self):
 		with (
 			patch.object(frappe.db, "get_value", side_effect=["Any Name", REAL_BUILD_CONTEXT]) as get_value,
@@ -428,7 +428,7 @@ class FakeAdapter:
 		return SimpleNamespace(text=self.reply)
 
 
-class TestClassifyAfterBuildContext(FrappeTestCase):
+class TestClassifyAfterBuildContext(IntegrationTestCase):
 	"""Runs the live Classify Intent Server Script with the model faked; it reaches a site with the ProsAlly map by export."""
 
 	def setUp(self):
@@ -480,7 +480,7 @@ class TestClassifyAfterBuildContext(FrappeTestCase):
 		self.assertTrue(result["already_confirmed"])
 
 
-class TestTheEngineValidatorAcceptsThePatchedBuildContext(FrappeTestCase):
+class TestTheEngineValidatorAcceptsThePatchedBuildContext(UnitTestCase):
 	"""The engine blocks a Server Script on any validator finding right before it runs."""
 
 	def test_both_script_shapes_have_no_findings_after_the_patch(self):
@@ -496,7 +496,7 @@ GENERIC = "Could you tell me more about the process you'd like to model?"
 FAILED_FINALIZE = '{"error": "NO_STAGE_REPLY: no stage wrote a reply", "error_code": "NO_STAGE_REPLY"}'
 
 
-class TestTerminalToolError(FrappeTestCase):
+class TestTerminalToolError(UnitTestCase):
 	def test_the_error_code_is_in_the_enum(self):
 		self.assertEqual(ErrorCode.NO_STAGE_REPLY.value, "NO_STAGE_REPLY")
 
@@ -524,7 +524,7 @@ class TestTerminalToolError(FrappeTestCase):
 		self.assertEqual(terminal_tool_failure([]), {})
 
 
-class TestRouteHelpers(FrappeTestCase):
+class TestRouteHelpers(IntegrationTestCase):
 	def setUp(self):
 		self.addCleanup(clear_turn, CONV)
 
@@ -565,7 +565,7 @@ class TestRouteHelpers(FrappeTestCase):
 		self.assertEqual((out["response"], out["options"]), ("Who starts it?", ["HR", "Employee"]))
 
 
-class TestFinalizeRunsTheRoutedTool(FrappeTestCase):
+class TestFinalizeRunsTheRoutedTool(IntegrationTestCase):
 	"""Runs the site's Finalize script the way the map does."""
 
 	def setUp(self):
@@ -611,7 +611,7 @@ class TestFinalizeRunsTheRoutedTool(FrappeTestCase):
 		self.assertEqual(get_turn(CONV)["output"], output)
 
 
-class TestConfirmedBriefCases(FrappeTestCase):
+class TestConfirmedBriefCases(IntegrationTestCase):
 	def test_five_cases_are_seeded_once_with_the_brief_and_the_card(self):
 		if not frappe.db.get_value("AI Eval Suite", {"title": seed.SUITE_TITLE}, "name"):
 			self.skipTest("the ProsAlly Baseline suite is not on this site")

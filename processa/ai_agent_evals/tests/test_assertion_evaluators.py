@@ -11,14 +11,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 import processa.ai_agent_evals.runner.agent_eval as runner_agent_eval
 import processa.ai_agent_evals.runner.assertions as runner_assertions
 import processa.ai_agent_evals.runner.cases as runner_cases
 from processa.ai_agent_evals.runner.assertions import evaluate_assertion
-
-test_ignore = ["AI Eval Suite", "AI Eval Case"]
 
 
 def _assertion(assertion_type, value, **extra):
@@ -31,7 +29,7 @@ def _assertion(assertion_type, value, **extra):
 	)
 
 
-class TestAssertionEvaluators(FrappeTestCase):
+class TestAssertionEvaluators(IntegrationTestCase):
 	# ── Scenario 2: contains / regex / equals ──
 
 	def test_contains(self):
@@ -162,7 +160,7 @@ class TestAssertionEvaluators(FrappeTestCase):
 		self.assertAlmostEqual(row["cost"], 0.002)
 
 
-class TestExecutionAssertions(FrappeTestCase):
+class TestExecutionAssertions(IntegrationTestCase):
 	"""max_tokens and no_tool_call judge the run, not the answer text.
 
 	A greeting that quietly ran the schema writer reads exactly like one that

@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.ai_agent_evals.eval_ci import run_suite
@@ -34,7 +34,7 @@ def _priced(cost):
 	return run
 
 
-class TestSpendCeiling(FrappeTestCase):
+class TestSpendCeiling(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test ceiling " + frappe.generate_hash(length=6))
@@ -89,7 +89,7 @@ class TestSpendCeiling(FrappeTestCase):
 		self.assertEqual(len(run.results), 4)
 
 
-class TestGradingModel(FrappeTestCase):
+class TestGradingModel(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.model = frappe.get_doc({
@@ -129,7 +129,7 @@ class TestGradingModel(FrappeTestCase):
 		self.assertEqual(_judge_model_for(frappe._dict(judge_model="", judge_provider="")), ("", ""))
 
 
-class TestRunSuiteCarriesTheCeiling(FrappeTestCase):
+class TestRunSuiteCarriesTheCeiling(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test carry " + frappe.generate_hash(length=6))
@@ -147,7 +147,7 @@ class TestRunSuiteCarriesTheCeiling(FrappeTestCase):
 		self.assertEqual(summary["rate"], 100.0, "the cases that did run all passed")
 
 
-class TestCeilingAndTheGateTogether(FrappeTestCase):
+class TestCeilingAndTheGateTogether(IntegrationTestCase):
 	"""Where this story meets the deployment gate.
 
 	The gate refuses a deployment on a suite's pass rate. A case that never ran
@@ -202,7 +202,7 @@ class TestCeilingAndTheGateTogether(FrappeTestCase):
 		self.assertEqual(run.total_executions, 1)
 
 
-class TestCeilingInsideALane(FrappeTestCase):
+class TestCeilingInsideALane(IntegrationTestCase):
 	"""The ceiling has to survive cases running side by side."""
 
 	def setUp(self):

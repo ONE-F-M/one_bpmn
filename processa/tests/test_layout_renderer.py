@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.processa_engine.notifications import renderer
@@ -44,7 +44,7 @@ def _ctx(**extra):
 	}
 
 
-class TestLayoutRenderer(FrappeTestCase):
+class TestLayoutRenderer(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		self.patcher = patch.dict(renderer.LAYOUT_TEMPLATES, TEST_LAYOUT)

@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from processa.a2a import poller
@@ -67,9 +67,9 @@ def stub_client(**overrides):
 	return patches
 
 
-class TestA2APoller(FrappeTestCase):
+class TestA2APoller(IntegrationTestCase):
 	"""The poller commits — it has to, so a claim is durable before the
-	network call — which means FrappeTestCase's rollback cannot undo the rows
+	network call - which means IntegrationTestCase's rollback cannot undo the rows
 	these tests create. Every fixture is therefore deleted explicitly, or the
 	suite would leave registry entries and tasks behind on whatever site it
 	runs against (they showed up in the modeler's remote-agent dropdown)."""

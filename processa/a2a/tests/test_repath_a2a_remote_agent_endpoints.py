@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import repath_a2a_remote_agent_endpoints as patch
 
@@ -19,7 +19,7 @@ def make_remote_agent(name: str, endpoint_url: str) -> str:
 	return name
 
 
-class TestRepathA2ARemoteAgentEndpoints(FrappeTestCase):
+class TestRepathA2ARemoteAgentEndpoints(IntegrationTestCase):
 	def test_old_rpc_path_moves_to_processa_and_others_stay(self):
 		old = make_remote_agent(
 			"_Test Old Rpc Agent", f"{BA_HOST}one_bpmn.api.a2a_api.rpc?agent_id=a2a_parts_checker"

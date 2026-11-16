@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox import ops
 from processa.agents_sandbox.sandbox.ops import (
@@ -55,7 +55,7 @@ def _row(instance_name, action, state="completed", path=None, result=None, args=
 	return row.name
 
 
-class TestReproductionRequiredError(FrappeTestCase):
+class TestReproductionRequiredError(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -112,7 +112,7 @@ class TestReproductionRequiredError(FrappeTestCase):
 		self.assertIsNotNone(error)
 
 
-class TestTheReproductionHasToBeReal(FrappeTestCase):
+class TestTheReproductionHasToBeReal(IntegrationTestCase):
 	FIX = "one_fm/setup/doctype/company/company.py"
 
 	def tearDown(self):
@@ -173,7 +173,7 @@ class TestTheReproductionHasToBeReal(FrappeTestCase):
 		self.assertIsNone(reproduction_required_error(inst, self.FIX))
 
 
-class TestTheFixHasToBeVerified(FrappeTestCase):
+class TestTheFixHasToBeVerified(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -217,7 +217,7 @@ class TestTheFixHasToBeVerified(FrappeTestCase):
 		self.assertIsNone(fix_unverified_error(inst))
 
 
-class TestOnlyTheFlaggedAgentIsHeld(FrappeTestCase):
+class TestOnlyTheFlaggedAgentIsHeld(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -272,7 +272,7 @@ def _no_settings(doctype, *args, **kwargs):
 	return _real_get_cached_doc(doctype, *args, **kwargs)
 
 
-class TestRepeatRunTestsWithoutProgress(FrappeTestCase):
+class TestRepeatRunTestsWithoutProgress(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -330,7 +330,7 @@ class TestRepeatRunTestsWithoutProgress(FrappeTestCase):
 		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
 
 
-class TestReproductionGateNamesTheWayOut(FrappeTestCase):
+class TestReproductionGateNamesTheWayOut(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

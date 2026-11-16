@@ -4,7 +4,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.script_validator import validate_script
 from processa.patches.v1_0 import logix_blocked_script_names_the_rule as p
@@ -37,7 +37,7 @@ BLOCKED_CODE = "doc = frappe.get_doc('ToDo', 'T1')\ndoc.save(ignore_permissions=
 SUGGESTION = "Call doc.save() with no keyword; the script already runs as the acting user."
 
 
-class TestLogixBlockedScriptNamesTheRule(FrappeTestCase):
+class TestLogixBlockedScriptNamesTheRule(IntegrationTestCase):
 	def setUp(self):
 		for name in (p.REVIEW_SCRIPT, p.FINALIZE_SCRIPT):
 			if not frappe.db.exists("Server Script", name):

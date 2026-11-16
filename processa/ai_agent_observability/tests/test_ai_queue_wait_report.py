@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability.report.ai_queue_wait import ai_queue_wait as report
 
@@ -15,7 +15,7 @@ def _runs(agent, waits):
 	return [frappe._dict(agent_configuration=agent, queue_wait_ms=wait) for wait in waits]
 
 
-class TestAiQueueWaitReport(FrappeTestCase):
+class TestAiQueueWaitReport(IntegrationTestCase):
 	def _execute(self, rows, filters=None):
 		with patch(f"{MODULE}.frappe.get_list", return_value=rows) as get_list:
 			columns, data = report.execute(filters)

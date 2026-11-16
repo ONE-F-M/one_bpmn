@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers, tools_prompts
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -23,7 +23,7 @@ SUMMARY = (
 )
 
 
-class TestJoinConfirmation(FrappeTestCase):
+class TestJoinConfirmation(UnitTestCase):
 	def test_a_summary_ending_in_the_question_asks_it_once(self):
 		reply = tools_prompts.join_confirmation(SUMMARY, QUESTION)
 		self.assertEqual(reply.count(QUESTION), 1)
@@ -41,7 +41,7 @@ class TestJoinConfirmation(FrappeTestCase):
 		self.assertEqual(tools_prompts.join_confirmation("", QUESTION), QUESTION)
 
 
-class TestStructuredSummary(FrappeTestCase):
+class TestStructuredSummary(UnitTestCase):
 	def test_steps_and_settings_are_one_per_line_and_the_question_stands_alone(self):
 		reply = tools_prompts.join_confirmation(
 			{
@@ -65,7 +65,7 @@ class TestStructuredSummary(FrappeTestCase):
 		self.assertEqual(reply, "I'll draw it.\n\nHere's what I understood:\n- Submit\n\n" + QUESTION)
 
 
-class TestScriptsAskOnce(FrappeTestCase):
+class TestScriptsAskOnce(IntegrationTestCase):
 	"""Runs the live Confirm and Classify Intent Server Scripts; they reach a site with the ProsAlly map by export."""
 
 	def tearDown(self):
@@ -90,7 +90,7 @@ class TestScriptsAskOnce(FrappeTestCase):
 		self.assertEqual(response.count(QUESTION), 1)
 
 
-class TestPatchTransform(FrappeTestCase):
+class TestPatchTransform(UnitTestCase):
 	SCRIPT = (
 		f"from processa.agents.prosally_helpers import complete_sub_prompt, extract_json\n    {JOIN_OLD}\n"
 	)

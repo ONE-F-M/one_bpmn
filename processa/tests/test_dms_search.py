@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.shared import tools_dms as dms_search
 from processa.patches.v1_0 import general_chat_answers_from_dms as patch_module
@@ -8,7 +8,7 @@ LEAVE_TEXT = "annual leave entitlement is thirty days per year"
 OVERTIME_TEXT = "overtime must be approved by the supervisor before the shift"
 
 
-class TestDmsSearch(FrappeTestCase):
+class TestDmsSearch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.policy = self.make_document("DMS-TEST-POLICY", "Leave Policy", "Policy", LEAVE_TEXT)
@@ -96,7 +96,7 @@ class TestDmsSearch(FrappeTestCase):
 			dms_search.search_dms_documents("annual leave entitlement", instance=instance)
 
 
-class TestGeneralChatDmsPatch(FrappeTestCase):
+class TestGeneralChatDmsPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		frappe.db.delete("AI Agent Configuration", {"agent_id": patch_module.AGENT_ID})

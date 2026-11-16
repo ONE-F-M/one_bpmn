@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.assistant.helpers_prompts import FIELD_CATALOG, SELECTOR_FIELD_CATALOG, build_current_config_block, catalog_for_mode
 from processa.ai_agent_registry.definitions.assistant.helpers import _build_diagram_digest, _lint_recommended_prompts, server_script_result_keys, build_assistant_turn_context, shape_assistant_reply
@@ -61,7 +61,7 @@ TRIAGE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestDiagramDigest(FrappeTestCase):
+class TestDiagramDigest(IntegrationTestCase):
 	def digest(self):
 		return _build_diagram_digest(TRIAGE_XML, "Triage")
 
@@ -94,7 +94,7 @@ class TestDiagramDigest(FrappeTestCase):
 		self.assertIsNone(_build_diagram_digest(TRIAGE_XML, "NoSuchElement"))
 
 
-class TestServerScriptSniffing(FrappeTestCase):
+class TestServerScriptSniffing(IntegrationTestCase):
 	def test_result_keys_extracted(self):
 		script = frappe.get_doc({
 			"doctype": "Server Script",
@@ -113,7 +113,7 @@ class TestServerScriptSniffing(FrappeTestCase):
 		self.assertEqual(server_script_result_keys("No Such Script"), [])
 
 
-class TestPromptLint(FrappeTestCase):
+class TestPromptLint(IntegrationTestCase):
 	DIGEST = {
 		"candidate_ids": ["look_up_order", "Activity_0q9helm", "resolve"],
 		"element_ids": {"look_up_order", "Activity_0q9helm", "Gateway_1", "Activity_06nuvut", "resolve"},
@@ -141,7 +141,7 @@ class TestPromptLint(FrappeTestCase):
 		self.assertEqual(warnings, [])
 
 
-class TestModeCatalog(FrappeTestCase):
+class TestModeCatalog(IntegrationTestCase):
 	def test_selector_catalog_excludes_agent_only_fields(self):
 		self.assertIn("aiSystemPrompt", SELECTOR_FIELD_CATALOG)
 		self.assertNotIn("aiOutputVariable", SELECTOR_FIELD_CATALOG)
@@ -158,7 +158,7 @@ class TestModeCatalog(FrappeTestCase):
 		self.assertIn("aiSystemPrompt", block)
 		self.assertNotIn("aiOutputVariable", block)
 
-class TestOneDialogTwoModes(FrappeTestCase):
+class TestOneDialogTwoModes(IntegrationTestCase):
 	"""One chat, one agent, one interface — mode is grounding only.
 
 	The selector dialog used to be a second transport (its own endpoint, its own

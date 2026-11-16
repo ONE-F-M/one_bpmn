@@ -19,7 +19,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorConfig
 from processa.ai_agent_observability.observability import (
@@ -34,7 +34,7 @@ from processa.ai_agent_observability.observability import (
 SCRIPT = "def handler(doc):\n    return frappe.get_doc('Task', doc.task).as_dict()\n"
 
 
-class TestToolArtifactCapture(FrappeTestCase):
+class TestToolArtifactCapture(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		clear_tool_artifacts()
@@ -188,7 +188,7 @@ class TestToolArtifactCapture(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("File", stored.get("file")))
 
 
-class TestAiShapeArtifacts(FrappeTestCase):
+class TestAiShapeArtifacts(IntegrationTestCase):
 	"""A tool shape that is a model call, not a script, records its answer too.
 
 	Logix's write_script is an AI Agent Task on the map — there is no Server

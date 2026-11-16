@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory.model_resolution import resolve_memory_model
 from processa.patches.v1_0 import memory_models_use_healthy_records as P
@@ -20,7 +20,7 @@ DISTILL_DEFAULT = "default_memory_distill_model"
 RECONCILE_DEFAULT = "default_memory_reconcile_model"
 
 
-class TestMemoryModelsHealthy(FrappeTestCase):
+class TestMemoryModelsHealthy(IntegrationTestCase):
 	def setUp(self):
 		self.cleanup()
 		self.provider = frappe.db.get_value("AI Provider", {}, "name")

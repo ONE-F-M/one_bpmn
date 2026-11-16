@@ -220,7 +220,7 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 	frappe.enqueue(
 		"processa.ai_agent_memory.writeback.distill_and_write",
 		queue="short",
-		now=frappe.flags.in_test,
+		now=frappe.in_test,
 		agent_output=source,
 		agent=AGENT_ID,
 		scope="Entity",

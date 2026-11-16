@@ -1,6 +1,6 @@
 """The EXACT and ANY_ORDER worked examples behave the way their modes promise."""
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.runner.assertions import evaluate_assertion
 from processa.patches.v1_0 import seed_connector_trajectory_modes as seed
@@ -28,7 +28,7 @@ def _score(case, tools):
 	)
 
 
-class TestTrajectoryModesExample(FrappeTestCase):
+class TestTrajectoryModesExample(IntegrationTestCase):
 
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", seed.AGENT):

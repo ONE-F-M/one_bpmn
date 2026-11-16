@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.tool_bounds import validate_tool_arguments
 from processa.patches.v1_0 import lucrusher_prosally_follows_code_and_workflow as p
@@ -39,7 +39,7 @@ def _process(elements=5, process_id="p1", **extra):
 	}
 
 
-class TestSkillEdit(FrappeTestCase):
+class TestSkillEdit(UnitTestCase):
 	def setUp(self):
 		body = next(s["body"] for s in SKILLS if s["skill_name"] == p.PROSALLY_SKILL)
 		self.body = body.replace("prompt_block}]}", "prompt_block, source}]}")
@@ -85,7 +85,7 @@ def _checker(omit_coverage=False):
 	return check
 
 
-class TestFinalizeSchema(FrappeTestCase):
+class TestFinalizeSchema(UnitTestCase):
 	def test_schema_is_added_once(self):
 		before = _schema_xml({"type": "array"})
 		xml = p.with_prosally_schema(before)
@@ -139,7 +139,7 @@ def _run_finalize(prosally_prompts):
 	return stored["output"]["prosally_prompts"]
 
 
-class TestFinalizeScript(FrappeTestCase):
+class TestFinalizeScript(UnitTestCase):
 	def test_script_passes_the_script_gate(self):
 		self.assertEqual(deep_inspect_script(_finalize_script()), [])
 
@@ -183,7 +183,7 @@ def _run_save_response(previous, new):
 	return recorded["prosally_prompts"], json.loads(message.metadata)["agent_result"]["prosally_prompts"]
 
 
-class TestSaveResponseMerge(FrappeTestCase):
+class TestSaveResponseMerge(UnitTestCase):
 	def test_second_call_adds_to_the_first_and_replaces_a_redraft(self):
 		first = {"processes": [_process(3, "a"), _process(4, "b")], "remaining": ["c"]}
 		second = {"processes": [_process(7, "b"), _process(5, "c")], "remaining": []}
@@ -202,7 +202,7 @@ class TestSaveResponseMerge(FrappeTestCase):
 		self.assertEqual(p.apply_edits("x = 1\n", p.SAVE_EDITS, p.SAVE_MARKER), "x = 1\n")
 
 
-class TestBuildContextLine(FrappeTestCase):
+class TestBuildContextLine(UnitTestCase):
 	def test_line_names_the_processes_left(self):
 		script = p.apply_edits(_fixture("lucrusher_build_context_ba.txt"), p.CONTEXT_EDITS, p.CONTEXT_MARKER)
 		self.assertIn('" remaining: "', script)

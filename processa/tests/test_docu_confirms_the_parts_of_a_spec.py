@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_confirms_the_parts_of_a_spec as fix
 from processa.patches.v1_0.chat_agents_post_failed_turn_error import apply_edit
@@ -89,7 +89,7 @@ class _Run:
 		return result
 
 
-class TestClassifyAsksAboutTheParts(FrappeTestCase):
+class TestClassifyAsksAboutTheParts(IntegrationTestCase):
 	def test_a_spec_with_several_parts_is_confirmed_before_writing(self):
 		run = _Run()
 		result = run.classify(SPEC, ["Payroll", "GR", "Finance"])
@@ -126,7 +126,7 @@ class TestClassifyAsksAboutTheParts(FrappeTestCase):
 			self.assertEqual(apply_edit(once, anchor, replacement), once)
 
 
-class TestFinalizeNamesTheMissingParts(FrappeTestCase):
+class TestFinalizeNamesTheMissingParts(IntegrationTestCase):
 	def _reply(self, parts, final_text):
 		run = _Run()
 		run.turn = {"parts": parts, "final_text": final_text, "final_ir": {}}
@@ -146,7 +146,7 @@ class TestFinalizeNamesTheMissingParts(FrappeTestCase):
 		self.assertEqual(self._reply(["Payroll"], "Payroll: a salary section."), "Payroll: a salary section.")
 
 
-class TestPromptsCarryTheParts(FrappeTestCase):
+class TestPromptsCarryTheParts(IntegrationTestCase):
 	def test_the_writer_prompt_lists_the_confirmed_parts(self):
 		template = "{% if 1 %}" + html.unescape(fix.WRITER)
 		text = frappe.render_template(template, {"turn": {"parts": ["Payroll", "GR"], "user_text": SPEC}})

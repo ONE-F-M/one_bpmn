@@ -1,16 +1,14 @@
 # Copyright (c) 2026, one-fm and contributors
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_eval_run, make_eval_suite
 from processa.api.evals import get_suite_detail
 
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
-
-class TestEvalSuiteDetail(FrappeTestCase):
+class TestEvalSuiteDetail(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite()

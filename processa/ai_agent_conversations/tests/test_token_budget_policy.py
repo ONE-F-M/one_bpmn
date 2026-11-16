@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.tests.conversation_fixtures import drop_conversations
 from processa.ai_agent_conversations.compaction import build_history, resolve_token_budget
@@ -30,7 +30,7 @@ def msg(role, content=TEN, **extra):
 	return out
 
 
-class TestEstimate(FrappeTestCase):
+class TestEstimate(UnitTestCase):
 	def test_it_counts_content(self):
 		self.assertEqual(estimate_tokens(msg("user")), 10)
 
@@ -48,7 +48,7 @@ class TestEstimate(FrappeTestCase):
 		self.assertEqual(estimate_tokens(msg("user"), chars_per_token=10), 4)
 
 
-class TestTokenBudget(FrappeTestCase):
+class TestTokenBudget(UnitTestCase):
 	def test_no_budget_leaves_the_thread_alone(self):
 		thread = [msg("user") for _ in range(20)]
 		self.assertEqual(len(ContextWindowPolicy(max_messages=0, max_tokens=0).apply(thread)), 20)
@@ -111,7 +111,7 @@ class TestTokenBudget(FrappeTestCase):
 		self.assertEqual([m["role"] for m in out], ["system", "user"])
 
 
-class TestToolPairsStayIntact(FrappeTestCase):
+class TestToolPairsStayIntact(UnitTestCase):
 	"""A tool result whose originating call is absent makes the provider reject
 	the whole request — turning a request that would merely have been shorter
 	into one that fails, on exactly the threads a budget exists for."""
@@ -145,7 +145,7 @@ class TestToolPairsStayIntact(FrappeTestCase):
 		self.assertEqual([m["content"] for m in out], ["answer"])
 
 
-class TestBudgetOnTheLivePath(FrappeTestCase):
+class TestBudgetOnTheLivePath(IntegrationTestCase):
 	def setUp(self):
 		self.conversation = create_conversation(
 			agent_mode="_Test Budget", title=f"Budget {frappe.generate_hash(length=8)}",

@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 """A non-executable process is drawn with plain None tasks, and an executable one never is."""
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.ai_agent_registry.provisioning.bpmn_task_config import use_none_tasks
@@ -40,7 +40,7 @@ def _task_type_violations(xml: str) -> list[str]:
 	return [v for v in validate_bpmn_xml(xml)["violations"] if v.startswith("[task-type]")]
 
 
-class TestValidatorAllowsNoneTasksWhenNonExecutable(FrappeTestCase):
+class TestValidatorAllowsNoneTasksWhenNonExecutable(IntegrationTestCase):
 	def test_a_plain_task_is_allowed_in_a_non_executable_process(self):
 		self.assertEqual(_task_type_violations(_document(executable=False)), [])
 
@@ -80,7 +80,7 @@ def _sub_process_document(executable: bool) -> str:
 	)
 
 
-class TestValidatorKeepsTheKindInsideSubProcesses(FrappeTestCase):
+class TestValidatorKeepsTheKindInsideSubProcesses(IntegrationTestCase):
 	def test_a_plain_task_in_a_sub_process_of_an_executable_process_is_rejected(self):
 		self.assertEqual(len(_task_type_violations(_sub_process_document(executable=True))), 1)
 
@@ -104,7 +104,7 @@ def _ir(executable=None):
 	return ir
 
 
-class TestUseNoneTasks(FrappeTestCase):
+class TestUseNoneTasks(IntegrationTestCase):
 	def test_every_task_type_becomes_a_none_task_when_non_executable(self):
 		ir = _ir(executable=False)
 
@@ -137,7 +137,7 @@ class TestUseNoneTasks(FrappeTestCase):
 			self.assertEqual([n["type"] for n in ir["nodes"] if n["id"] in TASK_TYPES], list(TASK_TYPES))
 
 
-class TestCompileNoneTasks(FrappeTestCase):
+class TestCompileNoneTasks(IntegrationTestCase):
 	def test_a_non_executable_ir_compiles_to_none_tasks_only(self):
 		result = compile_ir(_ir(executable=False))
 
@@ -147,7 +147,7 @@ class TestCompileNoneTasks(FrappeTestCase):
 			self.assertNotIn(f"<bpmn:{tag} ", result["xml"])
 
 
-class TestXmlToIrKeepsTheKind(FrappeTestCase):
+class TestXmlToIrKeepsTheKind(IntegrationTestCase):
 	def test_a_non_executable_none_task_map_reads_back_as_non_executable(self):
 		ir = xml_to_ir(_document(executable=False))
 
@@ -173,7 +173,7 @@ def _configured(executable: bool) -> str:
 	return xml.replace('<bpmn:userTask id="t" name="Do it"/>', '<bpmn:userTask id="t" name="Do it" spiffworkflow:assigneeMode="Fixed User"/>')
 
 
-class TestNoneTasksOutput(FrappeTestCase):
+class TestNoneTasksOutput(IntegrationTestCase):
 	def test_every_typed_task_becomes_a_none_task_and_keeps_its_id_and_name(self):
 		out = none_tasks_output(_configured(executable=False))
 
@@ -198,7 +198,7 @@ class TestNoneTasksOutput(FrappeTestCase):
 		self.assertNotIn("bpmn_xml", out)
 
 
-class TestKeepProcessKind(FrappeTestCase):
+class TestKeepProcessKind(IntegrationTestCase):
 	def test_a_non_executable_diagram_marks_the_ir_non_executable(self):
 		ir = {"nodes": []}
 

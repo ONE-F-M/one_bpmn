@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.agui.contract.translators import _script_diff
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -24,7 +24,7 @@ def _script_names():
 	return frappe.get_all("Client Script", filters={"dt": DT, "view": "Form"}, pluck="name")
 
 
-class TestFormScriptValidator(FrappeTestCase):
+class TestFormScriptValidator(IntegrationTestCase):
 	def test_a_script_for_the_form_passes(self):
 		self.assertEqual(validate_form_script(DT, SCRIPT), [])
 
@@ -46,7 +46,7 @@ class TestFormScriptValidator(FrappeTestCase):
 		self.assertEqual(len(validate_form_script(DT, "  ")), 1)
 
 
-class TestApplyClientScript(FrappeTestCase):
+class TestApplyClientScript(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("docu_form_script")
 
@@ -89,7 +89,7 @@ class TestApplyClientScript(FrappeTestCase):
 		self.assertEqual(_script_names(), [])
 
 
-class TestRoutingPatchChain(FrappeTestCase):
+class TestRoutingPatchChain(IntegrationTestCase):
 	def test_each_replacement_anchor_is_in_what_the_previous_patch_left(self):
 		self.assertIn(patch.ACCEPT_OLD, previous.ACCEPT_NEW)
 		self.assertIn(patch.ROUTE_OLD, previous.ROUTE_NEW)
@@ -143,7 +143,7 @@ def _run_stage(replies, doctype=DT):
 	return get_turn(CONVERSATION)["output"], adapter
 
 
-class TestEditClientScriptStage(FrappeTestCase):
+class TestEditClientScriptStage(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("docu_form_script_stage")
 
@@ -194,7 +194,7 @@ class TestEditClientScriptStage(FrappeTestCase):
 		self.assertIn("Which form", output["response"])
 
 
-class TestScriptDiffEvent(FrappeTestCase):
+class TestScriptDiffEvent(IntegrationTestCase):
 	def test_the_stage_output_becomes_an_apply_target_script_card(self):
 		(event,) = list(
 			_script_diff(
@@ -209,7 +209,7 @@ class TestScriptDiffEvent(FrappeTestCase):
 		self.assertEqual(list(_script_diff({"intent": "DISAMBIGUATE", "mode": "CREATE"})), [])
 
 
-class TestPatchAddsTheStage(FrappeTestCase):
+class TestPatchAddsTheStage(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", patch.MAP) or not frappe.db.exists("Server Script", patch.CLASSIFY):
 			self.skipTest("this site has no Docu map")

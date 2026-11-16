@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 
 def _collect(gen) -> list[str]:
@@ -30,7 +30,7 @@ def _types(chunks: list[str]) -> list[str]:
 	return [e.get("type") for e in _events(chunks)]
 
 
-class TestAgentEventStream(FrappeTestCase):
+class TestAgentEventStream(IntegrationTestCase):
 	"""Lifecycle and payload rules of processa.ai_agent_conversations.agui.stream."""
 
 	def test_buffered_reply_emits_valid_lifecycle(self):
@@ -219,7 +219,7 @@ class TestAgentEventStream(FrappeTestCase):
 		self.assertIn(raw, chunks)
 
 
-class TestInvokeAgentStreamSeam(FrappeTestCase):
+class TestInvokeAgentStreamSeam(IntegrationTestCase):
 	"""The stream flag threads through invoke_agent without changing the
 	buffered contract."""
 
@@ -307,7 +307,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 				p.stop()
 
 
-class TestBpmnMapResumeRearm(FrappeTestCase):
+class TestBpmnMapResumeRearm(IntegrationTestCase):
 	"""Resume, map-driven half: a conversation whose instance has
 	completed re-arms through the conditional-start gate and retries — the
 	'reopen the chat' dead end fires only when re-arming genuinely fails."""
@@ -366,7 +366,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		self.assertEqual(calls["delegate"], 2)  # the first attempt, then the re-arm retry
 
 
-class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
+class TestHeartbeatKeepsTheRequestContext(UnitTestCase):
 	"""The keep-alive runs the turn on another thread, which starts with an
 	empty context unless the request's is carried across."""
 
@@ -379,7 +379,7 @@ class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
 
 		def _work():
 			seen["user"] = frappe.session.user
-			seen["in_test"] = frappe.flags.in_test
+			seen["in_test"] = frappe.in_test
 			return "done"
 
 		gen = agui_stream._invoke_with_heartbeat(_work, interval=0.01)
@@ -406,7 +406,7 @@ class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
 				next(gen)
 
 
-class TestRelayKeepsASlowChildAlive(FrappeTestCase):
+class TestRelayKeepsASlowChildAlive(UnitTestCase):
 	"""The wait for a child's next event is where a parked turn spends its
 	time, so that is where the keep-alive has to come from."""
 
@@ -448,7 +448,7 @@ class TestRelayKeepsASlowChildAlive(FrappeTestCase):
 		self.assertTrue([line for line in out if "now" in line])
 
 
-class TestARelayGivesUpOnADeadTurn(FrappeTestCase):
+class TestARelayGivesUpOnADeadTurn(UnitTestCase):
 	"""A worker killed mid-turn publishes nothing, so the wait has a ceiling:
 	past it the stream says so instead of sending keep-alives for ever."""
 
@@ -512,7 +512,7 @@ class TestARelayGivesUpOnADeadTurn(FrappeTestCase):
 # generated-id-until-persisted handoff ──────────────────────────────────────
 
 
-class TestBufferedStreamProgressiveText(FrappeTestCase):
+class TestBufferedStreamProgressiveText(UnitTestCase):
 	"""A buffered reply's text now rides several TEXT_MESSAGE_CONTENT deltas
 	instead of one, and every tool call the turn made is bracketed by
 	TOOL_CALL_START/END using the tool's own name."""
@@ -601,7 +601,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 		self.assertNotIn("TOOL_CALL_END", types)
 
 
-class TestStreamedMessageIdentity(FrappeTestCase):
+class TestStreamedMessageIdentity(UnitTestCase):
 	"""The stream starts before the Bot Chat Message row exists: every text
 	event of a streamed message must use ONE id throughout, and the
 	persisted name (once known) is delivered separately rather than by
@@ -678,7 +678,7 @@ class _FakeStepAdapter:
 		return self.steps.pop(0)
 
 
-class TestStepLoopToolEventCallback(FrappeTestCase):
+class TestStepLoopToolEventCallback(IntegrationTestCase):
 	""" on_tool_event fires start/end around every automatic tool
 	the step loop actually executes."""
 

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.api import a2a as a2a_api
 
@@ -41,7 +41,7 @@ class _FakeAdapter:
 		return self._completion
 
 
-class TestDirectChatIsRecorded(FrappeTestCase):
+class TestDirectChatIsRecorded(UnitTestCase):
 	def setUp(self):
 		self.config = {
 			"name": "Reval Agent Direct",

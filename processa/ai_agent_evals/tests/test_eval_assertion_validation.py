@@ -10,15 +10,13 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.api.evals import create_eval_case, update_eval_case
 
-test_ignore = ["AI Eval Suite"]
 
-
-class TestEvalAssertionValidation(FrappeTestCase):
+class TestEvalAssertionValidation(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		# process_model=None: create_eval_case copies the suite's process_model

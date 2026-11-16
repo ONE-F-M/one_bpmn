@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory import distill as D
 from processa.ai_agent_memory import tools as T
@@ -31,7 +31,7 @@ def _args(agent: str, output: str = "the agent said something worth keeping") ->
 	}
 
 
-class TestDistillationReportsFailure(FrappeTestCase):
+class TestDistillationReportsFailure(IntegrationTestCase):
 	"""Nothing worth remembering and the call not working both used to be an
 	empty list, so a broken model looked like a quiet conversation."""
 
@@ -77,7 +77,7 @@ class TestDistillationReportsFailure(FrappeTestCase):
 		self.assertNotIn("ErrorCode.", str(ctx.exception))
 
 
-class TestRetry(FrappeTestCase):
+class TestRetry(IntegrationTestCase):
 	def setUp(self):
 		self.agent = f"RT_{frappe.generate_hash(length=8)}"
 		# The pauses are real seconds; the behaviour under test is the count.
@@ -112,7 +112,7 @@ class TestRetry(FrappeTestCase):
 		self.sleep.assert_not_called()
 
 
-class TestDeadLetter(FrappeTestCase):
+class TestDeadLetter(IntegrationTestCase):
 	def setUp(self):
 		self.agent = f"DL_{frappe.generate_hash(length=8)}"
 		p = patch.object(W.time, "sleep")
@@ -161,7 +161,7 @@ class TestDeadLetter(FrappeTestCase):
 		self.assertEqual(self._letters(), [])
 
 
-class TestScopeLock(FrappeTestCase):
+class TestScopeLock(IntegrationTestCase):
 	"""What is ours is which key gets which lock, when one is taken at all, and
 	what happens when it cannot be had. That the lock excludes is the framework's
 	own file lock doing its job and is not retested here."""

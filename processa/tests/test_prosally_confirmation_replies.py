@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -15,7 +15,7 @@ CLASSIFY_API_METHOD = "prosally_tool_classify_intent"
 CONVERSATION = "_test_prosally_confirmation"
 
 
-class TestConfirmationReply(FrappeTestCase):
+class TestConfirmationReply(UnitTestCase):
 	def test_affirmations_and_the_approve_button(self):
 		for text in ("yes", "Yes, proceed", "ok go ahead!", "Go ahead please", "<p>Sure</p>", "That's right"):
 			self.assertEqual(helpers.confirmation_reply(text), "yes", text)
@@ -29,7 +29,7 @@ class TestConfirmationReply(FrappeTestCase):
 			self.assertEqual(helpers.confirmation_reply(text), "", text)
 
 
-class TestAnswerToConfirmation(FrappeTestCase):
+class TestAnswerToConfirmation(UnitTestCase):
 	def _answer(self, metadata, text):
 		rows = [frappe._dict(metadata=json.dumps(metadata))] if metadata is not None else []
 		with patch.object(frappe, "get_all", return_value=rows):
@@ -45,7 +45,7 @@ class TestAnswerToConfirmation(FrappeTestCase):
 		self.assertEqual(self._answer(None, "yes"), {})
 
 
-class TestClassifyScript(FrappeTestCase):
+class TestClassifyScript(IntegrationTestCase):
 	"""Runs the live Classify Intent Server Script; the script reaches a site with the ProsAlly map by export."""
 
 	def setUp(self):
@@ -84,7 +84,7 @@ class TestClassifyScript(FrappeTestCase):
 		self.assertEqual(get_turn(CONVERSATION)["output"]["intent"], "CONFIRM")
 
 
-class TestClassifierPatch(FrappeTestCase):
+class TestClassifierPatch(IntegrationTestCase):
 	def test_the_rule_and_the_field_are_added_once(self):
 		text = "Rules:\n" + classifier_patch.RULE_ANCHOR + "Respond:\n{" + classifier_patch.SHAPE_OLD
 		row = frappe._dict(sub_agent_id="intent_classifier", prompt_text=text)

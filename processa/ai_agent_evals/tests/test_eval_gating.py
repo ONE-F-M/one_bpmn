@@ -8,7 +8,7 @@ to a model. The check is non-blocking; it only produces warning strings.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.deploy_warnings import check_eval_suite_gating
 from processa.ai_agent_evals.tests.factories import make_eval_run, make_eval_suite
@@ -19,7 +19,7 @@ def _model_name():
     return "_Test Model " + frappe.generate_hash(length=8)
 
 
-class TestEvalGating(FrappeTestCase):
+class TestEvalGating(IntegrationTestCase):
 
     def test_no_warning_when_last_run_passed(self):
         """(a) a passing last run produces no warnings."""

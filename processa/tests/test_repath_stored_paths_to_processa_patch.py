@@ -2,7 +2,7 @@
 """The patch that points stored connector paths at the processa package after the app rename."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import repath_stored_paths_to_processa as P
 from processa.processa_connectors.tests.test_connector_dispatch import _ensure_echo_connector
@@ -12,7 +12,7 @@ OLD_TRANSFORM = "one_bpmn.processa_connectors.google.common.normalize_drive_id"
 OLD_CHOICES = "one_bpmn.api.lookups.get_doctypes"
 
 
-class TestRepathStoredPathsToProcessa(FrappeTestCase):
+class TestRepathStoredPathsToProcessa(IntegrationTestCase):
 	def setUp(self):
 		_ensure_echo_connector()
 		self.op = frappe.db.get_value(

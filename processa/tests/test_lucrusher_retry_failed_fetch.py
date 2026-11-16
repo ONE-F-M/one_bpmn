@@ -14,7 +14,7 @@ import os
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.patches.v1_0 import apply_reviewed_memory_cleanup as memory_cleanup
 from processa.patches.v1_0 import lucrusher_retries_a_failed_fetch as patch
@@ -94,7 +94,7 @@ def _share_hint():
 	return scope["_lucrusher_share_hint"]
 
 
-class TestBuildContext(FrappeTestCase):
+class TestBuildContext(UnitTestCase):
 	def test_a_failed_fetch_is_retryable_and_names_the_document(self):
 		out, _ = _run_build_context({"last_fetch_error": {"document_id": UUID, "error": ERROR_403}})
 
@@ -135,7 +135,7 @@ class TestBuildContext(FrappeTestCase):
 		self.assertEqual(calls.activated, [])
 
 
-class TestSaveResponse(FrappeTestCase):
+class TestSaveResponse(UnitTestCase):
 	def test_an_error_is_stored_as_last_fetch_error_not_as_the_document(self):
 		failed = {"document_id": UUID, "title": "", "pages": [], "page_count": 0, "error": ERROR_403}
 
@@ -175,7 +175,7 @@ class TestSaveResponse(FrappeTestCase):
 		self.assertEqual(snapshot["last_fetch_error"], prev["last_fetch_error"])
 
 
-class TestPatchEdits(FrappeTestCase):
+class TestPatchEdits(UnitTestCase):
 	def test_a_script_missing_an_anchor_is_not_edited(self):
 		self.assertIsNone(patch.apply_edits("print('no anchors here')", patch.SAVE_RESPONSE_EDITS))
 
@@ -217,7 +217,7 @@ class TestPatchEdits(FrappeTestCase):
 		self.assertEqual(len(logged), 1)
 
 
-class TestPatchOnTheSite(FrappeTestCase):
+class TestPatchOnTheSite(IntegrationTestCase):
 	def test_running_it_twice_changes_nothing(self):
 		names = [patch.BUILD_CONTEXT, patch.SAVE_RESPONSE, patch.FETCH_TOOL]
 		if not all(frappe.db.exists("Server Script", n) for n in names):
@@ -247,7 +247,7 @@ FOUR_PAGES = {
 }
 
 
-class TestFetchFailureWording(FrappeTestCase):
+class TestFetchFailureWording(IntegrationTestCase):
 	def _fetch_tool(self):
 		if not frappe.db.exists("Server Script", patch.FETCH_TOOL):
 			self.skipTest("the LuCrusher fetch tool is not installed on this site")

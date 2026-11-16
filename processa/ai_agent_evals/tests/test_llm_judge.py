@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from processa.ai_agent_evals.runner.assertions import JUDGE_PROMPT_TEMPLATE, evaluate_assertion, _evaluate_llm_judge
@@ -24,7 +24,7 @@ def _make_assertion(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-class TestLlmJudgeAssertion(FrappeTestCase):
+class TestLlmJudgeAssertion(IntegrationTestCase):
     """Tests for _evaluate_llm_judge and its integration with evaluate_assertion."""
 
     # ------------------------------------------------------------------

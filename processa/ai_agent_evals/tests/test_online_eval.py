@@ -11,7 +11,7 @@ being real, and about it still being a sample rather than a worst-N list.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration, make_eval_suite
 from processa.ai_agent_evals.online_eval import (
@@ -42,7 +42,7 @@ def _run(agent, **kwargs):
 	return doc.insert(ignore_permissions=True)
 
 
-class TestWeighting(FrappeTestCase):
+class TestWeighting(IntegrationTestCase):
 	"""Which runs the draw leans toward, and why it says so."""
 
 	def test_ordinary_traffic_carries_the_base_weight(self):
@@ -68,7 +68,7 @@ class TestWeighting(FrappeTestCase):
 		self.assertIn("corrected", reason)
 
 
-class TestDraw(FrappeTestCase):
+class TestDraw(IntegrationTestCase):
 	def _pool(self):
 		pool = [{"name": f"ordinary-{i}"} for i in range(40)]
 		pool.append({"name": "abandoned-1", "is_abandoned": True})
@@ -108,7 +108,7 @@ class TestDraw(FrappeTestCase):
 		self.assertEqual(draw([], 5), [])
 
 
-class TestCandidates(FrappeTestCase):
+class TestCandidates(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.agent = make_agent_configuration().name
@@ -165,7 +165,7 @@ class TestCandidates(FrappeTestCase):
 		self.assertEqual(dear[0]["estimated_cost"], 5.0)
 
 
-class TestScoringAndSweep(FrappeTestCase):
+class TestScoringAndSweep(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.agent = make_agent_configuration().name

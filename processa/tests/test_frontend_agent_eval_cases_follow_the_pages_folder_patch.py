@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import frontend_agent_eval_cases_follow_the_pages_folder as patch
 
@@ -15,7 +15,7 @@ NEW = "spiff/src/pages/Insights.vue"
 MOBILE = "Add a screen at src/views/payroll/PayslipHistory.vue showing overtime."
 
 
-class TestFrontendAgentEvalCasesFollowThePagesFolderPatch(FrappeTestCase):
+class TestFrontendAgentEvalCasesFollowThePagesFolderPatch(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

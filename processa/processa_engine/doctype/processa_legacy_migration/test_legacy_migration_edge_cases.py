@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration
 from processa.processa_engine.doctype.processa_legacy_migration.legacy_migration_move import migrate_record
@@ -33,7 +33,7 @@ MAPPING = [(DRAFT, DRAFT), (APPROVED, APPROVED)]
 NOBODY = "_plm_edge_nobody@example.com"
 
 
-class TestLegacyMigrationEdgeCases(FrappeTestCase):
+class TestLegacyMigrationEdgeCases(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -63,7 +63,7 @@ class TestLegacyMigrationEdgeCases(FrappeTestCase):
 		trigger = patch("processa.processa_engine.triggers.on_doc_event")
 		trigger.start()
 		self.addCleanup(trigger.stop)
-		# FrappeTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
+		# IntegrationTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
 		frappe.db.savepoint("plm_edge_test")
 		self.addCleanup(frappe.db.rollback, save_point="plm_edge_test")
 

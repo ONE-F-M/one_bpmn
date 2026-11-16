@@ -7,7 +7,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
 def _run(caller="trace-inst-1", action="read_file", state="completed", args=None, **fields):
@@ -28,7 +28,7 @@ def _trace(caller="trace-inst-1"):
 	return frappe.get_doc("Agent Sandbox Trace", name) if name else None
 
 
-class TestAgentSandboxTrace(FrappeTestCase):
+class TestAgentSandboxTrace(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

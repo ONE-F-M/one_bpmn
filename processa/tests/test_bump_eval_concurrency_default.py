@@ -2,12 +2,12 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import bump_eval_concurrency_default
 
 
-class TestBumpEvalConcurrencyDefault(FrappeTestCase):
+class TestBumpEvalConcurrencyDefault(IntegrationTestCase):
 	"""Processa Settings is a Single, so the patch must not look for a table of its own."""
 
 	def setUp(self):

@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.translation import translate
 from processa.processa_engine.doctype.processa_settings.processa_settings import ProcessaSettings
@@ -35,7 +35,7 @@ def _fallback(result_for):
 	return patch(FALLBACK, **{"return_value.translate.side_effect": result_for})
 
 
-class TestTranslateText(FrappeTestCase):
+class TestTranslateText(IntegrationTestCase):
 	def test_placeholders_come_back_unchanged(self):
 		with (
 			_fake(lambda masked: masked.replace("Leave for", "إجازة لـ")) as translator,
@@ -144,7 +144,7 @@ class TestTranslateText(FrappeTestCase):
 		translator.assert_not_called()
 
 
-class TestTranslateCached(FrappeTestCase):
+class TestTranslateCached(IntegrationTestCase):
 	def setUp(self):
 		translate_cached.clear_cache()
 
@@ -166,7 +166,7 @@ class TestTranslateCached(FrappeTestCase):
 		translator.assert_called_once()
 
 
-class TestTranslateEndpoint(FrappeTestCase):
+class TestTranslateEndpoint(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", MODEL):
 			frappe.get_doc(

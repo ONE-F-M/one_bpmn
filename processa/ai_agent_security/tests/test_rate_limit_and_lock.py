@@ -12,7 +12,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security import rate_limit as RL
 from processa.ai_agent_security.doctype.ai_conversation_lock.ai_conversation_lock import active_lock
@@ -23,7 +23,7 @@ PROBER = "zz-wi1968-prober@example.com"
 REVIEWER = "zz-wi1968-reviewer@example.com"
 
 
-class TestRateLimitAndLock(FrappeTestCase):
+class TestRateLimitAndLock(IntegrationTestCase):
 	def setUp(self):
 		from frappe.utils import now_datetime
 
@@ -640,7 +640,7 @@ class TestRateLimitAndLock(FrappeTestCase):
 				self._enforce(conversation="CONV-1")
 
 
-class TestPerTurnEnforcement(FrappeTestCase):
+class TestPerTurnEnforcement(IntegrationTestCase):
 	"""The gate has to fire on EVERY message, not just the first of a chat.
 
 	Map-driven chat agents run one long-lived BPMN instance: invoke_agent opens
@@ -823,7 +823,7 @@ class TestPerTurnEnforcement(FrappeTestCase):
 				frappe.db.delete("Chat Conversation", {"name": conv})
 
 
-class TestRefusalReachesTheUser(FrappeTestCase):
+class TestRefusalReachesTheUser(IntegrationTestCase):
 	"""A refusal must say why, on every chat surface.
 
 	RateLimited subclasses ValidationError, and every chat path used to catch
@@ -1146,7 +1146,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 			frappe.db.commit()
 
 
-class TestOneTurnCostsOneSlot(FrappeTestCase):
+class TestOneTurnCostsOneSlot(IntegrationTestCase):
 	"""A chat turn passes two gates and must consume one slot, not two.
 
 	Correlation-id dedup was supposed to handle this, but the map runs the turn
@@ -1213,7 +1213,7 @@ class TestOneTurnCostsOneSlot(FrappeTestCase):
 			self.assertEqual(RL.peek_count("Administrator", self.AGENT_LABEL, 60), -1)
 
 
-class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
+class TestTheFreezeOutlivesTheRefusal(IntegrationTestCase):
 	"""Observed live: the chat said "This conversation has
 	been frozen after repeated blocked attempts. A reviewer needs to release it"
 	and there was NO lock anywhere on the site.
@@ -1236,7 +1236,7 @@ class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
 		frappe.db.commit()
 
 	def test_the_lock_is_committed_not_left_in_the_transaction(self):
-		"""in_test suppresses the commit itself — FrappeTestCase rolls back on
+		"""in_test suppresses the commit itself - IntegrationTestCase rolls back on
 		purpose and a real commit here would leak fixtures — so this pins the
 		CODE PATH instead: the commit must sit between the insert and the return,
 		which is the only place that survives the caller's throw."""
@@ -1272,7 +1272,7 @@ class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
 		self.assertIn("commit()", locked, "the refusal event must survive the throw")
 
 
-class TestOneSwitchGovernsTheWholeSection(FrappeTestCase):
+class TestOneSwitchGovernsTheWholeSection(IntegrationTestCase):
 	"""Reported from the form: "why am I having blocked attempts when rate limit
 	is not even enabled".
 

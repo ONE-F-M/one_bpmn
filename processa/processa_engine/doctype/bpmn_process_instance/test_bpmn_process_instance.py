@@ -19,7 +19,7 @@ import json
 from unittest.mock import Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 import processa.processa_engine.engine as bpmn_engine
 from processa.processa_engine.dispatch.email import dispatch_email
@@ -107,7 +107,7 @@ def make_instance(**kwargs):
 	return inst
 
 
-class BaseBPMNHelperTest(FrappeTestCase):
+class BaseBPMNHelperTest(IntegrationTestCase):
 	"""
 	Neutralize frappe.log_error for the duration of each test.
 

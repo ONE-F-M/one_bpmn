@@ -4,7 +4,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import apply_doctype, preview_doctype
 from processa.patches.v1_0 import docu_warns_on_standard_child_tables as fix
@@ -31,7 +31,7 @@ AMOUNT = {"fieldname": "amount", "fieldtype": "Data", "label": "Amount"}
 RELABELLED = [{**NOTE, "label": "Remark"}, AMOUNT, {"fieldname": "apply", "fieldtype": "Check", "label": "Apply"}]
 
 
-class TestChildTableChanges(FrappeTestCase):
+class TestChildTableChanges(IntegrationTestCase):
 	def setUp(self):
 		apply_doctype(_ir([NOTE, AMOUNT]), confirm=1)
 		frappe.get_doc({"doctype": PARENT, "title": "t", "rows": [{"note": "kept", "amount": "5"}]}).insert()
@@ -81,7 +81,7 @@ class TestChildTableChanges(FrappeTestCase):
 		self.assertEqual(frappe.get_meta(CHILD, cached=False).get_field("note").label, "Note")
 
 
-class TestReplyWarnsAboutStandardTable(FrappeTestCase):
+class TestReplyWarnsAboutStandardTable(IntegrationTestCase):
 	def test_the_finalize_line_appends_the_warnings_to_the_reply(self):
 		line = fix.FINALIZE_NEW.replace(fix.FINALIZE_OLD, "").strip()
 		scope = {"final_text": "Done.", "turn": {"warnings": ["Has Role is a standard table."]}}

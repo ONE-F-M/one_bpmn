@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_memory import prune as P
@@ -19,7 +19,7 @@ def _retired(expires_on) -> bool:
 	return bool(expires_on and expires_on <= now_datetime())
 
 
-class TestPruneReason(FrappeTestCase):
+class TestPruneReason(UnitTestCase):
 	NOW = now_datetime()
 
 	def _row(self, **kw):
@@ -59,7 +59,7 @@ class TestPruneReason(FrappeTestCase):
 		self.assertIsNone(P.prune_reason(row, off, self.NOW))
 
 
-class TestPruneSweep(FrappeTestCase):
+class TestPruneSweep(IntegrationTestCase):
 	def _backdate(self, name, days):
 		frappe.db.set_value("AI Memory", name, "modified", add_to_date(now_datetime(), days=-days), update_modified=False)
 
@@ -99,7 +99,7 @@ class TestPruneSweep(FrappeTestCase):
 		self.assertEqual(P.prune_config()["uncorroborated_days"], 7)
 
 
-class TestSeedDefaultsPatch(FrappeTestCase):
+class TestSeedDefaultsPatch(IntegrationTestCase):
 	"""The patch that repairs a Processa Settings row written before these
 	fields existed."""
 
@@ -130,7 +130,7 @@ class TestSeedDefaultsPatch(FrappeTestCase):
 		)
 
 
-class TestThresholdDefaults(FrappeTestCase):
+class TestThresholdDefaults(IntegrationTestCase):
 	"""A number field added to an existing Single reads back as 0, and 0 switches
 	every one of these rules off. That is how nightly pruning came to do nothing
 	on a site where nobody had opened the settings."""

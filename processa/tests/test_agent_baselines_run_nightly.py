@@ -1,6 +1,6 @@
 """The nightly sweep must have suites to pick up, and only ones it can run."""
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.eval_ci import select_suites
 from processa.patches.v1_0 import agent_baselines_run_nightly as patch
@@ -10,7 +10,7 @@ def _role(title):
 	return frappe.db.get_value("AI Eval Suite", {"title": title}, "ci_role")
 
 
-class TestAgentBaselinesRunNightly(FrappeTestCase):
+class TestAgentBaselinesRunNightly(IntegrationTestCase):
 
 	def setUp(self):
 		self.present = [t for t in patch.SUITES if frappe.db.exists("AI Eval Suite", {"title": t})]

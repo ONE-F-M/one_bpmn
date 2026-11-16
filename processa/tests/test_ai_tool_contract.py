@@ -12,7 +12,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.compiler import ai_checks as comp
 
@@ -37,7 +37,7 @@ def _agents(prompt, tools=BOX, config=""):
 	}
 
 
-class TestToolContractGaps(FrappeTestCase):
+class TestToolContractGaps(UnitTestCase):
 	def test_the_old_frontend_prompt_is_caught_in_full(self):
 		self.assertEqual(
 			comp._tool_contract_gaps(OLD_FRONTEND_PROMPT, BOX, KNOWN),
@@ -60,7 +60,7 @@ class TestToolContractGaps(FrappeTestCase):
 		self.assertEqual(comp._tool_contract_gaps("Then CALL `draft_change`.", BOX, KNOWN), ["draft_change"])
 
 
-class TestValidateAiToolContract(FrappeTestCase):
+class TestValidateAiToolContract(IntegrationTestCase):
 	def setUp(self):
 		self._known = patch.object(comp, "_known_tool_ids", return_value=KNOWN)
 		self._known.start()
@@ -98,7 +98,7 @@ class TestValidateAiToolContract(FrappeTestCase):
 		comp.validate_ai_tool_contract({"x": {"serviceType": "ai_agent"}})
 
 
-class TestSeedPromptsMatchTheirMaps(FrappeTestCase):
+class TestSeedPromptsMatchTheirMaps(IntegrationTestCase):
 	"""The seed patches are what a fresh site gets. Each must only ask for tools the
 	agent's live map actually has — the exact way the Frontend prompt went stale."""
 

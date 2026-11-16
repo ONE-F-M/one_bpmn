@@ -15,7 +15,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime import checkpoint
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
@@ -51,7 +51,7 @@ def _suspension(**overrides):
 	return base
 
 
-class _CheckpointTestBase(FrappeTestCase):
+class _CheckpointTestBase(IntegrationTestCase):
 	def setUp(self):
 		self.instance = frappe.get_doc({
 			"doctype": "BPMN Process Instance",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from google.genai import types
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.llm_anthropic import _build_tool_def as _anthropic_tool_def
 from processa.processa_engine.agent_runtime.llm_types import ToolSpec, build_parameter_schema
@@ -30,7 +30,7 @@ def _tool() -> ToolSpec:
 	)
 
 
-class TestBuildParameterSchema(FrappeTestCase):
+class TestBuildParameterSchema(UnitTestCase):
 	def test_preserves_enum_and_items(self):
 		schema = build_parameter_schema(_tool())
 		self.assertEqual(schema["properties"]["doctype"]["enum"], ["ToDo", "Task"])
@@ -38,7 +38,7 @@ class TestBuildParameterSchema(FrappeTestCase):
 		self.assertEqual(schema["required"], ["doctype"])
 
 
-class TestOpenAIToolDef(FrappeTestCase):
+class TestOpenAIToolDef(UnitTestCase):
 	def test_enum_reaches_function_schema(self):
 		tool_def = _openai_tool_def(_tool())
 		props = tool_def["function"]["parameters"]["properties"]
@@ -46,14 +46,14 @@ class TestOpenAIToolDef(FrappeTestCase):
 		self.assertEqual(tool_def["function"]["parameters"]["required"], ["doctype"])
 
 
-class TestAnthropicToolDef(FrappeTestCase):
+class TestAnthropicToolDef(UnitTestCase):
 	def test_enum_reaches_input_schema(self):
 		tool_def = _anthropic_tool_def(_tool())
 		props = tool_def["input_schema"]["properties"]
 		self.assertEqual(props["doctype"]["enum"], ["ToDo", "Task"])
 
 
-class TestGeminiFunctionDeclaration(FrappeTestCase):
+class TestGeminiFunctionDeclaration(UnitTestCase):
 	def test_enum_and_items_reach_schema(self):
 		decl = _build_fn_decl(_tool())
 		doctype_schema = decl.parameters.properties["doctype"]

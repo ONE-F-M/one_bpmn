@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 
@@ -37,7 +37,7 @@ MAP = f"""<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestAnEditWakesTheWait(FrappeTestCase):
+class TestAnEditWakesTheWait(IntegrationTestCase):
 	def setUp(self):
 		source = frappe.db.get_value("Work Item", {}, "name")
 		if not source:

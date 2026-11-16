@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.processa_engine.triggers import (
@@ -67,7 +67,7 @@ def _trivial_xml(process_id: str) -> str:
 </bpmn:definitions>"""
 
 
-class TestProcessModelDeployedMessage(FrappeTestCase):
+class TestProcessModelDeployedMessage(IntegrationTestCase):
 	def setUp(self):
 		self._models: list[str] = []
 		self._instances: list[str] = []

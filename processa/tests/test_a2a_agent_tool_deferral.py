@@ -20,7 +20,7 @@ import asyncio
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import ToolSpec
@@ -68,7 +68,7 @@ class _AnsweringInstance(_ParkingInstance):
 		return True
 
 
-class TestExecuteShapeDeferral(FrappeTestCase):
+class TestExecuteShapeDeferral(UnitTestCase):
 	def test_parked_dispatch_raises_tool_deferred(self):
 		with self.assertRaises(ToolDeferred) as caught:
 			execute_shape(_ParkingInstance(), "delegate", _WIRED, {"instruction": "x"})
@@ -123,7 +123,7 @@ class _Adapter:
 		return _Step([], content="all done")
 
 
-class TestStepLoopSuspendsOnDeferral(FrappeTestCase):
+class TestStepLoopSuspendsOnDeferral(UnitTestCase):
 	def test_a_deferred_tool_suspends_the_loop(self):
 		def fn(**kwargs):
 			raise ToolDeferred(dict(MARKER))
@@ -154,7 +154,7 @@ class TestStepLoopSuspendsOnDeferral(FrappeTestCase):
 		self.assertEqual(result.text, "all done")
 
 
-class TestCallerTaskIdIsNotTheStringNone(FrappeTestCase):
+class TestCallerTaskIdIsNotTheStringNone(UnitTestCase):
 	def test_synthetic_task_records_no_caller_step(self):
 		"""A tool call has no SpiffWorkflow task, so there is no step id to
 		record. Stringifying it wrote the literal "None", which the reconciler

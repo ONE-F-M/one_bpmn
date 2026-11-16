@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 
@@ -31,7 +31,7 @@ ENQUEUE_SITES = [
 ]
 
 
-class TestAIAgentJobTimeout(FrappeTestCase):
+class TestAIAgentJobTimeout(IntegrationTestCase):
 	def test_outlives_one_model_call_with_its_retries(self):
 		"""540s of attempts must fit, with room for tool execution."""
 		worst_case_one_turn = 180 * (1 + 2)

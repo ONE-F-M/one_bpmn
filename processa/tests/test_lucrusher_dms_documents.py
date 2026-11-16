@@ -6,7 +6,7 @@ Run with:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.shared.tools_dms import search_dms_documents
 from processa.patches.v1_0 import lucrusher_reads_dms_documents as patch
@@ -21,7 +21,7 @@ MAP_XML = """<bpmn:process id="p">
   </bpmndi:BPMNPlane>"""
 
 
-class TestLucrusherDmsPatch(FrappeTestCase):
+class TestLucrusherDmsPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

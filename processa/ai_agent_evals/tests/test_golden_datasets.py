@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.api.evals import create_eval_case, create_suite, get_eval_case, update_eval_case
@@ -40,7 +40,7 @@ def _skill(name_hint="dataset"):
 	return skill.insert(ignore_permissions=True)
 
 
-class TestCaseTypes(FrappeTestCase):
+class TestCaseTypes(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test types " + frappe.generate_hash(length=6))
@@ -131,7 +131,7 @@ class TestCaseTypes(FrappeTestCase):
 		self.assertFalse(case["source_feedback"])
 
 
-class TestSuiteTypes(FrappeTestCase):
+class TestSuiteTypes(IntegrationTestCase):
 	"""create_suite used to turn anything but Direct or Agent into Direct. A
 	Memory suite made on the Evals page came out Direct, and every run it made
 	then called the model instead of scoring the memory store."""
@@ -149,7 +149,7 @@ class TestSuiteTypes(FrappeTestCase):
 			create_suite(title="_Test typo suite", eval_type="Memroy")
 
 
-class TestReadiness(FrappeTestCase):
+class TestReadiness(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test readiness " + frappe.generate_hash(length=6))
@@ -226,7 +226,7 @@ class TestReadiness(FrappeTestCase):
 		self.assertNotIn("blocked", out)
 
 
-class TestVersions(FrappeTestCase):
+class TestVersions(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test versions " + frappe.generate_hash(length=6))
@@ -267,7 +267,7 @@ class TestVersions(FrappeTestCase):
 			frappe.delete_doc("AI Golden Dataset Version", first["name"])
 
 
-class TestExportImport(FrappeTestCase):
+class TestExportImport(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test export " + frappe.generate_hash(length=6))
@@ -345,7 +345,7 @@ class TestExportImport(FrappeTestCase):
 		self.assertEqual(payload["version"], 1)
 
 
-class TestSkillGraduation(FrappeTestCase):
+class TestSkillGraduation(IntegrationTestCase):
 	"""The dataset rule that DOES block something, and the defect that made it
 	unreachable.
 
@@ -413,7 +413,7 @@ class TestSkillGraduation(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("AI Skill", self.skill.name, "tier"), "Action-Allowed")
 
 
-class TestDatasetSizesAreTheAgents(FrappeTestCase):
+class TestDatasetSizesAreTheAgents(IntegrationTestCase):
 	"""What counts as a representative dataset is a judgement about one agent's
 	work, so each agent carries its own bar. There is no site-wide number and no
 	shipped default: an agent that has set nothing is shown a count with no bar,
@@ -475,7 +475,7 @@ class TestDatasetSizesAreTheAgents(FrappeTestCase):
 		self.assertEqual(dataset_readiness(skill=skill.name)["minimum"], 3)
 
 
-class TestSuiteIsASubject(FrappeTestCase):
+class TestSuiteIsASubject(IntegrationTestCase):
 	"""A run belongs to a suite, so a suite is the thing to freeze when the
 	question is what a run passed against. Agent and skill stay for the wider
 	view, but an agent-wide export must not flatten its suites on the way back."""

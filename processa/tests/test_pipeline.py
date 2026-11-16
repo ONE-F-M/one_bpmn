@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import unittest
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 PIPELINE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__),
@@ -63,7 +63,7 @@ def _run_pipeline(ir_dict: dict) -> dict:
 
 
 @unittest.skipUnless(PIPELINE_READY, PIPELINE_SKIP_REASON)
-class TestPipeline(FrappeTestCase):
+class TestPipeline(UnitTestCase):
     # ── Test 1: Known-good IR ──────────────────────────────────────────────────────
 
     def test_known_good_ir_compiles_clean(self):

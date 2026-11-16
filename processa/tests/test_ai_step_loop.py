@@ -11,7 +11,7 @@ import asyncio
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
@@ -64,7 +64,7 @@ def _run(adapter, tools, max_turns=10, resume=None, user="do the thing"):
 	)
 
 
-class TestStepLoopAutomatic(FrappeTestCase):
+class TestStepLoopAutomatic(IntegrationTestCase):
 	def test_final_answer_no_tools_called(self):
 		adapter = FakeStepAdapter([StepResult(content="done", prompt_tokens=10, completion_tokens=2)])
 		completion, suspension = _run(adapter, [_auto_tool()])
@@ -157,7 +157,7 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		self.assertEqual(len(completion.trace), 3)
 
 
-class TestStepLoopSuspension(FrappeTestCase):
+class TestStepLoopSuspension(IntegrationTestCase):
 	def test_human_tool_suspends_with_deferred_results(self):
 		adapter = FakeStepAdapter([
 			StepResult(
@@ -275,7 +275,7 @@ class TestStepLoopSuspension(FrappeTestCase):
 		self.assertEqual(roles, ["user", "assistant", "tool_results", "assistant"])
 
 
-class TestStaticContextIsFrozen(FrappeTestCase):
+class TestStaticContextIsFrozen(IntegrationTestCase):
 	"""Acceptance: the system prompt handed to the model must be
 	identical on every iteration of the loop, and state must advance only by
 	appending to the transcript."""
@@ -370,7 +370,7 @@ class TestStaticContextIsFrozen(FrappeTestCase):
 		self.assertEqual(resumed[-1]["role"], "tool_results")
 
 
-class TestExecutorSuspensionMapping(FrappeTestCase):
+class TestExecutorSuspensionMapping(IntegrationTestCase):
 	"""DirectApiExecutor._run_with_tools maps loop outcomes to ExecutorResult."""
 
 	@classmethod

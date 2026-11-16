@@ -10,11 +10,9 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.engine import _make_script_engine
-
-test_ignore = ["BPMN Process Model"]
 
 _HELPER_CALLS_HELPER = """
 def strip_payload(value):
@@ -51,7 +49,7 @@ class _FakeTask:
 		self.task_spec = _FakeTaskSpec()
 
 
-class TestServerScriptExecScope(FrappeTestCase):
+class TestServerScriptExecScope(IntegrationTestCase):
 	def _script(self, name, body):
 		if not frappe.db.exists("Server Script", name):
 			frappe.get_doc(
@@ -116,7 +114,7 @@ result["done"] = True
 """
 
 
-class TestServerScriptExecutionGateHardening(FrappeTestCase):
+class TestServerScriptExecutionGateHardening(IntegrationTestCase):
 	"""Runtime-gate bypass attempts — each must be blocked before exec()."""
 
 	def _script(self, name, body):

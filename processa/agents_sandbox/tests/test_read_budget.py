@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import BudgetExceeded
 from processa.agents_sandbox.sandbox.ops import (
@@ -40,7 +40,7 @@ def _row(instance_name, action, state="completed"):
 	return row.name
 
 
-class TestReadBudgetExceeded(FrappeTestCase):
+class TestReadBudgetExceeded(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

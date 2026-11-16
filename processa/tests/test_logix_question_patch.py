@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import logix_answers_questions_and_always_offers_options as patch
 
@@ -10,7 +10,7 @@ CLARIFIER = "Rules:\n- Give 2-4 plain-English options to choose from whenever po
 SKILL_BODY = "# Changing an existing script\n\nWork from the current code.\n"
 
 
-class TestLogixQuestionPatch(FrappeTestCase):
+class TestLogixQuestionPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		for agent_id, prompt in (("logix_script_writer", WRITER), ("logix_clarifier", CLARIFIER)):

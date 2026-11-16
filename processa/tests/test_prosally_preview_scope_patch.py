@@ -2,14 +2,14 @@
 """The modify script reports the sub-process it changed, and the patch that adds that is safe to run twice."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_preview_opens_the_edited_subprocess as patch
 
 NAME = "ProsAlly%Tool Modify Process"
 
 
-class TestPreviewScopePatch(FrappeTestCase):
+class TestPreviewScopePatch(IntegrationTestCase):
 	def setUp(self):
 		patch.execute()
 		self.name = frappe.db.get_value("Server Script", {"name": ["like", NAME]}, "name")

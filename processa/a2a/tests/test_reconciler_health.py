@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.a2a import reconciler_health as H
@@ -30,7 +30,7 @@ def _job():
 	return frappe.db.get_value("Scheduled Job Type", {"method": METHOD}, "name")
 
 
-class TestTheReconcilerReportsItsOwnState(FrappeTestCase):
+class TestTheReconcilerReportsItsOwnState(IntegrationTestCase):
 	"""Each cause names itself rather than being inferred from stuck delegations."""
 
 	def setUp(self):
@@ -134,7 +134,7 @@ class TestTheReconcilerReportsItsOwnState(FrappeTestCase):
 		self.assertIsNone(out["ok"])
 
 
-class TestLatenessIsJudgedAgainstTheJobsOwnSchedule(FrappeTestCase):
+class TestLatenessIsJudgedAgainstTheJobsOwnSchedule(UnitTestCase):
 	def test_a_minute_job_is_not_late_after_seventy_seconds(self):
 		"""Jitter is not an incident. A threshold set at the interval would cry
 		wolf on every busy minute and stop being worth reading."""
@@ -155,7 +155,7 @@ class TestLatenessIsJudgedAgainstTheJobsOwnSchedule(FrappeTestCase):
 		self.assertGreater(H._interval_seconds(job), 0)
 
 
-class TestTheClockJobsGetTheirOwnQueue(FrappeTestCase):
+class TestTheClockJobsGetTheirOwnQueue(IntegrationTestCase):
 	"""Frappe derives a queue from FREQUENCY alone, so a Cron job is always on
 	'default' — here shared with 172 other enabled jobs. Agent turns already have
 	their own worker for this reason; these are the jobs that wake them."""

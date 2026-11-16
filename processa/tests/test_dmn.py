@@ -2,7 +2,7 @@
 """A DMN table saved for a Business Rule Task loads back and shows in the decision list."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import dmn
 
@@ -17,7 +17,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 DMN = '<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="d"><decision id="rule_1" /></definitions>'
 
 
-class TestDmnEndpoints(FrappeTestCase):
+class TestDmnEndpoints(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", MODEL):
 			doc = frappe.new_doc("BPMN Process Model")

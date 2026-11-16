@@ -9,7 +9,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.compile_step import compile_model
 from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration
@@ -263,7 +263,7 @@ def _model(title, process, doctype=DT, sets_states=(VAL_OPEN, VAL_DONE), deploye
 	return model.name
 
 
-class TestProcessaLegacyMigrationValidation(FrappeTestCase):
+class TestProcessaLegacyMigrationValidation(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -294,7 +294,7 @@ class TestProcessaLegacyMigrationValidation(FrappeTestCase):
 		trigger = patch("processa.processa_engine.triggers.on_doc_event")
 		trigger.start()
 		self.addCleanup(trigger.stop)
-		# FrappeTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
+		# IntegrationTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
 		frappe.db.savepoint("plm_validation_test")
 		self.addCleanup(frappe.db.rollback, save_point="plm_validation_test")
 

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.processa_engine.agent_runtime.llm_types import LLMTruncatedError
@@ -214,7 +214,7 @@ def cut_every_piece_of_review(user):
 	return "(generating ONE PHASE" in user and "Review" in user
 
 
-class TestThePatchOnTheRealScripts(FrappeTestCase):
+class TestThePatchOnTheRealScripts(IntegrationTestCase):
 	def test_it_applies_compiles_and_a_second_run_changes_nothing(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -273,7 +273,7 @@ class TestThePatchOnTheRealScripts(FrappeTestCase):
 			set_value.assert_not_called()
 
 
-class TestASplitPhase(FrappeTestCase):
+class TestASplitPhase(IntegrationTestCase):
 	def test_a_cut_off_phase_is_split_in_two_and_the_other_phases_are_kept(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -309,7 +309,7 @@ class TestASplitPhase(FrappeTestCase):
 				ran.compile_ir.assert_not_called()
 
 
-class TestCutOffCallsAreRecorded(FrappeTestCase):
+class TestCutOffCallsAreRecorded(IntegrationTestCase):
 	def test_each_cut_off_call_is_a_sub_call_step_with_error_code_truncated(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -331,7 +331,7 @@ class TestCutOffCallsAreRecorded(FrappeTestCase):
 				self.assertTrue(ran.result["generated"])
 
 
-class TestABigRequestStartsWithTheOutline(FrappeTestCase):
+class TestABigRequestStartsWithTheOutline(IntegrationTestCase):
 	def test_more_than_25_elements_written_inline_skip_the_full_attempt(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -356,7 +356,7 @@ class TestABigRequestStartsWithTheOutline(FrappeTestCase):
 		self.assertTrue(_is_full_attempt(run_generate("ba", text=prose).model.calls[0]["user"]))
 
 
-class TestPromptsAskForOneLineJson(FrappeTestCase):
+class TestPromptsAskForOneLineJson(IntegrationTestCase):
 	def test_the_full_outline_and_phase_prompts_ask_for_it(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -367,7 +367,7 @@ class TestPromptsAskForOneLineJson(FrappeTestCase):
 				self.assertIn("as one line of JSON with no indentation", phase["user"])
 
 
-class TestTheExistingFeaturesStillRun(FrappeTestCase):
+class TestTheExistingFeaturesStillRun(IntegrationTestCase):
 	def test_the_reply_the_artifact_and_the_auto_fix_still_happen(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -380,7 +380,7 @@ class TestTheExistingFeaturesStillRun(FrappeTestCase):
 					self.assertIn(" LANES TASKS", output["response"])
 
 
-class TestTheDiffIsSmall(FrappeTestCase):
+class TestTheDiffIsSmall(IntegrationTestCase):
 	def test_the_patched_script_differs_from_the_live_one_by_added_blocks_and_eight_edited_lines(self):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
@@ -394,7 +394,7 @@ class TestTheDiffIsSmall(FrappeTestCase):
 				self.assertEqual(len(removed), EDITED_LINES)
 
 
-class TestTheEngineValidatorAcceptsTheScript(FrappeTestCase):
+class TestTheEngineValidatorAcceptsTheScript(IntegrationTestCase):
 	"""The engine runs this validator right before it executes a Server Script and blocks the call on any finding."""
 
 	def test_the_patched_scripts_have_no_findings(self):
@@ -409,7 +409,7 @@ class TestTheEngineValidatorAcceptsTheScript(FrappeTestCase):
 		self.assertEqual(deep_inspect_script(broken), ["getattr() is not allowed"])
 
 
-class TestTheRepairOfTheBlockedScript(FrappeTestCase):
+class TestTheRepairOfTheBlockedScript(IntegrationTestCase):
 	def test_the_repaired_script_has_no_findings_compiles_and_a_second_run_changes_nothing(self):
 		repaired = repair_patch.rewrite(_script("ba_after_split_patch"))
 		self.assertEqual(deep_inspect_script(repaired), [])
@@ -470,7 +470,7 @@ class TestTheRepairOfTheBlockedScript(FrappeTestCase):
 		log_error.assert_called_once()
 
 
-class TestRecordTruncatedCalls(FrappeTestCase):
+class TestRecordTruncatedCalls(IntegrationTestCase):
 	def _run(self, scope):
 		run_doc = mock.Mock(model="sonnet")
 		run_doc.name = "RUN-1"

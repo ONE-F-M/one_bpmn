@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from processa.api.docu import apply_field_properties
@@ -40,7 +40,7 @@ def _run_stage(message, changes, doctype=""):
 	return get_turn(CONVERSATION)["output"]
 
 
-class TestEditFieldPropertyStage(FrappeTestCase):
+class TestEditFieldPropertyStage(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("edit_field_property")
 
@@ -85,7 +85,7 @@ class TestEditFieldPropertyStage(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("Property Setter", "Note-seen_by_section-depends_on"))
 
 
-class TestCustomDocTypeIsEditedInPlace(FrappeTestCase):
+class TestCustomDocTypeIsEditedInPlace(IntegrationTestCase):
 	def setUp(self):
 		frappe.get_doc(
 			{
@@ -119,7 +119,7 @@ class TestCustomDocTypeIsEditedInPlace(FrappeTestCase):
 		self.assertEqual(lines, ["Cover shows only when Needs Cover is ticked."])
 
 
-class TestWritePermissionOnTheTarget(FrappeTestCase):
+class TestWritePermissionOnTheTarget(IntegrationTestCase):
 	"""The requester needs write on the DocType, and a refusal leaves it untouched."""
 
 	WRITER = "docu-writer-probe@example.com"
@@ -190,7 +190,7 @@ class TestWritePermissionOnTheTarget(FrappeTestCase):
 		self.assertEqual(self._snapshot(), before)
 
 
-class TestClassifierRoutes(FrappeTestCase):
+class TestClassifierRoutes(IntegrationTestCase):
 	def test_edit_field_property_is_accepted_and_routed_to_the_new_stage(self):
 		scope = {"intent": "EDIT_FIELD_PROPERTY", "_cheap_intents": ()}
 		exec(fix.ACCEPT_NEW + "\n    intent = 'CREATE'\n" + fix.ROUTE_NEW, scope)

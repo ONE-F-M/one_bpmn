@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import jinja2
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 # ---------------------------------------------------------------------------
 # Resolve the app root so the Jinja FileSystemLoader can find templates
@@ -23,7 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 APP_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-class _RendererTestCase(FrappeTestCase):
+class _RendererTestCase(IntegrationTestCase):
 	"""Base class that mocks Frappe deps so renderer tests run without a site."""
 
 	def setUp(self):

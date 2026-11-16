@@ -19,7 +19,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.production_review import (
     _allowed_repo_owners,
@@ -36,7 +36,7 @@ def _set_app(value):
     frappe.clear_cache(doctype=SETTINGS)
 
 
-class TestCustomizationRouting(FrappeTestCase):
+class TestCustomizationRouting(IntegrationTestCase):
     def setUp(self):
         self.previous = frappe.db.get_single_value(SETTINGS, "customization_app")
         _set_app("one_fm")
@@ -81,7 +81,7 @@ class TestCustomizationRouting(FrappeTestCase):
         self.assertEqual(_customization_app_for_doctype("Employee"), app_for_doctype("Employee"))
 
 
-class TestRepoOwnerGuard(FrappeTestCase):
+class TestRepoOwnerGuard(IntegrationTestCase):
     def setUp(self):
         self.previous = frappe.db.get_single_value(SETTINGS, "customization_app")
         _set_app("one_fm")
@@ -148,7 +148,7 @@ class TestRepoOwnerGuard(FrappeTestCase):
             self.assertNotIn("Refusing to open a pull request", str(e))
 
 
-class TestOwnerAppPatch(FrappeTestCase):
+class TestOwnerAppPatch(IntegrationTestCase):
     """The field's `default` only applies to a Single that does not exist yet, so
     every already-installed site needs the patch to set it — the same
     fresh-install / existing-site split this whole feature is about."""
@@ -198,7 +198,7 @@ class TestOwnerAppPatch(FrappeTestCase):
         self.assertEqual(frappe.get_meta(SETTINGS).get_field("customization_app").default, "one_fm")
 
 
-class TestPrFileSet(FrappeTestCase):
+class TestPrFileSet(IntegrationTestCase):
     """The PR carries all four artefacts of the convention, not just the JSON."""
 
     def setUp(self):
@@ -279,7 +279,7 @@ class TestPrFileSet(FrappeTestCase):
             ast.parse(content)
 
 
-class TestSyncPullRequestBase(FrappeTestCase):
+class TestSyncPullRequestBase(IntegrationTestCase):
     """Review PRs must land on staging, where the change can be tested before release."""
 
     def test_the_pull_request_targets_staging(self):

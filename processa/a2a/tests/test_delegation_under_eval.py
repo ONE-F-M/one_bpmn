@@ -11,12 +11,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.a2a import client_ops as ops
 
 
-class TestDelegationUnderEval(FrappeTestCase):
+class TestDelegationUnderEval(UnitTestCase):
 	def setUp(self):
 		self._prev = getattr(frappe.flags, "eval_origin", None)
 

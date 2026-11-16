@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import agent_callback as cb
 from processa.agents_sandbox.sandbox import ops
@@ -34,7 +34,7 @@ def failed_run(**fields) -> FakeRun:
 	return FakeRun({**base, **fields})
 
 
-class TestEachFailureClass(FrappeTestCase):
+class TestEachFailureClass(IntegrationTestCase):
 	def test_infrastructure_is_retried_twice_with_a_longer_wait_each_time_then_stopped(self):
 		steps = [supervisor.next_step(failed_run(attempt=n)) for n in (1, 2, 3)]
 		self.assertEqual(
@@ -88,7 +88,7 @@ class TestEachFailureClass(FrappeTestCase):
 		self.assertEqual((step["action"], step["of"]), ("return", 1))
 
 
-class TestRecordingTheStep(FrappeTestCase):
+class TestRecordingTheStep(IntegrationTestCase):
 	def test_the_attempt_is_a_comment_on_the_work_item(self):
 		run = failed_run(failure_class="code", work_item="WI-1")
 		work_item = MagicMock()

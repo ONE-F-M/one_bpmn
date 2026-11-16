@@ -186,7 +186,7 @@ def ai_parking_active() -> bool:
 		return False
 	if frappe.flags.bpmn_force_ai_parking:
 		return True
-	return not frappe.flags.in_test
+	return not frappe.in_test
 
 
 def queue_parked_ai_job(instance, kind: str, ident: str):

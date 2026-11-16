@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox import ops
 from processa.patches.v1_0 import sandbox_tools_for_several_files_at_once as patch_module
@@ -34,7 +34,7 @@ def _run_script(name: str, task_data: dict, dispatch=None, budget_error=None) ->
 	return result, dispatch
 
 
-class TestTheScripts(FrappeTestCase):
+class TestTheScripts(IntegrationTestCase):
 	def setUp(self):
 		patch_module.execute()
 
@@ -118,7 +118,7 @@ class TestTheScripts(FrappeTestCase):
 		self.assertEqual(result, {"error": "no route"})
 
 
-class TestTheReadBudgetAndGatesSeeTheNewActions(FrappeTestCase):
+class TestTheReadBudgetAndGatesSeeTheNewActions(IntegrationTestCase):
 	def test_the_new_reads_count_toward_the_read_budget_and_apply_edits_resets_it(self):
 		self.assertIn("read_files", ops._READ_ACTIONS)
 		self.assertIn("grep_files", ops._READ_ACTIONS)

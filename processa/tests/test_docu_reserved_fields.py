@@ -5,7 +5,7 @@ existing field exactly, so that field comes back in the definition — and until
 the chat pipeline passed ``existing_fieldnames``, the gate rejected it and the
 repair cost a full rewrite of the definition.
 """
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0.seed_docu_agent_config import _INLINE_SUB_PROMPTS
 from processa.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
@@ -24,7 +24,7 @@ def _ir(*fieldnames):
 	}
 
 
-class TestDocuReservedFields(FrappeTestCase):
+class TestDocuReservedFields(IntegrationTestCase):
 
 	def test_reserved_field_already_on_target_passes(self):
 		verdict = validate_doctype_ir(

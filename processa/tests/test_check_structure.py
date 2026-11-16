@@ -9,7 +9,8 @@ imports) is built from pieces so that this file passes the check itself.
 import importlib.util
 import os
 import sys
-import unittest
+
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(ROOT, ".github", "scripts", "check_structure.py")
@@ -46,7 +47,7 @@ def rules(result):
 	return [finding.rule for finding in result.failures]
 
 
-class TestSizeRule(unittest.TestCase):
+class TestSizeRule(UnitTestCase):
 	def test_new_python_file_over_800_lines_fails_and_names_file_and_size(self):
 		result = run([cs.Change.new_file("processa/new_module.py", lines(801))])
 		self.assertEqual(rules(result), ["size"])
@@ -73,7 +74,7 @@ class TestSizeRule(unittest.TestCase):
 		self.assertTrue(run([cs.Change.new_file("docs/long.md", lines(5000))]).ok)
 
 
-class TestWorkItemIdRule(unittest.TestCase):
+class TestWorkItemIdRule(UnitTestCase):
 	def added(self, text, path="processa/mod.py"):
 		return run([cs.Change.modified(path, text, [(7, text)])])
 
@@ -110,7 +111,7 @@ class TestWorkItemIdRule(unittest.TestCase):
 				self.assertIsNone(cs.WORK_ITEM_ID.search(line), f"hooks.py:{number} carries a work-item id")
 
 
-class TestUnsafeCallRule(unittest.TestCase):
+class TestUnsafeCallRule(IntegrationTestCase):
 	def added(self, text):
 		return run([cs.Change.modified("processa/api/thing.py", text, [(12, text)])])
 
@@ -144,7 +145,7 @@ class TestUnsafeCallRule(unittest.TestCase):
 		self.assertTrue(run([change]).ok)
 
 
-class TestTestLocationRule(unittest.TestCase):
+class TestTestLocationRule(UnitTestCase):
 	def added_test(self, path):
 		return run([cs.Change.new_file(path, "x = 1\n")])
 
@@ -182,7 +183,7 @@ class TestTestLocationRule(unittest.TestCase):
 		self.assertTrue(any("delete" in notice and old in notice for notice in result.notices))
 
 
-class TestImportRule(unittest.TestCase):
+class TestImportRule(UnitTestCase):
 	def added(self, path, text):
 		return run([cs.Change.modified(path, text, [(3, text)])])
 
@@ -219,7 +220,7 @@ class TestImportRule(unittest.TestCase):
 		self.assertTrue(self.added("processa/agents/x.py", "import json").ok)
 
 
-class TestPrivateImportRule(unittest.TestCase):
+class TestPrivateImportRule(UnitTestCase):
 	def added(self, path, text, baseline=None):
 		return run([cs.Change.modified(path, text, [(1, text)])], baseline)
 
@@ -268,7 +269,7 @@ class TestPrivateImportRule(unittest.TestCase):
 		self.assertTrue(any("delete" in notice and "_config_name" in notice for notice in result.notices))
 
 
-class TestDefinitionsRules(unittest.TestCase):
+class TestDefinitionsRules(UnitTestCase):
 	def added_file(self, path, text="x = 1\n"):
 		return run([cs.Change.new_file(f"{DEFINITIONS}/{path}", text)])
 
@@ -324,7 +325,7 @@ class TestDefinitionsRules(unittest.TestCase):
 				self.assertTrue(self.added_file("logix/tools.py", text).ok)
 
 
-class TestComponentJsRule(unittest.TestCase):
+class TestComponentJsRule(UnitTestCase):
 	def test_a_new_js_file_under_components_fails(self):
 		for path in ("frontend/src/components/chat/newThing.js", "frontend/src/components/newThing.js"):
 			with self.subTest(path=path):
@@ -350,7 +351,7 @@ class TestComponentJsRule(unittest.TestCase):
 		self.assertTrue(any("delete" in notice and path in notice for notice in result.notices))
 
 
-class TestComponentFolderRule(unittest.TestCase):
+class TestComponentFolderRule(UnitTestCase):
 	BASE = "frontend/src/components"
 
 	def failing(self, path, tree=None, baseline=None):
@@ -420,7 +421,7 @@ class TestComponentFolderRule(unittest.TestCase):
 		self.assertEqual(rules(result), ["baseline"])
 
 
-class TestComposableLayoutRule(unittest.TestCase):
+class TestComposableLayoutRule(UnitTestCase):
 	BASE = "frontend/src/composables"
 	TREE = {f"{BASE}/Docu/useDocu.js", f"{BASE}/Docu/useDocuTree.js", f"{BASE}/useWindowSize.js"}
 
@@ -452,7 +453,7 @@ class TestComposableLayoutRule(unittest.TestCase):
 		self.assertTrue(self.failing("frontend/src/utils/thing.ts").ok)
 
 
-class TestFetchRule(unittest.TestCase):
+class TestFetchRule(UnitTestCase):
 	def added(self, path, text):
 		return run([cs.Change.modified(path, text, [(5, text)])])
 
@@ -486,7 +487,7 @@ class TestFetchRule(unittest.TestCase):
 				self.assertTrue(self.added(path, text).ok)
 
 
-class TestBaseline(unittest.TestCase):
+class TestBaseline(UnitTestCase):
 	PATH = "processa/agents/observability.py"
 
 	def test_a_baselined_file_may_change_without_getting_worse(self):
@@ -592,7 +593,7 @@ class TestBaseline(unittest.TestCase):
 		)
 
 
-class TestDiffParsing(unittest.TestCase):
+class TestDiffParsing(UnitTestCase):
 	DIFF = "\n".join(
 		[
 			"diff --git a/processa/a.py b/processa/a.py",

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api import agent_callback as cb
 
@@ -31,7 +31,7 @@ _real_get_cached_doc = frappe.get_cached_doc
 PR_URL = "https://github.com/ONE-F-M/one_bpmn/pull/1"
 
 
-class CallbackCase(FrappeTestCase):
+class CallbackCase(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 		self.instance = frappe.get_doc({
@@ -663,7 +663,7 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 		self.assertEqual(frappe.session.user, "Guest")
 
 
-class TestClassifyFailure(FrappeTestCase):
+class TestClassifyFailure(UnitTestCase):
 	def test_each_kind_of_failure_gets_its_class(self):
 		cases = [
 			("tests_passed_no_changes", {}, "gave-up"),

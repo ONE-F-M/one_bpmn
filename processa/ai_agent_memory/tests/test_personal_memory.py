@@ -5,14 +5,14 @@ from __future__ import annotations
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, get_datetime, now_datetime
 
 from processa.ai_agent_memory.tools import MEMORY_TTL_DAYS, memory_write
 from processa.patches.v1_0 import docu_and_logix_memory_is_personal as patch
 
 
-class TestMemoryExpiry(FrappeTestCase):
+class TestMemoryExpiry(IntegrationTestCase):
 	def _write(self, source_type=None, **kw):
 		key = {"agent_element": f"Act_{frappe.generate_hash(length=6)}"}
 		row = memory_write("Agent", key, "a fact", source_type=source_type, ignore_permissions=True, **kw)
@@ -28,7 +28,7 @@ class TestMemoryExpiry(FrappeTestCase):
 		self.assertIsNone(self._write("User Statement"))
 
 
-class TestPersonalMemoryPatch(FrappeTestCase):
+class TestPersonalMemoryPatch(IntegrationTestCase):
 	def _config(self, **fields):
 		agent_id = f"t_{frappe.generate_hash(length=8)}"
 		doc = frappe.get_doc(

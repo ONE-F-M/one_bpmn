@@ -7,7 +7,7 @@ import re
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime import structured_output
 from processa.patches.v1_0 import json_agents_declare_their_schema as p
@@ -15,7 +15,7 @@ from processa.patches.v1_0 import json_agents_declare_their_schema as p
 PATCH_COMPILE = "processa.api.deploy.compile_process_model"
 
 
-class TestJsonAgentsDeclareTheirSchema(FrappeTestCase):
+class TestJsonAgentsDeclareTheirSchema(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

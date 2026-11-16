@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox.sandbox import ops
 
@@ -22,7 +22,7 @@ def _linked(links: dict, flags: dict | None = None):
 	return patch.object(frappe.db, "get_value", side_effect=get_value)
 
 
-class TestAgentNameFor(FrappeTestCase):
+class TestAgentNameFor(UnitTestCase):
 	def test_the_agent_linked_to_the_map_wins_over_the_map_name(self):
 		with _linked({"Dev Agent v1": "Dev Agent"}):
 			self.assertEqual(ops.agent_name_for(frappe._dict(process_model="Dev Agent v1")), "Dev Agent")
@@ -36,7 +36,7 @@ class TestAgentNameFor(FrappeTestCase):
 		self.assertIsNone(ops.agent_name_for(frappe._dict(process_model=None)))
 
 
-class TestRulesFollowTheLinkedAgent(FrappeTestCase):
+class TestRulesFollowTheLinkedAgent(UnitTestCase):
 	def test_reproduction_is_required_for_a_bug_map_named_differently_from_its_agent(self):
 		instance = frappe._dict(process_model="Bug Programmer v1")
 		with _linked(
@@ -58,7 +58,7 @@ class TestRulesFollowTheLinkedAgent(FrappeTestCase):
 			self.assertIsNone(ops.frontend_edit_error(instance, "edit_file", "frontend/src/A.vue"))
 
 
-class TestJobDecisionUsesTheLinkedAgent(FrappeTestCase):
+class TestJobDecisionUsesTheLinkedAgent(IntegrationTestCase):
 	def test_a_fast_tool_call_asks_about_the_linked_agent_not_the_map_name(self):
 		instance = frappe._dict(process_model="Dev Agent v1", name="INST-1")
 		settings = MagicMock(agent_sandbox_url="https://sandbox.example")

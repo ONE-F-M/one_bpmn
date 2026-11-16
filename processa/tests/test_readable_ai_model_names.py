@@ -9,7 +9,7 @@ at the output.
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.patches.v1_0.readable_ai_model_names import (
 	_still_an_identifier,
@@ -17,7 +17,7 @@ from processa.patches.v1_0.readable_ai_model_names import (
 )
 
 
-class TestReadableAIModelNames(FrappeTestCase):
+class TestReadableAIModelNames(UnitTestCase):
 	def test_the_identifiers_actually_in_the_catalogue(self):
 		for identifier, expected in (
 			("claude-opus-5", "Claude Opus 5"),

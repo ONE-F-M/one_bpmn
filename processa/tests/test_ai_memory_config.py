@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.compiler.extensions import extract_service_task_config
 
@@ -41,7 +41,7 @@ MEMORY_OFF_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestAIMemoryConfig(FrappeTestCase):
+class TestAIMemoryConfig(UnitTestCase):
 	def test_memory_attributes_lifted_into_spec(self):
 		cfg = extract_service_task_config(MEMORY_XML)["ai_task"]
 		self.assertEqual(cfg["aiConversationStore"], "document_store")

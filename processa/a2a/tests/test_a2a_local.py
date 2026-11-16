@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from processa.a2a import poller as scheduled_tasks
@@ -32,7 +32,7 @@ def stub_turn(text="local reply", conversation=None):
 	)
 
 
-class LocalDelegationCase(FrappeTestCase):
+class LocalDelegationCase(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		# The specialist. Exposed over A2A — that flag is what marks an agent

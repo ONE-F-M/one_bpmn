@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.chat_persistence import (
 	create_conversation,
@@ -40,7 +40,7 @@ def _instance_for(conversation: str):
 	return doc
 
 
-class TestTurnStatus(FrappeTestCase):
+class TestTurnStatus(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = create_conversation("prosally", "_Test turn status", frappe.session.user)

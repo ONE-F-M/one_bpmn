@@ -54,13 +54,13 @@ def run_suite(suite: dict, backend: str, spend_cap: float = 0, triggered_by: str
 	run.flags.ignore_mandatory = True
 	run.insert(ignore_permissions=True)
 	# Durable before and after, so a run interrupted halfway is still readable
-	# — skipped under test so FrappeTestCase rollback cleans its fixtures up
+	# - skipped under test so IntegrationTestCase rollback cleans its fixtures up
 	# instead of leaving suites and runs behind on the site.
-	if not frappe.flags.in_test:
+	if not frappe.in_test:
 		frappe.db.commit()
 
 	execute_eval_suite(run.name)
-	if not frappe.flags.in_test:
+	if not frappe.in_test:
 		frappe.db.commit()
 	run.reload()
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 
 def _config(**fields):
@@ -22,7 +22,7 @@ def _config(**fields):
 	return doc
 
 
-class TestMemoryNeedsAMap(FrappeTestCase):
+class TestMemoryNeedsAMap(UnitTestCase):
 	def _warnings(self, doc) -> list[str]:
 		with patch.object(frappe, "msgprint") as msgprint:
 			doc.warn_if_memory_has_no_map()

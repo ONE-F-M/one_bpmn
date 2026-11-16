@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib
 from unittest.mock import MagicMock, patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.agents_sandbox.customization import github_sync as logic
 
@@ -17,7 +17,7 @@ def _page(items, status=200):
 	return resp
 
 
-class TestOrgRepos(FrappeTestCase):
+class TestOrgRepos(UnitTestCase):
 	def test_single_page_is_returned_as_name_description_url(self):
 		items = [
 			{"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/one_bpmn"},

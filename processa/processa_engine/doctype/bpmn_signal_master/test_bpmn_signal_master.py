@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 DOCTYPE = "BPMN Signal Master"
 
@@ -16,7 +16,7 @@ def make_user_with_role(role):
 	return email
 
 
-class TestBPMNSignalMaster(FrappeTestCase):
+class TestBPMNSignalMaster(IntegrationTestCase):
 	def test_name_is_the_record_id(self):
 		self.assertEqual(make_bpmn_signal_master("Roster Decision").name, "Roster Decision")
 

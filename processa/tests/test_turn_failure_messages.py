@@ -3,19 +3,17 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.api import a2a as a2a_api
 from processa.api import server_scripts as SSA
 from processa.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
-
 CONVERSATION = "ZZ-TURN-FAILURE-CONV"
 
 
-class TestTurnFailureMessages(FrappeTestCase):
+class TestTurnFailureMessages(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		instance = frappe.get_doc(

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, ToolSpec
@@ -83,7 +83,7 @@ def _run(adapter, timeout_seconds=None, max_retries=0, retry_backoff_ms=1):
 	)
 
 
-class TestStepTimeout(FrappeTestCase):
+class TestStepTimeout(UnitTestCase):
 	def test_a_slow_turn_past_timeout_is_retried_and_can_still_succeed(self):
 		adapter = _SlowThenFast(slow_calls=1, delay=0.2)
 		completion, suspension = _run(adapter, timeout_seconds=0.05, max_retries=1)
@@ -107,7 +107,7 @@ class TestStepTimeout(FrappeTestCase):
 		self.assertEqual(adapter.calls, 1, "no timeout means the slow call itself just completes")
 
 
-class TestStepRetryOnFailure(FrappeTestCase):
+class TestStepRetryOnFailure(UnitTestCase):
 	def test_a_failing_turn_is_retried_up_to_max_retries(self):
 		adapter = _FailsThenSucceeds(failures=2)
 		completion, suspension = _run(adapter, max_retries=2)

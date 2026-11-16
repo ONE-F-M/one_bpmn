@@ -22,7 +22,7 @@ import asyncio
 import threading
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import run_sync
 
@@ -32,7 +32,7 @@ def _read_the_database():
     return frappe.get_all("DocType", limit=1, pluck="name")
 
 
-class TestRunSyncContext(FrappeTestCase):
+class TestRunSyncContext(IntegrationTestCase):
     def test_direct_call_has_context(self):
         """No loop running → asyncio.run in this thread. The baseline."""
 
@@ -128,7 +128,7 @@ class TestRunSyncContext(FrappeTestCase):
         self.assertTrue(got["list_api_server_scripts"], "list_api_server_scripts went blind")
 
 
-class TestDirectApiExecutorContext(FrappeTestCase):
+class TestDirectApiExecutorContext(IntegrationTestCase):
     """The executor's own fallback carries the same contract."""
 
     def test_run_coro_blocking_propagates_context(self):

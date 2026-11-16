@@ -12,7 +12,7 @@ one agent was chosen it was the only agent offered.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_eval_suite
@@ -31,7 +31,7 @@ def _run_without_its_own_agent(suite: str) -> str:
 	}).insert(ignore_permissions=True).name
 
 
-class TestEvalResultsAgentFilter(FrappeTestCase):
+class TestEvalResultsAgentFilter(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.first = make_eval_suite(process_model=None, title="_Test filter first " + frappe.generate_hash(length=6))

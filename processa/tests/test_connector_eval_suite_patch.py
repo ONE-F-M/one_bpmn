@@ -15,7 +15,7 @@ import json
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_connector_agent_eval_suite as seed
 
@@ -24,7 +24,7 @@ AGENT_PRESENT = frappe.db.exists("AI Agent Configuration", seed.AGENT) and frapp
 )
 
 
-class TestConnectorEvalSuiteSeed(FrappeTestCase):
+class TestConnectorEvalSuiteSeed(IntegrationTestCase):
 	def _suite(self) -> str:
 		return frappe.db.get_value("AI Eval Suite", {"title": seed.SUITE_TITLE}, "name")
 

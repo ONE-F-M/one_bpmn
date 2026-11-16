@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
 from processa.processa_engine.compiler.ai_checks import validate_ai_agent_tools
@@ -43,7 +43,7 @@ def _extensions(xml):
 	return svc
 
 
-class TestResolveToolShapes(FrappeTestCase):
+class TestResolveToolShapes(UnitTestCase):
 	def test_embeds_eligible_shapes_only(self):
 		svc = _extensions(_xml('spiffworkflow:aiToolsAdhoc="Tools_1"', TOOLS))
 		shapes = json.loads(svc["Agent_1"]["aiToolShapes"])
@@ -109,7 +109,7 @@ class TestResolveToolShapes(FrappeTestCase):
 		self.assertNotIn("required", by_id["no_params"])
 
 
-class TestValidateAgentTools(FrappeTestCase):
+class TestValidateAgentTools(UnitTestCase):
 	def test_valid_reference_passes(self):
 		xml = _xml('spiffworkflow:aiToolsAdhoc="Tools_1"', TOOLS)
 		validate_ai_agent_tools(xml, _extensions(xml))  # must not raise

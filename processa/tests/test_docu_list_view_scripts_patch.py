@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from processa.patches.v1_0 import docu_writes_list_view_scripts as fix
@@ -63,7 +63,7 @@ def _list_script():
 	return frappe.db.get_value("Client Script", {"dt": "Note", "view": "List"}, "script")
 
 
-class TestWriteListScriptStage(FrappeTestCase):
+class TestWriteListScriptStage(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("write_list_script")
 
@@ -157,7 +157,7 @@ class TestWriteListScriptStage(FrappeTestCase):
 		self.assertIsNone(_list_script())
 
 
-class TestClassifierEdits(FrappeTestCase):
+class TestClassifierEdits(IntegrationTestCase):
 	def _edited(self, base=CLASSIFY):
 		script = base
 		for anchor, replacement in (

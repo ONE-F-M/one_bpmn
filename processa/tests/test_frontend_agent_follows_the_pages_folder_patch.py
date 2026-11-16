@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import frontend_agent_follows_the_pages_folder as patch
 
 
-class TestFrontendAgentFollowsThePagesFolderPatch(FrappeTestCase):
+class TestFrontendAgentFollowsThePagesFolderPatch(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

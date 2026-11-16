@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from processa.a2a import poller as scheduled_tasks
@@ -73,7 +73,7 @@ def make_outbound(remote, token=None, **kwargs):
 	return task
 
 
-class CallbackHarness(FrappeTestCase):
+class CallbackHarness(IntegrationTestCase):
 	"""Calls the guest endpoint the way a remote would: a JSON body and a
 	token header, with no session."""
 
@@ -216,7 +216,7 @@ class TestPushCallbackSemantics(CallbackHarness):
 		asked.assert_called_once()
 
 
-class TestOutboundRegistration(FrappeTestCase):
+class TestOutboundRegistration(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.worker = make_agent_configuration(a2a_exposed=1)
@@ -288,7 +288,7 @@ class TestOutboundRegistration(FrappeTestCase):
 		self.assertEqual(task.state, "working")
 
 
-class TestInboundNotification(FrappeTestCase):
+class TestInboundNotification(IntegrationTestCase):
 	def make_inbound(self, **kwargs):
 		agent = make_agent_configuration(a2a_exposed=1)
 		client = approve(make_client(agents=[agent.name]))
@@ -375,7 +375,7 @@ class TestInboundNotification(FrappeTestCase):
 		session.post.assert_not_called()
 
 
-class TestPollerWithPush(FrappeTestCase):
+class TestPollerWithPush(IntegrationTestCase):
 	def tearDown(self):
 		for name in self.made:
 			frappe.delete_doc("A2A Task", name, force=True, ignore_permissions=True, ignore_missing=True)

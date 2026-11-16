@@ -17,7 +17,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.ai_agent_evals.runner.assertions import MODEL_BACKED_ASSERTIONS
@@ -35,7 +35,7 @@ def _case(**kwargs):
 	return case
 
 
-class TestDeterministicScoring(FrappeTestCase):
+class TestDeterministicScoring(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test deterministic " + frappe.generate_hash(length=6))
@@ -142,7 +142,7 @@ class TestDeterministicScoring(FrappeTestCase):
 		self.assertEqual(MODEL_BACKED_ASSERTIONS, {"llm_judge"})
 
 
-class TestSuiteRunDeterministic(FrappeTestCase):
+class TestSuiteRunDeterministic(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test det suite " + frappe.generate_hash(length=6))
@@ -188,7 +188,7 @@ class TestSuiteRunDeterministic(FrappeTestCase):
 		self.assertEqual(self._run().backend, "deterministic")
 
 
-class TestCommandVerdict(FrappeTestCase):
+class TestCommandVerdict(IntegrationTestCase):
 	"""What turns a run into a red or green check."""
 
 	def _summary(self, **kwargs):
@@ -215,7 +215,7 @@ class TestCommandVerdict(FrappeTestCase):
 		self.assertFalse(_verdict([self._summary(rate=None, checked=0, passed=0, skipped=4)], 100, True))
 
 
-class TestFailureLine(FrappeTestCase):
+class TestFailureLine(IntegrationTestCase):
 	"""A CI log is read once, in a hurry, by someone who did not write the case."""
 
 	def test_it_names_the_assertion_that_did_not_hold(self):

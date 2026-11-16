@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.tests.conversation_fixtures import drop_conversations
@@ -23,7 +23,7 @@ from processa.api.sessions import (
 from processa.ai_agent_conversations.chat_persistence import create_conversation, save_bot_message, save_user_message
 
 
-class SessionsApiCase(FrappeTestCase):
+class SessionsApiCase(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 		self.agents = []
@@ -349,7 +349,7 @@ class SessionsApiCase(FrappeTestCase):
 			self.assertIn("compaction_enabled", r)
 
 
-class TestSessionsApiPermission(FrappeTestCase):
+class TestSessionsApiPermission(IntegrationTestCase):
 	def test_a_non_manager_is_refused(self):
 		"""The listing exposes conversation titles and summary text across every
 		user's chats, so it is gated harder than the rest of the editor."""

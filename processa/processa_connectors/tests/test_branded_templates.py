@@ -23,10 +23,10 @@ bottom of this file.
 """
 
 import json
-import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.operations.google_docs import fill_template as _fill_template
 
@@ -35,7 +35,7 @@ COPY_ID = "_TestCopyId"
 FOLDER_ID = "_TestDestinationFolder"
 
 
-class TestCopyFileOperation(unittest.TestCase):
+class TestCopyFileOperation(IntegrationTestCase):
     """``files.copy`` — the only way to keep a template's design.
 
     Configuration, not code: the operation carries its URL, query and body as
@@ -82,7 +82,7 @@ class TestCopyFileOperation(unittest.TestCase):
         )
 
 
-class TestFillTemplateOperation(unittest.TestCase):
+class TestFillTemplateOperation(IntegrationTestCase):
 	"""One atomic batchUpdate, and a loud failure when a placeholder is missed."""
 
 	def _docs(self, changed_per_request):
@@ -180,7 +180,7 @@ class TestFillTemplateOperation(unittest.TestCase):
 			self._fill(self._docs([]), {"document": COPY_ID, "values": '["not", "an object"]'})
 
 
-class TestTheDestructiveCombination(unittest.TestCase):
+class TestTheDestructiveCombination(IntegrationTestCase):
 	"""updateFileContent after copyFile silently undoes the whole point.
 
 	``update_file_content`` uploads new media over the file, replacing the body
@@ -216,7 +216,7 @@ class TestTheDestructiveCombination(unittest.TestCase):
 		self.assertIn("Update file content", shown_in_panel)
 
 
-class TestManifestsStayHonest(unittest.TestCase):
+class TestManifestsStayHonest(IntegrationTestCase):
 	def test_both_new_operations_are_declared_and_registered(self):
 		from processa.processa_connectors.manifest import field_specs
 		from processa.processa_connectors.validator import validate_manifests

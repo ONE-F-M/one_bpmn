@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api import agent_callback as callback
 from processa.agents_sandbox.sandbox import ops
@@ -21,7 +21,7 @@ def _name(operation_id):
 	return frappe.db.get_value(OPERATION, {"connector": "agent_sandbox", "operation_id": operation_id}, "name")
 
 
-class TestOperationRecords(FrappeTestCase):
+class TestOperationRecords(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Connector", "agent_sandbox"):
 			self.skipTest("no agent_sandbox connector on this site")
@@ -62,7 +62,7 @@ class TestOperationRecords(FrappeTestCase):
 		self.assertEqual({o["value"] for o in patch_ops.OPERATIONS}, set(ACTIONS))
 
 
-class TestSettling(FrappeTestCase):
+class TestSettling(UnitTestCase):
 	def test_a_prepared_site_and_a_ready_head_complete_without_a_pull_request(self):
 		self.assertEqual(callback._settled_fields("prepare_site", "prepared", "", {}), {"state": "completed"})
 		self.assertEqual(callback._settled_fields("checkout_pr_head", "ready", "", {}), {"state": "completed"})
@@ -95,7 +95,7 @@ class TestSettling(FrappeTestCase):
 		self.assertIn("boom at patch x", text)
 
 
-class TestSecretsAndRetries(FrappeTestCase):
+class TestSecretsAndRetries(UnitTestCase):
 	def test_the_password_is_a_secret_arg_and_these_actions_are_never_retried_from_the_stored_payload(self):
 		self.assertIn("password", ops.SECRET_ARGS)
 		for action in ACTIONS:

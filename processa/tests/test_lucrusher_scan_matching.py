@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.patches.v1_0 import lucrusher_scan_counts_and_matching as p
 from processa.tests.site_scripts import as_deployed
@@ -64,7 +64,7 @@ def _run_scan(doctypes, hooks):
 	return scope["result"]["codebase_scan"], stored["full_scan"]
 
 
-class TestScanMatching(FrappeTestCase):
+class TestScanMatching(UnitTestCase):
 	def test_generic_word_alone_does_not_match(self):
 		_, full = _run_scan([_doctype("Maintenance Frequency"), _doctype("Maintenance Schedule Entry")], [])
 		self.assertEqual([d["doctype"] for d in full["matched_doctypes"]], ["Maintenance Schedule Entry"])
@@ -106,7 +106,7 @@ class TestScanMatching(FrappeTestCase):
 		self.assertIn("DocTypes 60 of 100 shown", digest["counts_line"])
 
 
-class TestPatchEdits(FrappeTestCase):
+class TestPatchEdits(UnitTestCase):
 	def test_each_script_takes_its_edit_once(self):
 		for fixture, edits, marker in (
 			("lucrusher_scan_codebase_ba.txt", p.SCAN_EDITS, p.SCAN_MARKER),

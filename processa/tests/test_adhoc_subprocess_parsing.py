@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
 from SpiffWorkflow.bpmn.specs.bpmn_process_spec import AdHocSubprocessSpec
 from SpiffWorkflow.util.task import TaskState
@@ -28,7 +28,7 @@ def _started_subprocesses(wf):
 	return list(wf.subprocesses.values())
 
 
-class TestAdhocSubprocessParsing(FrappeTestCase):
+class TestAdhocSubprocessParsing(UnitTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

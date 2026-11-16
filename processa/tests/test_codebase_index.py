@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.lucrusher import tools as codebase_index
 MSE = "Maintenance Schedule Entry"
@@ -17,7 +17,7 @@ def _index(module_app, module="One Fm", name=MSE):
 		return codebase_index._doctypes(module_app, codebase_index.get_apps_root())
 
 
-class TestDoctypeAppMapping(FrappeTestCase):
+class TestDoctypeAppMapping(IntegrationTestCase):
 	def test_scrubbed_module_map_finds_the_app_and_controller(self):
 		(entry,) = _index({"one_fm": "one_fm"})
 		self.assertEqual(entry["app"], "one_fm")

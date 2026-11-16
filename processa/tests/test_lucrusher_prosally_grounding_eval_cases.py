@@ -4,13 +4,13 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_lucrusher_eval_suite as suite_seed
 from processa.patches.v1_0 import seed_lucrusher_prosally_grounding_eval_cases as seed
 
 
-class TestGroundingEvalCases(FrappeTestCase):
+class TestGroundingEvalCases(IntegrationTestCase):
 	def test_five_cases_each_read_the_code_then_draft(self):
 		self.assertEqual(len(seed.CASES), 5)
 		self.assertEqual(len({c["title"] for c in seed.CASES}), 5)

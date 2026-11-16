@@ -9,7 +9,7 @@ Every test uses its own model and bpmn_ids, so rows other suites leave behind ca
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_observability.reports.performance import step_kind
 from processa.api.insights import get_element_runs, get_step_latency_report
@@ -17,7 +17,7 @@ from processa.api.insights import get_element_runs, get_step_latency_report
 FROM, TO = "2026-09-01", "2026-09-07"
 
 
-class TestStepKind(FrappeTestCase):
+class TestStepKind(UnitTestCase):
 	def test_each_role_gets_its_label(self):
 		self.assertEqual(step_kind("tool", None, ["a", "b"]), "tool: a, b")
 		self.assertEqual(step_kind("assistant", {"tool": "x"}, [], "m"), "sub-call: x")
@@ -25,7 +25,7 @@ class TestStepKind(FrappeTestCase):
 		self.assertEqual(step_kind("system", None, []), "prompt: system")
 
 
-class TestStepLatencyReport(FrappeTestCase):
+class TestStepLatencyReport(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -191,11 +191,11 @@ class TestStepLatencyReport(FrappeTestCase):
 		frappe.set_user(email)
 
 		# frappe.only_for is a no-op while in_test is set, so the guard cannot fire unless it is cleared.
-		frappe.flags.in_test = False
+		frappe.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				get_step_latency_report(from_date=FROM, to_date=TO)
 			with self.assertRaises(frappe.PermissionError):
 				get_element_runs(self._key(), FROM, TO)
 		finally:
-			frappe.flags.in_test = True
+			frappe.in_test = True

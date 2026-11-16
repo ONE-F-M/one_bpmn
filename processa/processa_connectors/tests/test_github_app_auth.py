@@ -11,7 +11,7 @@ import frappe
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.patches.v1_0 import seed_github_connector as seed
 from processa.processa_connectors.operations import github as gh
@@ -44,7 +44,7 @@ SPEC = SimpleNamespace(
 )
 
 
-class TestGitHubAppAuth(FrappeTestCase):
+class TestGitHubAppAuth(UnitTestCase):
 	def setUp(self):
 		self.pem, self.public = _key()
 		self.cache = _Cache()
@@ -130,7 +130,7 @@ class TestGitHubAppAuth(FrappeTestCase):
 		self.assertEqual(self.cache.values, {})
 
 
-class TestPostPrCommentSignsInAsTheApp(FrappeTestCase):
+class TestPostPrCommentSignsInAsTheApp(IntegrationTestCase):
 	def test_with_the_app_auth_type_the_comment_uses_the_apps_token(self):
 		with patch.object(gh.frappe.db, "get_value", return_value=frappe._dict(enabled=1, auth_type="GitHub App JSON")), \
 				patch("processa.processa_connectors.manifest.get_execution_spec", return_value=SPEC), \
@@ -149,7 +149,7 @@ class TestPostPrCommentSignsInAsTheApp(FrappeTestCase):
 		settings.assert_not_called()
 
 
-class TestGitHubConnectorRecords(FrappeTestCase):
+class TestGitHubConnectorRecords(UnitTestCase):
 	def test_the_auth_type_is_an_option_everywhere_it_has_to_be(self):
 		import os
 

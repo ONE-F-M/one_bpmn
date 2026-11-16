@@ -13,7 +13,7 @@ the gate must read one rule, not two.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.a2a import (
 	_authorize,
@@ -27,7 +27,7 @@ INSIDER = "allowed-roles-insider@example.com"
 OUTSIDER = "allowed-roles-outsider@example.com"
 
 
-class TestAllowedRolesEnforcement(FrappeTestCase):
+class TestAllowedRolesEnforcement(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

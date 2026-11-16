@@ -13,7 +13,7 @@ import os
 import sys
 import tokenize
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(ROOT, ".github", "scripts", "check_structure.py")
@@ -64,7 +64,7 @@ def docstring_hits(source):
 	return hits
 
 
-class TestPatchFileIds(FrappeTestCase):
+class TestPatchFileIds(UnitTestCase):
 	def test_the_patch_folder_has_python_files(self):
 		self.assertTrue(patch_files(), f"no python files found under {PATCHES}")
 

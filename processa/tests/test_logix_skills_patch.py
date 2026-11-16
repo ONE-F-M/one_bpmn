@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_skills.skill_tools import _skill_names_cache_key, _skills_cache_key
 from processa.patches.v1_0 import seed_logix_skills as seed
@@ -22,7 +22,7 @@ WRITERS_PRESENT = all(
 )
 
 
-class TestLogixSkillsSeed(FrappeTestCase):
+class TestLogixSkillsSeed(IntegrationTestCase):
 	def _writer(self, agent_id: str):
 		return frappe.get_doc(
 			"AI Agent Configuration", frappe.db.get_value("AI Agent Configuration", {"agent_id": agent_id}, "name")

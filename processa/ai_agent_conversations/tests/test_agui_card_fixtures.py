@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_conversations.agui import contract as agui_contract
 
@@ -23,7 +23,7 @@ CHROME_EVENTS = {"onefm.choice", "onefm.conversation_title", "onefm.mode_transit
 HOST_EVENTS = {"onefm.created_config"}
 
 
-class TestCardFixtures(FrappeTestCase):
+class TestCardFixtures(UnitTestCase):
 	def test_every_fixture_validates_against_the_contract(self):
 		fixtures = sorted(FIXTURES.glob("*.json"))
 		self.assertTrue(fixtures, "no card fixtures found")

@@ -10,7 +10,7 @@ their turn.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from unittest.mock import patch
 
 from processa.ai_agent_security.screening import injection
@@ -22,7 +22,7 @@ BENIGN = "Please approve my leave request for next Tuesday."
 AGENT = "Injection Enforcement Test Agent"
 
 
-class TestInjectionEnforcement(FrappeTestCase):
+class TestInjectionEnforcement(IntegrationTestCase):
 	def setUp(self):
 		self._purge()
 
@@ -155,7 +155,7 @@ class TestInjectionEnforcement(FrappeTestCase):
 		self.assertEqual(result.text, ATTACK)
 
 
-class TestToolResultProvenance(FrappeTestCase):
+class TestToolResultProvenance(IntegrationTestCase):
 	"""Tool output must arrive marked as data."""
 
 	def test_the_result_is_wrapped_with_the_tool_that_produced_it(self):
@@ -183,7 +183,7 @@ class TestToolResultProvenance(FrappeTestCase):
 		self.assertIn("tool_result", GUARD_RAIL_TEXT)
 
 
-class TestToolResultProvenanceCoversEveryPath(FrappeTestCase):
+class TestToolResultProvenanceCoversEveryPath(IntegrationTestCase):
 	"""Marking only counts if it happens wherever tool output enters the model.
 
 	A control that holds on one provider and not another is not a control — it is
@@ -224,7 +224,7 @@ class TestToolResultProvenanceCoversEveryPath(FrappeTestCase):
 		self.assertIn("wrap_tool_result(", source)
 
 
-class TestPerAgentInjectionSwitch(FrappeTestCase):
+class TestPerAgentInjectionSwitch(IntegrationTestCase):
 	"""A noisy agent can be exempted without disabling the control site-wide,
 	and the switch is reachable from Processa rather than the desk alone."""
 
@@ -307,7 +307,7 @@ class TestPerAgentInjectionSwitch(FrappeTestCase):
 		)
 
 
-class TestScreeningEffectivenessRates(FrappeTestCase):
+class TestScreeningEffectivenessRates(IntegrationTestCase):
 	"""Attack success rate AND false-positive rate, together.
 
 	Either alone points the same wrong way. An agent that refuses every message
@@ -385,7 +385,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 		self.assertTrue(BENIGN_CASES, "a false-positive rate needs benign traffic to measure against")
 
 
-class TestToolResultSaysWhatItRead(FrappeTestCase):
+class TestToolResultSaysWhatItRead(IntegrationTestCase):
 	"""Provenance is two things: which tool produced the content, and what it
 	read. The marker carried only the tool name.
 
@@ -472,7 +472,7 @@ class TestToolResultSaysWhatItRead(FrappeTestCase):
 					)
 
 
-class TestTheSwitchWorksOnTheLivePath(FrappeTestCase):
+class TestTheSwitchWorksOnTheLivePath(IntegrationTestCase):
 	"""The per-agent switch read as working and did not work.
 
 	screening_enabled took a shortcut for dict callers — ``agent_config.get(
@@ -529,7 +529,7 @@ class TestTheSwitchWorksOnTheLivePath(FrappeTestCase):
 		                 "a disabled agent must not record detections")
 
 
-class TestMemoryWritesGetTheInputRules(FrappeTestCase):
+class TestMemoryWritesGetTheInputRules(IntegrationTestCase):
 	"""Memory was being screened against a third of the pack.
 
 	A memory write is untrusted text on its way into the model's future context

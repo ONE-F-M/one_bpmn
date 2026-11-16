@@ -15,7 +15,7 @@ has to be crossed without losing or repeating a message.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.chat_persistence import (
 	create_conversation,
@@ -44,7 +44,7 @@ CHOICE = {
 }
 
 
-class TestHistoryCarriesEvents(FrappeTestCase):
+class TestHistoryCarriesEvents(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = create_conversation("prosally", "_Test restore", frappe.session.user)
@@ -96,7 +96,7 @@ class TestHistoryCarriesEvents(FrappeTestCase):
 		self.assertNotIn("metadata", conversation_history(self.conversation)[-1])
 
 
-class TestPaging(FrappeTestCase):
+class TestPaging(IntegrationTestCase):
 	"""A conversation longer than one page has to be reachable."""
 
 	def setUp(self):
@@ -150,7 +150,7 @@ class TestPaging(FrappeTestCase):
 		self.assertEqual(conversation_history(self.conversation, before=oldest["message"]), [])
 
 
-class TestHistoryCarriesWorkingNotes(FrappeTestCase):
+class TestHistoryCarriesWorkingNotes(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = create_conversation("lumina_general_chat", "_Test notes", frappe.session.user)

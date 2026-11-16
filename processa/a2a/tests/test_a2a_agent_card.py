@@ -15,7 +15,7 @@ request and served guest-readable. The invariants under test:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.a2a import contract as a2a_contract
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
@@ -33,7 +33,7 @@ def make_exposed_agent(**kwargs):
 	return make_agent_configuration(**defaults)
 
 
-class TestA2AAgentCard(FrappeTestCase):
+class TestA2AAgentCard(IntegrationTestCase):
 	def test_card_validates_against_contract(self):
 		config = make_exposed_agent()
 		card = build_agent_card(config.agent_id)

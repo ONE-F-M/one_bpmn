@@ -20,7 +20,7 @@ import json
 from contextlib import contextmanager
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from lxml import etree
 
 from processa.api import property_panel as P
@@ -37,7 +37,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestPropertyPanelAudit(FrappeTestCase):
+class TestPropertyPanelAudit(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._cleanup()
@@ -71,19 +71,19 @@ class TestPropertyPanelAudit(FrappeTestCase):
 	def _versioning_on():
 		"""Frappe does not write Version rows under the test runner.
 
-		``Document._save`` sets ``ignore_version = frappe.flags.in_test`` unless
+		``Document._save`` sets ``ignore_version = frappe.in_test`` unless
 		told otherwise, so a test asserting "the save records a Version" measures
 		the harness rather than the behaviour and passes vacuously in reverse —
 		it always finds zero. update_element_properties calls doc.save() itself, so the
 		flag cannot be passed in; it has to be cleared around the call for this to
 		exercise what production does.
 		"""
-		was = frappe.flags.in_test
-		frappe.flags.in_test = False
+		was = frappe.in_test
+		frappe.in_test = False
 		try:
 			yield
 		finally:
-			frappe.flags.in_test = was
+			frappe.in_test = was
 
 	def _cleanup(self):
 		for name in frappe.get_all("BPMN Process Model", filters={"title": ("like", f"{PREFIX}%")}, pluck="name"):

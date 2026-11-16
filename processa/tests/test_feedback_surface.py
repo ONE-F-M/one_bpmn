@@ -19,7 +19,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.chat_persistence import load_history
 from processa.api import feedback
@@ -35,7 +35,7 @@ def _ensure_user(email: str):
 		).insert(ignore_permissions=True)
 
 
-class PanelFixture(FrappeTestCase):
+class PanelFixture(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = frappe.get_doc(
@@ -143,7 +143,7 @@ class TestReadingBackYourOwnRatings(PanelFixture):
 			frappe.set_user("Administrator")
 
 
-class TestPerAgentSwitch(FrappeTestCase):
+class TestPerAgentSwitch(IntegrationTestCase):
 	"""The disabled-agent case. Configuration, not code — the panel asks the
 	surface, exactly as it does for the greeting and the icon."""
 
@@ -181,7 +181,7 @@ class TestPerAgentSwitch(FrappeTestCase):
 			self.assertIn(key, surface)
 
 
-class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
+class TestFeedbackIsEditableFromProcessa(IntegrationTestCase):
 	"""collect_feedback drove the chat panel and could only be changed from the
 	desk form. It is the other thing about an agent an operator changes without
 	touching its diagram, so it belongs beside the screens and the throttle."""

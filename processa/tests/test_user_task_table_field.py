@@ -16,7 +16,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.extensions import extract_user_task_config
 from processa.processa_engine import engine as bpmn_engine
@@ -67,7 +67,7 @@ def _user(email):
 	return email
 
 
-class TestUserTaskAssignedToATable(FrappeTestCase):
+class TestUserTaskAssignedToATable(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

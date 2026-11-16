@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import replace_dead_ai_models as P
 
@@ -15,7 +15,7 @@ SHARED = f"{PREFIX} shared - claude-haiku-5-5"
 AGENT = f"{PREFIX} Agent"
 
 
-class TestReplaceDeadAiModels(FrappeTestCase):
+class TestReplaceDeadAiModels(IntegrationTestCase):
 	def setUp(self):
 		self.cleanup()
 		self.provider = frappe.db.get_value("AI Provider", {}, "name")

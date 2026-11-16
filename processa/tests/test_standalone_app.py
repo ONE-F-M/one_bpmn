@@ -5,7 +5,7 @@ import ast
 from pathlib import Path
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 OWN_APPS = {"frappe", "processa"}
 OTHER_APPS = {"one_fm", "onefm_mcp", "helpdesk", "erpnext", "hrms"}
@@ -16,7 +16,7 @@ def _app_of(doctype: str) -> str | None:
 	return frappe.local.module_app.get(frappe.scrub(module)) if module else None
 
 
-class TestStandaloneApp(FrappeTestCase):
+class TestStandaloneApp(IntegrationTestCase):
 	def test_doctype_links_stay_in_frappe_and_processa(self):
 		modules = frappe.get_all("Module Def", filters={"app_name": "processa"}, pluck="name")
 		outside = []

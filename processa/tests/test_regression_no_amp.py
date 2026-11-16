@@ -8,10 +8,10 @@ from email import policy
 from email.parser import Parser
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestRegressionNoAmp(FrappeTestCase):
+class TestRegressionNoAmp(IntegrationTestCase):
 	"""Ensure normal (non-AMP) emails are 100% unchanged."""
 
 	def test_normal_email_no_amp_field(self):

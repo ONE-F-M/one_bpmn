@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from processa.patches.v1_0 import prosally_scope_modify_to_subprocess as scope_patch
@@ -25,7 +25,7 @@ class FakeAdapter:
 		return SimpleNamespace(text=json.dumps(self.reply))
 
 
-class TestWithEdits(FrappeTestCase):
+class TestWithEdits(UnitTestCase):
 	def test_every_anchor_is_replaced_once(self):
 		edited = scope_patch.with_edits("a b c", (("a", "A"), ("c", "C")))
 		self.assertEqual(edited, "A b C")
@@ -35,7 +35,7 @@ class TestWithEdits(FrappeTestCase):
 		self.assertIsNone(scope_patch.with_edits("a a", (("a", "A"),)))
 
 
-class TestScopedClassification(FrappeTestCase):
+class TestScopedClassification(IntegrationTestCase):
 	def setUp(self):
 		scope_patch.execute()
 		self.script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")

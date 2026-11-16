@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import _budget_note, run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec, TurnRecord
@@ -36,7 +36,7 @@ def _run(adapter, max_turns, budget_notes=True):
 	)
 
 
-class TestStepLoopBudget(FrappeTestCase):
+class TestStepLoopBudget(UnitTestCase):
 	def test_each_tool_result_carries_the_turn_count(self):
 		adapter = _Calls("grep_files")
 		_run(adapter, max_turns=8)

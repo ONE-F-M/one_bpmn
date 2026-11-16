@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import flt
 
 from processa.patches.v1_0 import dedupe_resumed_run_steps as patch
@@ -18,7 +18,7 @@ RUN_FIELDS = [
 ]
 
 
-class TestDedupeResumedRunSteps(FrappeTestCase):
+class TestDedupeResumedRunSteps(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

@@ -8,7 +8,7 @@ import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.lucrusher import tools as ci
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
@@ -44,7 +44,7 @@ def _one_fm_installed():
 	return os.path.isfile(os.path.join(ci.get_apps_root(), DOCTYPE_DIR, "event_staff", "event_staff.py"))
 
 
-class TestReadDoctypeSources(FrappeTestCase):
+class TestReadDoctypeSources(IntegrationTestCase):
 	def setUp(self):
 		if not _one_fm_installed():
 			self.skipTest("one_fm is not installed")
@@ -88,7 +88,7 @@ class TestReadDoctypeSources(FrappeTestCase):
 		self.assertEqual((item["hooks"], item["star_hooks"]), ([], 1))
 
 
-class TestReadDoctypeSourcesStatus(FrappeTestCase):
+class TestReadDoctypeSourcesStatus(IntegrationTestCase):
 	def test_doctype_without_a_controller_file_is_reported(self):
 		item = _read(["Custom Thing"], _index(_entry("Custom Thing", py_exists=False)))[0]
 		self.assertEqual(item["status"], "no_controller_file")
@@ -150,7 +150,7 @@ def _run_script(names, sources, **fake):
 	return scope["result"]["doctype_logic"]
 
 
-class TestReadDoctypeLogicScript(FrappeTestCase):
+class TestReadDoctypeLogicScript(IntegrationTestCase):
 	def test_script_passes_the_script_gate(self):
 		self.assertEqual(deep_inspect_script(p.READ_DOCTYPE_LOGIC_SCRIPT), [])
 
@@ -225,7 +225,7 @@ MAP_XML = (
 )
 
 
-class TestReadDoctypeLogicPatch(FrappeTestCase):
+class TestReadDoctypeLogicPatch(IntegrationTestCase):
 	def test_splice_adds_the_shape_inside_the_tools_sub_process_with_bounds(self):
 		xml = p._splice_shape(MAP_XML)
 		inside = xml[xml.index("<bpmn:adHocSubProcess") : xml.index("</bpmn:adHocSubProcess>")]

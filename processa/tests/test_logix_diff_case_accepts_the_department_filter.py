@@ -5,7 +5,7 @@ import json
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import logix_diff_case_accepts_the_department_filter as p
 from processa.patches.v1_0 import seed_logix_baseline_suite as seed
@@ -28,7 +28,7 @@ def _pattern() -> re.Pattern:
 	return re.compile(check["expected"])
 
 
-class TestTheDiffCheck(FrappeTestCase):
+class TestTheDiffCheck(IntegrationTestCase):
 	def test_an_exact_filter_and_a_like_filter_both_pass(self):
 		for line in (EXACT, LIKE):
 			self.assertTrue(_pattern().search("\n".join(["-" + UNCHANGED[1:], line])), line)
@@ -40,7 +40,7 @@ class TestTheDiffCheck(FrappeTestCase):
 		self.assertIsNone(_pattern().search("\n".join([UNCHANGED, '+    fields=["name"]'])))
 
 
-class TestThePatch(FrappeTestCase):
+class TestThePatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("AI Agent Configuration", {"agent_id": seed.AGENT_ID}):

@@ -4,19 +4,17 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability.reports.runs import _step_rows
 from processa.api.insights import get_agent_overview
-
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
 
 def _tool_call_available():
 	return frappe.db.exists("DocType", "AI Agent Tool Call")
 
 
-class TestInsightsSelectorSupport(FrappeTestCase):
+class TestInsightsSelectorSupport(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

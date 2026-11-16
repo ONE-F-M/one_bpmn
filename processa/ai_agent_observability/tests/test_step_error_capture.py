@@ -17,14 +17,14 @@ and the tokens the failed try burned stop being invisible in the cost.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import flt
 
 from processa.processa_engine.agent_runtime.executor import AttemptRecord, ErrorCode, ExecutorResult, TokenUsage
 from processa.ai_agent_observability.observability import finalize_ai_run, record_ai_step, record_failed_attempts
 
 
-class RunFixture(FrappeTestCase):
+class RunFixture(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

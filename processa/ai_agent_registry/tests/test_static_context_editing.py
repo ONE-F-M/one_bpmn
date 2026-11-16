@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	config_field_map,
@@ -26,7 +26,7 @@ AGENT_ID = "zz_wi1639_static_context"
 MODEL = "ZZ-wi1639-model"
 
 
-class TestStaticContextEditing(FrappeTestCase):
+class TestStaticContextEditing(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox import ops
 from processa.patches.v1_0 import add_agent_sandbox_fast_operations as fast_patch
@@ -22,7 +22,7 @@ EXTRA = {
 }
 
 
-class TestFastOperations(FrappeTestCase):
+class TestFastOperations(IntegrationTestCase):
 	def _call(self, action, params=None, response=None, eval_run=False):
 		ctx = {"instance": None, "task": SimpleNamespace(data={}), "operation": action, "bpmn_id": "b"}
 		answer = response or {"ok": True, "response": {"fine": True}}

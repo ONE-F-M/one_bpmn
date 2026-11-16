@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.processa_engine.notifications.actions import thread_items
@@ -35,7 +35,7 @@ RESOLVE = {
 }
 
 
-class TestConversationLayout(FrappeTestCase):
+class TestConversationLayout(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("DocType", "HD Ticket"):
 			self.skipTest("Helpdesk (HD Ticket) is not installed on this site")

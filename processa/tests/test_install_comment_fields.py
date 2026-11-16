@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.install import after_install
 
@@ -12,7 +12,7 @@ def _comment_fields():
 	return set(frappe.get_all("Custom Field", filters={"dt": "Comment", "fieldname": ["in", COMMENT_FIELDS]}, pluck="fieldname"))
 
 
-class TestInstallCommentFields(FrappeTestCase):
+class TestInstallCommentFields(IntegrationTestCase):
 	def test_after_install_creates_comment_fields(self):
 		frappe.db.delete("Custom Field", {"dt": "Comment", "fieldname": ["in", COMMENT_FIELDS]})
 		frappe.clear_cache(doctype="Comment")

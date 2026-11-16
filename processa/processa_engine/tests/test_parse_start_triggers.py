@@ -4,7 +4,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from lxml import etree
 
 from processa.processa_engine.triggers import _maybe_start_instance, parse_start_triggers
@@ -30,7 +30,7 @@ _PLAIN_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestParseStartTriggers(FrappeTestCase):
+class TestParseStartTriggers(IntegrationTestCase):
 	def test_a_start_event_with_all_three_gives_all_three_keys(self):
 		self.assertEqual(
 			parse_start_triggers(_FULL_XML),

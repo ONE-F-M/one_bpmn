@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration, make_eval_case, make_eval_suite
@@ -15,7 +15,7 @@ from processa.ai_agent_evals.runner.comparison import run_eval_comparison
 from processa.ai_agent_evals.runner.suite import run_eval_suite
 
 
-class TestOneRunPerSuite(FrappeTestCase):
+class TestOneRunPerSuite(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite()

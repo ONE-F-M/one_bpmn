@@ -10,7 +10,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 _TEST_SECRET = "test-secret-key-for-unit-tests"
 
@@ -27,7 +27,7 @@ def _make_instance(context_doctype="Leave Application", context_docname="HR-LAP-
 	return inst
 
 
-class _ComposerTestCase(FrappeTestCase):
+class _ComposerTestCase(IntegrationTestCase):
 	"""Base class that mocks the HMAC secret so token generation is deterministic."""
 
 	def setUp(self):

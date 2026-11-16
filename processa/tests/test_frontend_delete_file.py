@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import frontend_agent_deletes_files as fix
 
@@ -37,7 +37,7 @@ def _exec(script_name: str, task_data: dict):
 	return result, dispatch
 
 
-class TestWriteFileRefusesEmptyContent(FrappeTestCase):
+class TestWriteFileRefusesEmptyContent(IntegrationTestCase):
 	def test_empty_content_is_refused_and_names_delete_file(self):
 		result, dispatch = _exec(
 			fix.WRITE_FILE, dict(ARGS, path="onefm_mcp/page/lumina/lumina.json", content="")
@@ -62,7 +62,7 @@ class TestWriteFileRefusesEmptyContent(FrappeTestCase):
 		self.assertEqual(dispatch.call_args.args[0], "write_file")
 
 
-class TestDeleteFile(FrappeTestCase):
+class TestDeleteFile(IntegrationTestCase):
 	def test_delete_file_dispatches_the_path(self):
 		result, dispatch = _exec(fix.DELETE_FILE, dict(ARGS, path="frontend/src/components/Old.vue"))
 		self.assertEqual(dispatch.call_args.args[0], "delete_file")
@@ -75,7 +75,7 @@ class TestDeleteFile(FrappeTestCase):
 		dispatch.assert_not_called()
 
 
-class TestTheFrontendAgentHasTheTool(FrappeTestCase):
+class TestTheFrontendAgentHasTheTool(IntegrationTestCase):
 	def test_the_map_has_the_shape_inside_its_tools_and_compiles_it(self):
 		xml = frappe.db.get_value("BPMN Process Model", fix.MAP, "bpmn_xml")
 		tools = xml[xml.index("<bpmn:adHocSubProcess") : xml.index("</bpmn:adHocSubProcess>")]

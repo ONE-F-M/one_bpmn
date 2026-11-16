@@ -13,19 +13,19 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_provisioning import generate_eval_suite_for_agent
 
 
-class TestGenerateEvalSuiteForAgent(FrappeTestCase):
+class TestGenerateEvalSuiteForAgent(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		# The generator commits; that would defeat the test's auto-rollback.
 		commit = patch.object(frappe.db, "commit")
 		commit.start()
 		self.addCleanup(commit.stop)
-		# FrappeTestCase only rolls back once the whole class is done, so each
+		# IntegrationTestCase only rolls back once the whole class is done, so each
 		# test needs its own agent name (the doctype is autoname:field).
 		self.agent_name = "ZZ Baseline Suite " + frappe.generate_hash(length=8)
 		self.suite_title = f"{self.agent_name} — Baseline"

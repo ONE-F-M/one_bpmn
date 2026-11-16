@@ -8,7 +8,7 @@
 # close_stale_chat_instances() is the hourly backstop that closes them.
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_conversations.jobs import STALE_CHAT_HOURS, close_stale_chat_instances
@@ -39,7 +39,7 @@ CLOSE_CATCH_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestStaleChatCleanup(FrappeTestCase):
+class TestStaleChatCleanup(IntegrationTestCase):
 	def _start_chat_instance(self):
 		from processa.api.deploy import compile_process_model
 

@@ -3,14 +3,14 @@
 """Every AI shape must be backed by an AI Agent Configuration."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.ai_checks import lint_ai_provider_config
 
 TEST_CONFIG = "ZZ Gate Test Agent"
 
 
-class TestAiConfigCompileGate(FrappeTestCase):
+class TestAiConfigCompileGate(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.provider = frappe.db.get_value("AI Provider", {}, "name")

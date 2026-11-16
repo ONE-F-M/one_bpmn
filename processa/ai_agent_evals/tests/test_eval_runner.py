@@ -12,7 +12,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.ai_agent_evals.tests.factories import (
@@ -27,7 +27,7 @@ from processa.ai_agent_evals.runner.cases import _execute_case, mark_expected_er
 from processa.ai_agent_evals.runner.suite import execute_eval_suite, run_eval_suite
 
 
-class TestEvalRunner(FrappeTestCase):
+class TestEvalRunner(IntegrationTestCase):
 
     # -- run_eval_suite entry point -------------------------------------
 
@@ -272,7 +272,7 @@ def _flags(agent_run: str) -> list[int]:
     )
 
 
-class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
+class TestEvalAttributionAndExpectedErrors(IntegrationTestCase):
 
     def _process_model(self, configurations: int) -> str:
         model = "_Test Eval Map " + frappe.generate_hash(length=8)

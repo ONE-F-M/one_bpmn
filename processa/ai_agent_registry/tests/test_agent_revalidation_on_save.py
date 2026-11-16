@@ -9,12 +9,12 @@ creation). Live + failing → Needs Attention with the reason; Needs Attention
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 TEST_CALL = "processa.ai_agent_registry.provisioning.agent_provisioning._provider_test_call"
 
 
-class TestAgentRevalidationOnSave(FrappeTestCase):
+class TestAgentRevalidationOnSave(IntegrationTestCase):
 	def setUp(self):
 		frappe.flags.test_agent_revalidation = True
 		suffix = frappe.generate_hash(length=6)
@@ -241,7 +241,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			frappe.flags.test_agent_revalidation = True
 
 
-class TestProviderTestCall(FrappeTestCase):
+class TestProviderTestCall(UnitTestCase):
 	"""The live test call proves the credentials and the model, not the model's
 	brevity. On 2026-09-08 every save of a Live agent on Claude Sonnet 5 parked
 	it because the reply ran past a 16-token ceiling and the adapter raised."""
@@ -317,7 +317,7 @@ class TestProviderTestCall(FrappeTestCase):
 
 
 
-class TestTheFactorySendsTheApiName(FrappeTestCase):
+class TestTheFactorySendsTheApiName(IntegrationTestCase):
 	"""A per-agent record is named "<Agent> - <model>"; the provider only knows
 	model_api_name. Sending the record name answered 404 on every save."""
 

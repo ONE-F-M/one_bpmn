@@ -8,7 +8,7 @@ import asyncio
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
@@ -52,7 +52,7 @@ def _compact(transcript, keep_turns=3):
 	)
 
 
-class TestCompactTranscript(FrappeTestCase):
+class TestCompactTranscript(IntegrationTestCase):
 	def test_older_turns_become_one_summary_with_the_files_and_the_task_stays_first(self):
 		transcript = _transcript(6)
 		with patch(SUMMARY_CALL, return_value=_summary()) as call:
@@ -127,7 +127,7 @@ class _GrowingAdapter:
 		return StepResult(tool_calls=[call], prompt_tokens=n * 10000)
 
 
-class TestTheLoopCompacts(FrappeTestCase):
+class TestTheLoopCompacts(IntegrationTestCase):
 	def test_the_call_after_the_threshold_gets_the_compacted_transcript_and_the_trace_is_untouched(self):
 		adapter = _GrowingAdapter(turns=8)
 		tool = ToolSpec(
@@ -244,7 +244,7 @@ class TestTheLoopCompacts(FrappeTestCase):
 		call.assert_not_called()
 
 
-class TestTheCodingAgentsAreSwitchedOn(FrappeTestCase):
+class TestTheCodingAgentsAreSwitchedOn(IntegrationTestCase):
 	def test_the_patch_sets_the_threshold_once_and_keeps_a_chosen_value(self):
 		agent = frappe.get_doc(
 			{

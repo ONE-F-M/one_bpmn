@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import (
 	_missing_dispatch_wiring,
@@ -64,7 +64,7 @@ SHAPE_CFG = {
 }
 
 
-class TestTheToolCarriesItsWiring(FrappeTestCase):
+class TestTheToolCarriesItsWiring(UnitTestCase):
 	# ── the merge ────────────────────────────────────────────────────────
 
 	def test_wiring_is_taken_from_the_shape_when_the_tool_entry_lacks_it(self):

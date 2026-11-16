@@ -6,13 +6,13 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 
-class TestMissingModel(FrappeTestCase):
+class TestMissingModel(UnitTestCase):
 	def test_a_provider_with_no_model_reports_model_not_configured(self):
 		result, _get_value = _run_without_a_model()
 		self.assertEqual(result.error_code, ErrorCode.MODEL_NOT_CONFIGURED)

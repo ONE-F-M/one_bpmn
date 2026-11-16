@@ -4,7 +4,7 @@
 import json
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 NEW_PATH = ".claude/open-pr-via-github-app.sh"
 OLD_PATH = "scripts/claude-pr.sh"
@@ -13,7 +13,7 @@ OLD_PATH = "scripts/claude-pr.sh"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-class TestPrHelperPath(FrappeTestCase):
+class TestPrHelperPath(UnitTestCase):
 	def test_helper_exists_at_new_path(self):
 		self.assertTrue((REPO_ROOT / NEW_PATH).is_file())
 

@@ -288,7 +288,7 @@ def _refresh_timer_tasks(instance_name: str):
 		check_completion(instance, wf)
 
 		instance.save(ignore_permissions=True)  # scheduler job, no session user
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 
 		frappe.publish_realtime(

@@ -5,12 +5,12 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import apply_doctype
 
 
-class TestModuleMove(FrappeTestCase):
+class TestModuleMove(IntegrationTestCase):
 	"""The module used to be honoured on CREATE and ignored on every update, so
 	a user who asked to move a form saw the panel change, saw the agent agree,
 	and found the DocType exactly where it was."""

@@ -10,13 +10,13 @@ the half-hour mark twice on 2026-09-15 with nothing saved.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_suite
 from processa.ai_agent_evals.runner.policy import MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION, job_timeout
 
 
-class TestEvalJobTimeoutFitsTheSuite(FrappeTestCase):
+class TestEvalJobTimeoutFitsTheSuite(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test job timeout " + frappe.generate_hash(length=6))

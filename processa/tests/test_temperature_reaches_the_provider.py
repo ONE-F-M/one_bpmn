@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorConfig, ExecutorContext
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
@@ -63,7 +63,7 @@ class _RecordingAdapter:
 		return StepResult(content="Done.")
 
 
-class TestTheAnthropicAdapter(FrappeTestCase):
+class TestTheAnthropicAdapter(UnitTestCase):
 	def test_the_temperature_is_sent(self):
 		self.assertEqual(_anthropic_request(temperature=0.3)["temperature"], 0.3)
 
@@ -83,7 +83,7 @@ class TestTheAnthropicAdapter(FrappeTestCase):
 		self.assertNotIn("temperature", request)
 
 
-class TestTheLoopPassesThemThrough(FrappeTestCase):
+class TestTheLoopPassesThemThrough(UnitTestCase):
 	def test_given_values_reach_every_step(self):
 		adapter = _RecordingAdapter()
 		asyncio.run(run_agent_loop(adapter, system="s", user="u", tools=[TOOL], temperature=0.3, top_p=0.9))
@@ -95,7 +95,7 @@ class TestTheLoopPassesThemThrough(FrappeTestCase):
 		self.assertNotIn("temperature", adapter.calls[0])
 
 
-class TestTheExecutorDecidesByTheModel(FrappeTestCase):
+class TestTheExecutorDecidesByTheModel(IntegrationTestCase):
 	def _first_step(self, model: str) -> dict:
 		adapter = _RecordingAdapter()
 		config = ExecutorConfig(
@@ -120,7 +120,7 @@ class TestTheExecutorDecidesByTheModel(FrappeTestCase):
 		self.assertNotIn("temperature", self._first_step(_model("_temp-no-fable-5", 0)))
 
 
-class TestTheEditorKnowsWhichModelsTakeThem(FrappeTestCase):
+class TestTheEditorKnowsWhichModelsTakeThem(IntegrationTestCase):
 	def test_the_model_catalogue_says_whether_each_model_supports_temperature(self):
 		from processa.ai_agent_registry.provisioning.agent_config_resolver import model_catalogue
 
@@ -131,7 +131,7 @@ class TestTheEditorKnowsWhichModelsTakeThem(FrappeTestCase):
 		self.assertEqual(rows[without]["support_temperature"], 0)
 
 
-class TestThePatch(FrappeTestCase):
+class TestThePatch(IntegrationTestCase):
 	def test_rows_are_matched_by_api_name(self):
 		agent_row = _model("_temp-patch Dev Agent - claude-haiku-4-5", 0)
 		frappe.db.set_value("AI Model", agent_row, "model_api_name", "claude-haiku-4-5")
@@ -149,7 +149,7 @@ class TestThePatch(FrappeTestCase):
 		self.assertFalse(ai_models_mark_temperature_support.accepts_temperature("gpt-5-nano"))
 
 
-class TestTheSaveWarns(FrappeTestCase):
+class TestTheSaveWarns(IntegrationTestCase):
 	def _warnings(self) -> str:
 		return " ".join(str(m) for m in frappe.local.message_log)
 

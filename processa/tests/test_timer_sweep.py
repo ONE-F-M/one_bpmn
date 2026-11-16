@@ -10,7 +10,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.processa_engine.timers import _refresh_timer_tasks, process_timer_catch_events
@@ -60,7 +60,7 @@ NO_TIMER_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestTimerSweep(FrappeTestCase):
+class TestTimerSweep(IntegrationTestCase):
 	def _model(self, xml):
 		process = frappe.get_doc({
 			"doctype": "Process",

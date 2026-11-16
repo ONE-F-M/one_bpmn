@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 """Deploy warns about email steps whose recipients, subject or body are empty."""
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.deploy_warnings import check_email_settings
 from processa.api.process_maps import validate_bpmn_readiness
@@ -20,7 +20,7 @@ MAP_WITH_EMPTY_EMAIL = """<?xml version="1.0" encoding="UTF-8"?>
 SEND_EMAIL_FULL = {"serviceType": "send_email", "emailToRoles": "HR Manager", "emailSubject": "Hi", "emailBody": "Body"}
 
 
-class TestEmailSettingsDeployWarning(FrappeTestCase):
+class TestEmailSettingsDeployWarning(IntegrationTestCase):
 	def _details(self, service=None, user=None):
 		return [w["detail"] for w in check_email_settings(service or {}, user or {})]
 

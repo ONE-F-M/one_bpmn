@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory import evals as E
 from processa.ai_agent_memory import tools as T
@@ -25,7 +25,7 @@ def _words_only():
 	return patch.object(E, "_similarities", side_effect=lambda p, g: [[E._word_overlap(x, y) for y in g] for x in p])
 
 
-class TestGenerationScoring(FrappeTestCase):
+class TestGenerationScoring(IntegrationTestCase):
 	def test_a_perfect_distillation_scores_one(self):
 		with _words_only():
 			score = E.score_generation(list(GOLDEN), GOLDEN)
@@ -72,7 +72,7 @@ class TestGenerationScoring(FrappeTestCase):
 		self.assertEqual(score["recall"], 1.0)
 
 
-class TestRetrievalScoring(FrappeTestCase):
+class TestRetrievalScoring(IntegrationTestCase):
 	def test_everything_expected_came_back(self):
 		with _words_only():
 			score = E.score_retrieval(GOLDEN, GOLDEN, k=5)
@@ -89,7 +89,7 @@ class TestRetrievalScoring(FrappeTestCase):
 		self.assertEqual(E.score_retrieval([], [], k=5)["recall_at_k"], 1.0)
 
 
-class TestLatency(FrappeTestCase):
+class TestLatency(IntegrationTestCase):
 	def test_a_call_is_timed_and_its_result_returned(self):
 		result, ms = E.timed(lambda: "answer")
 		self.assertEqual(result, "answer")
@@ -120,7 +120,7 @@ class TestLatency(FrappeTestCase):
 		self.assertEqual(report["budget_ms"], 750)
 
 
-class TestOneCaseEndToEnd(FrappeTestCase):
+class TestOneCaseEndToEnd(IntegrationTestCase):
 	def setUp(self):
 		self.agent = f"EV_{frappe.generate_hash(length=8)}"
 		for content in GOLDEN:
@@ -173,7 +173,7 @@ class TestOneCaseEndToEnd(FrappeTestCase):
 		self.assertEqual(report["measured"], [])
 
 
-class TestTheRunnerRunsMemoryCases(FrappeTestCase):
+class TestTheRunnerRunsMemoryCases(IntegrationTestCase):
 	"""A Memory case measures the memory pipeline, so it needs no provider, no
 	model and no map, and it must not be sent through the agent path."""
 

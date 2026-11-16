@@ -2,7 +2,7 @@
 """The confirmation summary lists at most 8 steps and 6 settings, and the classifier prompt asks for that."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_prompts import MAX_CONFIRMATION_SETTINGS, MAX_CONFIRMATION_STEPS, join_confirmation
 from processa.patches.v1_0 import prosally_caps_the_confirmation_summary as cap_patch
@@ -13,7 +13,7 @@ def _bullets(text: str, prefix: str) -> list:
 	return [line for line in text.splitlines() if line.startswith(prefix)]
 
 
-class TestConfirmationCap(FrappeTestCase):
+class TestConfirmationCap(UnitTestCase):
 	def test_limits_are_eight_steps_and_six_settings(self):
 		self.assertEqual((MAX_CONFIRMATION_STEPS, MAX_CONFIRMATION_SETTINGS), (8, 6))
 
@@ -50,7 +50,7 @@ class TestConfirmationCap(FrappeTestCase):
 		self.assertNotIn("more not listed", text)
 
 
-class TestClassifierPromptAsksForTheCap(FrappeTestCase):
+class TestClassifierPromptAsksForTheCap(IntegrationTestCase):
 	def setUp(self):
 		cap_patch.execute()
 		self.config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")

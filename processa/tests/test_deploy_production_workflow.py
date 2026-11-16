@@ -2,7 +2,7 @@
 
 import os
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 WORKFLOW = os.path.join(
 	os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -13,7 +13,7 @@ WORKFLOW = os.path.join(
 STOP_WORKERS = "sudo supervisorctl stop $WORKERS"
 
 
-class TestDeployProductionWorkflow(FrappeTestCase):
+class TestDeployProductionWorkflow(IntegrationTestCase):
 	"""A hotfix deploy leaves installed packages alone, and a failed one restarts the web group and the workers."""
 
 	def setUp(self):

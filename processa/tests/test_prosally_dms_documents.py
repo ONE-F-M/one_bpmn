@@ -8,7 +8,7 @@ Run with:
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_prompts
 from processa.ai_agent_registry.definitions.shared.tools_dms import DOCUMENT_TYPES
@@ -36,7 +36,7 @@ TOOLS_MAP = """<bpmn:process id="p">
   </bpmndi:BPMNPlane>"""
 
 
-class TestProsallyDmsTool(FrappeTestCase):
+class TestProsallyDmsTool(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		set_turn(CONVERSATION, {"user_text": "draw the annual leave approval process"})
@@ -148,7 +148,7 @@ class TestProsallyDmsTool(FrappeTestCase):
 		self.assertNotIn("None", prompt)
 
 
-class TestProsallyDmsPatch(FrappeTestCase):
+class TestProsallyDmsPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

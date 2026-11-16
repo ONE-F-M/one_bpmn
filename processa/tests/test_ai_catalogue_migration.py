@@ -8,7 +8,7 @@ provider holding the only API key on the site.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils.password import get_decrypted_password, set_encrypted_password
 
 from processa.patches.v1_0.provider_is_a_name_model_holds_the_connection import (
@@ -21,7 +21,7 @@ from processa.patches.v1_0.seed_ai_model_catalogue import (
 )
 
 
-class CatalogueCase(FrappeTestCase):
+class CatalogueCase(IntegrationTestCase):
 	def setUp(self):
 		self.models = []
 		self.providers = []

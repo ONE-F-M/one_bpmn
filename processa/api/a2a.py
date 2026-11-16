@@ -871,7 +871,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 
 	# The worker's job is queued to start after this request commits, so nothing
 	# runs until the transaction is released. Progress would never arrive.
-	if not frappe.flags.in_test:
+	if not frappe.in_test:
 		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 		frappe.db.commit()
 

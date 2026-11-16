@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OLD_NAME = "spiff"
@@ -18,7 +18,7 @@ SKIPPED = (
 )
 
 
-class TestFrontendFolder(FrappeTestCase):
+class TestFrontendFolder(UnitTestCase):
 	def test_the_app_is_in_frontend(self):
 		self.assertTrue(os.path.isfile(os.path.join(ROOT, "frontend", "package.json")))
 		self.assertFalse(os.path.exists(os.path.join(ROOT, OLD_NAME)))

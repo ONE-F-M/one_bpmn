@@ -2,13 +2,13 @@
 """Docu's baseline suite gains the list view script cases once, and its probe list script passes the safety gate."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.client_script_validator import validate_list_view_script
 from processa.patches.v1_0 import seed_docu_list_script_cases as seed
 
 
-class TestSeedDocuListScriptCases(FrappeTestCase):
+class TestSeedDocuListScriptCases(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 		model = frappe.db.get_value("BPMN Process Model", {}, "name")

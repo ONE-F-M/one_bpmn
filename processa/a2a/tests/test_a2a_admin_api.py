@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.api import a2a_admin
@@ -39,7 +39,7 @@ def make_task(**kwargs):
 	return task.insert(ignore_permissions=True)
 
 
-class TestA2AAdminPermissions(FrappeTestCase):
+class TestA2AAdminPermissions(IntegrationTestCase):
 	def test_every_endpoint_refuses_a_non_admin(self):
 		nobody = make_nobody()
 		with self.set_user(nobody.name):
@@ -68,7 +68,7 @@ class TestA2AAdminPermissions(FrappeTestCase):
 		self.assertTrue(a2a_admin.get_permissions()["administer"])
 
 
-class TestA2AAdminRegistries(FrappeTestCase):
+class TestA2AAdminRegistries(IntegrationTestCase):
 	def test_clients_carry_their_allow_list(self):
 		agent = make_agent_configuration(a2a_exposed=1)
 		client = approve(make_client(agents=[agent.name]))
@@ -95,7 +95,7 @@ class TestA2AAdminRegistries(FrappeTestCase):
 			a2a_admin.set_client_approval(client.name, "Whatever")
 
 
-class TestA2AAgentCatalogue(FrappeTestCase):
+class TestA2AAgentCatalogue(IntegrationTestCase):
 	"""Our own exposed agents and their cards. The cards are public; this
 	catalogue is not — an outsider must not get a directory of our agents."""
 
@@ -146,7 +146,7 @@ class TestA2AAgentCatalogue(FrappeTestCase):
 				a2a_admin.list_agent_cards()
 
 
-class TestA2AAdminTaskMonitor(FrappeTestCase):
+class TestA2AAdminTaskMonitor(IntegrationTestCase):
 	def test_lists_both_directions_with_counters(self):
 		make_task(direction="Inbound", state="working", delegation_depth=1, handoff_count=1)
 		make_task(direction="Outbound", state="completed", delegation_depth=2, handoff_count=3)
@@ -167,7 +167,7 @@ class TestA2AAdminTaskMonitor(FrappeTestCase):
 		self.assertLessEqual(result["page_length"], a2a_admin.MAX_PAGE_LENGTH)
 
 
-class TestRegisteringFromProcessa(FrappeTestCase):
+class TestRegisteringFromProcessa(IntegrationTestCase):
 	"""The brief asks for 'register an endpoint' on this screen, so the whole
 	lifecycle has to be reachable without opening Desk: create, edit, and
 	choose which agents a caller may reach."""
@@ -256,7 +256,7 @@ class TestRegisteringFromProcessa(FrappeTestCase):
 					call(**kwargs)
 
 
-class TestDelegationMonitor(FrappeTestCase):
+class TestDelegationMonitor(IntegrationTestCase):
 	"""The delegation list on the A2A screen.
 
 	The task monitor answers "what is in flight between agents". This answers
@@ -434,7 +434,7 @@ class TestDelegationMonitor(FrappeTestCase):
 		self.assertIn(mine.name, a2a_admin.delegation_filter_options()["task_agents"])
 
 
-class TestCancellingFromTheScreen(FrappeTestCase):
+class TestCancellingFromTheScreen(IntegrationTestCase):
 	"""Cancelling is a person's action, reached through the admin screen.
 
 	An agent able to cancel its own hand-offs could cancel its way out of a
@@ -515,7 +515,7 @@ class TestCancellingFromTheScreen(FrappeTestCase):
 		self.assertTrue(detail["cancelled_at"])
 
 
-class TestHandingBackFromTheScreen(FrappeTestCase):
+class TestHandingBackFromTheScreen(IntegrationTestCase):
 	"""Handing stopped work back is a person's action, like cancelling.
 
 	An agent able to re-delegate its own stopped work could work around any

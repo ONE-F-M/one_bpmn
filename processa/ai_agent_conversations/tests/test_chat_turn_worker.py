@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import frappe
 import redis
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime import turn_signal
 from processa.api import server_scripts
@@ -17,7 +17,7 @@ def _instance_name() -> str:
 	return "_test_turn_" + frappe.generate_hash(length=8)
 
 
-class TestTurnSignal(FrappeTestCase):
+class TestTurnSignal(IntegrationTestCase):
 	def test_a_published_signal_ends_the_wait(self):
 		instance = _instance_name()
 		turn_signal.publish(instance)
@@ -70,7 +70,7 @@ class TestTurnSignal(FrappeTestCase):
 		self.assertTrue(turn_signal.wait(other, timeout=5))
 
 
-class TestWaitForWorkerReply(FrappeTestCase):
+class TestWaitForWorkerReply(IntegrationTestCase):
 	def test_the_wait_is_skipped_under_test_so_a_suite_cannot_hang(self):
 		"""Parking is off in tests, so the reply already exists when this is
 		reached. Without the guard every delegation test would block for the
@@ -90,7 +90,7 @@ class TestWaitForWorkerReply(FrappeTestCase):
 		self.assertNotIn("bpmn_disable_ai_parking", source)
 
 
-class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
+class TestTheRequestPicksUpTheWorkerReply(IntegrationTestCase):
 	"""The whole point of the change: the request hands the turn to the worker
 	and still returns that turn's reply."""
 
@@ -154,7 +154,7 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 		self.assertIsNone(rows)
 
 
-class TestProgressReachesTheRequest(FrappeTestCase):
+class TestProgressReachesTheRequest(IntegrationTestCase):
 	"""A tool announces itself from the worker and the request relays it."""
 
 	def setUp(self):
@@ -215,7 +215,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 		self.assertNotIn("result", handover)
 
 
-class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
+class TestTheReplyComesFromTheTaskOutput(IntegrationTestCase):
 	"""The answer is the AI task's own output, not whatever row happened to be
 	newest when the request looked."""
 
@@ -294,7 +294,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 		self.assertIsNone(result)
 
 
-class TestLongTurnKeepsWaiting(FrappeTestCase):
+class TestLongTurnKeepsWaiting(IntegrationTestCase):
 	"""A turn quiet for longer than the window keeps the chat waiting while its job lives."""
 
 	def setUp(self):
@@ -332,7 +332,7 @@ class TestLongTurnKeepsWaiting(FrappeTestCase):
 			self.assertTrue(turn_signal.ai_job_running(self.instance))
 
 
-class TestMessageDuringARunningTurn(FrappeTestCase):
+class TestMessageDuringARunningTurn(IntegrationTestCase):
 	def test_it_is_told_to_wait_and_logs_nothing(self):
 		from processa.api import a2a as a2a_api
 

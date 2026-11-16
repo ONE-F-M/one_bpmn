@@ -18,7 +18,7 @@ import json
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine import call_activities as CAI
 
@@ -73,7 +73,7 @@ def _parent_state(**over):
 	return state
 
 
-class TestProjection(FrappeTestCase):
+class TestProjection(IntegrationTestCase):
 	def test_the_four_top_level_keys_are_added(self):
 		p = CAI.project_subworkflow_state(_parent_state(), "call-task-1")
 		for key in ("serializer_version", "subprocess_specs", "subprocesses", "bpmn_events"):
@@ -156,7 +156,7 @@ def _call_task(task_id, called="called_proc", kind="CallActivity"):
 	return SimpleNamespace(id=task_id, task_spec=spec)
 
 
-class TestRowSync(FrappeTestCase):
+class TestRowSync(IntegrationTestCase):
 	def setUp(self):
 		self.model = frappe.get_all(
 			"BPMN Process Model", filters={"process_id": ["is", "set"]},

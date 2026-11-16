@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
@@ -44,7 +44,7 @@ class SlowAdapter:
 		return self.steps.pop(0)
 
 
-class TestModelTimeIsStoredApart(FrappeTestCase):
+class TestModelTimeIsStoredApart(UnitTestCase):
 	def test_a_tool_turn_keeps_model_time_out_of_tool_time(self):
 		def slow_tool(**kwargs):
 			time.sleep(0.06)
@@ -70,7 +70,7 @@ class TestModelTimeIsStoredApart(FrappeTestCase):
 		self.assertLess(final_turn.latency_ms - final_turn.model_latency_ms, 30)
 
 
-class TestRunLatencyCountsEachMillisecondOnce(FrappeTestCase):
+class TestRunLatencyCountsEachMillisecondOnce(IntegrationTestCase):
 	def test_a_sub_call_inside_a_tool_is_not_added_on_top_of_its_turn(self):
 		run = frappe.get_doc({
 			"doctype": "AI Agent Run",
@@ -85,7 +85,7 @@ class TestRunLatencyCountsEachMillisecondOnce(FrappeTestCase):
 		self.assertEqual(sum_step_metrics(run.name)["agent_latency_ms"], 1150)
 
 
-class TestTheReportSplitsARun(FrappeTestCase):
+class TestTheReportSplitsARun(UnitTestCase):
 	def run_doc(self):
 		return frappe._dict(
 			name="run-1", started_at=T0, duration_ms=2500, human_wait_ms=0, queue_wait_ms=80

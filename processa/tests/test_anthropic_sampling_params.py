@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorConfig
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor, supports_temperature
@@ -46,7 +46,7 @@ def _payload(model: str, **config) -> dict:
 	return payload
 
 
-class TestAnthropicSamplingParams(FrappeTestCase):
+class TestAnthropicSamplingParams(IntegrationTestCase):
 	def test_a_model_with_support_temperature_gets_the_temperature(self):
 		payload = _payload(_model("_temp-yes-sonnet-4-5", 1), temperature=0.3)
 		self.assertEqual(payload["temperature"], 0.3)

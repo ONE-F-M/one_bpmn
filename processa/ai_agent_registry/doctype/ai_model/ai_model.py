@@ -133,7 +133,7 @@ class AIModel(Document):
 		flags = frappe.flags
 		if flags.in_migrate or flags.in_install or flags.in_patch or flags.skip_ai_model_probe:
 			return
-		if flags.in_test and not flags.ai_model_probe_in_test:
+		if frappe.in_test and not flags.ai_model_probe_in_test:
 			return
 
 		before = self.get_doc_before_save()

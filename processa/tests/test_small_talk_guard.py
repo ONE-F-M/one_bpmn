@@ -10,7 +10,8 @@ mistake, so most of what follows guards against them.
 """
 
 import ast
-import unittest
+
+from frappe.tests import UnitTestCase
 
 from processa.patches.v1_0.docu_answers_small_talk import (
 	_CLASSIFY_MARKER,
@@ -34,7 +35,7 @@ def _verdict(message):
 	return namespace["_small_talk"]
 
 
-class TestSmallTalkGuard(unittest.TestCase):
+class TestSmallTalkGuard(UnitTestCase):
 	def test_greetings_and_acknowledgements_are_small_talk(self):
 		for message in (
 			"hi", "Hi!", "hello", "Hey there", "yo", "good morning", "thanks",
@@ -85,7 +86,7 @@ class TestSmallTalkGuard(unittest.TestCase):
 		self.assertGreater(len(_GREETING), 60)
 
 
-class TestDocuSmallTalkPatch(unittest.TestCase):
+class TestDocuSmallTalkPatch(UnitTestCase):
 	"""The patch is how this reaches a site, so it must be safe to run twice."""
 
 	def test_nothing_python_side_is_required(self):

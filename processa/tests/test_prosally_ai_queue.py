@@ -4,7 +4,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.job_limits import (
 	AI_AGENT_QUEUE,
@@ -21,7 +21,7 @@ AGENTS = {"ProsAlly Map": "prosally_agent", "Docu Map": "docu_agent"}
 REGISTERED = {"short": 300, "default": 300, "long": 1500, AI_AGENT_QUEUE: 600, PROSALLY_AI_QUEUE: 1800}
 
 
-class QueueCase(FrappeTestCase):
+class QueueCase(IntegrationTestCase):
 	"""A site where both AI queues are registered under workers in the site config."""
 
 	def setUp(self):
@@ -41,7 +41,7 @@ def _get_value(model_of_instance):
 	return get_value
 
 
-class TestQueueForAgent(FrappeTestCase):
+class TestQueueForAgent(IntegrationTestCase):
 	def test_prosally_has_its_own_queue_and_it_is_not_a_general_one(self):
 		self.assertEqual(ai_agent_queue(PROSALLY_AGENT_ID), PROSALLY_AI_QUEUE)
 		self.assertEqual(PROSALLY_AI_QUEUE, "bpmn_ai_prosally")
@@ -208,7 +208,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 		self.assertEqual(enqueue.call_args.kwargs["queue"], PROSALLY_AI_QUEUE)
 
 
-class TestJobStatusChecksBothQueues(FrappeTestCase):
+class TestJobStatusChecksBothQueues(IntegrationTestCase):
 	def test_a_job_on_prosallys_queue_counts_as_running(self):
 		from processa.processa_engine.agent_runtime import turn_signal
 
@@ -225,7 +225,7 @@ class TestJobStatusChecksBothQueues(FrappeTestCase):
 			self.assertFalse(turn_signal.ai_job_running("INST-9"))
 
 
-class TestAnUnregisteredQueueFallsBack(FrappeTestCase):
+class TestAnUnregisteredQueueFallsBack(IntegrationTestCase):
 	def test_a_site_without_the_queue_uses_the_shared_one_instead_of_failing(self):
 		without = {k: v for k, v in REGISTERED.items() if k != PROSALLY_AI_QUEUE}
 		with (

@@ -6,13 +6,13 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory import tools as T
 from processa.ai_agent_memory import volume_alert as V
 
 
-class TestVolumeAlert(FrappeTestCase):
+class TestVolumeAlert(IntegrationTestCase):
 	def test_defaults_come_from_the_ranking_code(self):
 		with patch("frappe.db.get_single_value", return_value=None):
 			self.assertEqual(V.thresholds(), (T.REVISIT_SCOPE_ROWS, T.REVISIT_TOTAL_ROWS))
@@ -63,7 +63,7 @@ class TestVolumeAlert(FrappeTestCase):
 			notify.assert_not_called()
 
 
-class TestThresholdsAreNeverZero(FrappeTestCase):
+class TestThresholdsAreNeverZero(IntegrationTestCase):
 	"""A threshold of 0 is crossed by the first memory ever written, so it would
 	fire on every site every night. A number field added to an existing Single
 	reads back as 0 until somebody chooses a value, which is that exact state."""

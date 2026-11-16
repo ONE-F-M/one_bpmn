@@ -7,12 +7,12 @@ Pins the two outcomes that matter: a fixable IR (has nodes) gets the "User" +
 nodes) is left alone, so the caller still sends it back to the model.
 """
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import ensure_default_lanes
 
 
-class TestEnsureDefaultLanes(FrappeTestCase):
+class TestEnsureDefaultLanes(UnitTestCase):
 	def test_assigns_user_and_system_lanes_when_missing(self):
 		ir = {
 			"nodes": [

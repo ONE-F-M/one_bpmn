@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model.document import Document
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.shared import tools_process_digest as process_digest
 from processa.patches.v1_0 import general_chat_answers_from_processes as patch_module
@@ -55,7 +55,7 @@ def _digest(name: str) -> str:
 	return process_digest.get_process_model_digest(name)["digest"]
 
 
-class TestProcessDigest(FrappeTestCase):
+class TestProcessDigest(IntegrationTestCase):
 	def test_digest_lists_steps_lane_and_gateway_branches(self):
 		digest = _digest(_model("leave"))
 		self.assertIn("Review leave request (lane: HR Officer)", digest)

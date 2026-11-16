@@ -1,4 +1,4 @@
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0.rename_stored_one_bpmn_paths import renamed
 from processa.patches.v1_0.repath_stored_imports_to_processa_modules import repath
@@ -8,7 +8,7 @@ def migrated(text: str) -> str:
 	return repath(renamed(text))
 
 
-class TestRepathStoredImports(FrappeTestCase):
+class TestRepathStoredImports(IntegrationTestCase):
 	def test_moved_module_keeps_the_names(self):
 		self.assertEqual(
 			migrated("from one_bpmn.agents.turn_state import get_turn, update_turn"),

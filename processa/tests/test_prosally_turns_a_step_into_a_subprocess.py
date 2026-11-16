@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from processa.patches.v1_0 import prosally_turns_a_step_into_a_subprocess as step_patch
@@ -33,7 +33,7 @@ class RecordingAdapter:
 		return SimpleNamespace(text=json.dumps(self.reply))
 
 
-class TestStepClassification(FrappeTestCase):
+class TestStepClassification(IntegrationTestCase):
 	def setUp(self):
 		step_patch.execute()
 		self.script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")
@@ -137,7 +137,7 @@ class TestStepClassification(FrappeTestCase):
 		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")
 
 
-class TestPatchContent(FrappeTestCase):
+class TestPatchContent(IntegrationTestCase):
 	def setUp(self):
 		step_patch.execute()
 

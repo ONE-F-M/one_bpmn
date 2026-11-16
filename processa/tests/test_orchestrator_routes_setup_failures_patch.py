@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import orchestrator_routes_setup_failures_to_the_dev_agent as patch
 
 
-class TestOrchestratorRoutesSetupFailuresPatch(FrappeTestCase):
+class TestOrchestratorRoutesSetupFailuresPatch(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", patch.AGENT):
 			self.skipTest("the Orchestrator Agent is not on this site")

@@ -18,6 +18,7 @@ import os
 import unittest
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from processa.ai_agent_registry.definitions.frontend_agent import tools as fs
@@ -57,7 +58,7 @@ def run_tool(tool: str, **task_data) -> dict:
 	return result
 
 
-class FrontendAgentCase(unittest.TestCase):
+class FrontendAgentCase(IntegrationTestCase):
 	def setUp(self):
 		set_turn(TURN, {"work_order": "test", "a2a_task": TURN, "staged": {}, "findings": {}})
 
@@ -66,7 +67,7 @@ class FrontendAgentCase(unittest.TestCase):
 
 
 # ── the primitive that is a security boundary ────────────────────────────────
-class TestPathContainment(unittest.TestCase):
+class TestPathContainment(IntegrationTestCase):
 	"""``resolve`` stays in Python because it needs realpath, and it is atomic."""
 
 	def test_accepts_a_front_end_source_file(self):
@@ -155,7 +156,7 @@ class TestAppRouting(FrontendAgentCase):
 		self.assertTrue(any(r["to"] == "processa" for r in out["route_rules"]))
 # ── the build must not be able to hurt the running app ───────────────────────
 @unittest.skipUnless(_spa_installed(), "frontend/node_modules is not installed")
-class TestBuildIsolation(unittest.TestCase):
+class TestBuildIsolation(IntegrationTestCase):
 	"""``frontend/vite.config.js`` empties the live asset directory and overwrites the
 	served shell, so the check must never use it."""
 

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_eval_suite
@@ -11,8 +11,6 @@ from processa.api.evals import (
 	get_conversation_for_case,
 	list_conversations_for_case,
 )
-
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 
 def _conversation(mode: str, rows: list, is_eval: int = 0) -> tuple[str, list]:
@@ -34,7 +32,7 @@ def _conversation(mode: str, rows: list, is_eval: int = 0) -> tuple[str, list]:
 	return chat.name, names
 
 
-class TestEvalCaseConversation(FrappeTestCase):
+class TestEvalCaseConversation(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite()

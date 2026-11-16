@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import compile_shape_tools, execute_shape
 
@@ -21,7 +21,7 @@ def _fake_instance():
 	)
 
 
-class TestCompileShapeTools(FrappeTestCase):
+class TestCompileShapeTools(UnitTestCase):
 	def test_descriptors_become_tools(self):
 		shapes = [
 			{"bpmn_id": "lookup_customer", "description": "Look up a customer.", "serverScript": "S1"},
@@ -70,7 +70,7 @@ class TestCompileShapeTools(FrappeTestCase):
 		self.assertEqual(by_name["no_args"].required, [])
 
 
-class TestExecuteShape(FrappeTestCase):
+class TestExecuteShape(IntegrationTestCase):
 	def _script(self, name, body):
 		if not frappe.db.exists("Server Script", name):
 			frappe.get_doc(

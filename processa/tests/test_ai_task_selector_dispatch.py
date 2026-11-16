@@ -9,7 +9,7 @@ from typing import ClassVar
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine import engine
@@ -94,7 +94,7 @@ class _FakeExecutor:
 		)
 
 
-class TestSelectNextAdhocTaskHook(FrappeTestCase):
+class TestSelectNextAdhocTaskHook(IntegrationTestCase):
 	"""engine.select_next_adhoc_task — self-contained on this branch."""
 
 	def tearDown(self):
@@ -131,7 +131,7 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 		self.assertIsNone(engine.select_next_adhoc_task(None, pending))
 
 
-class TestDispatchAiTaskSelector(FrappeTestCase):
+class TestDispatchAiTaskSelector(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		if not _bridge_available():
@@ -294,7 +294,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		self.assertIsNone(decider(sp, heads))
 
 
-class TestCompletedTasksNotOffered(FrappeTestCase):
+class TestCompletedTasksNotOffered(IntegrationTestCase):
 	"""Completed/cancelled heads must not be offered as tools (re-picking a
 	finished task was a safe no-op that stalled the subprocess — the dominant
 	UAT failure), and the prompt gains an authoritative progress line."""
@@ -345,7 +345,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		self.assertIn("task_a", captured["user_prompt"])
 
 
-class TestPerToolResultVariables(FrappeTestCase):
+class TestPerToolResultVariables(IntegrationTestCase):
 	"""One decision can call several registry tools (lookup + send email) —
 	each tool's latest result must persist under its own variable, or later
 	decisions lose the evidence they route on."""
@@ -399,7 +399,7 @@ CHAINED_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
+class TestSelectorWaitsForChainedDispatch(IntegrationTestCase):
 	"""Cause-1 regression (UAT eor1emd54h): the gate must not consult the
 	selector while a chained continuation task sits STARTED awaiting the
 	dispatch loop — the decision would see stale document state."""
@@ -440,7 +440,7 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 		self.assertEqual(consults[0], ["head_b"])
 
 
-class TestIdleDoesNotFinalizeRun(FrappeTestCase):
+class TestIdleDoesNotFinalizeRun(IntegrationTestCase):
 	"""Cause-2 regression: an idle decision must leave the selector run
 	Running unless the completion condition is already satisfied; the run is
 	closed when the subprocess completes (finalize_open_selector_runs)."""
@@ -502,7 +502,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		)
 
 
-class TestIdleGuardInPrompt(FrappeTestCase):
+class TestIdleGuardInPrompt(IntegrationTestCase):
 	"""Cause-3 regression: every selector prompt carries the engine-level
 	guard against improvising when the prescribed task is unavailable."""
 

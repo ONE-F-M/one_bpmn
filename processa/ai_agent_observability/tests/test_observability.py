@@ -6,13 +6,13 @@ finalize_ai_run_on_exception — all with mocked executors.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult, TokenUsage
 
 
-class TestObservability(FrappeTestCase):
+class TestObservability(IntegrationTestCase):
 
 	def _make_config(self, **kwargs) -> ExecutorConfig:
 		defaults = {

@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_review
 from processa.patches.v1_0 import prosally_diagnoses_errors as patch
@@ -43,7 +43,7 @@ def _diagnosis(origin):
 	return json.dumps({"origin": origin, "root_cause": "The condition uses an unset value.", "fix_steps": ["Set it"]})
 
 
-class TestProsAllyDiagnoseError(FrappeTestCase):
+class TestProsAllyDiagnoseError(IntegrationTestCase):
 	def _output(self, reply):
 		with mock_patch.object(tools_review, "complete_sub_prompt", return_value=reply), mock_patch.object(tools_review, "prosally_config", return_value={}
 		):

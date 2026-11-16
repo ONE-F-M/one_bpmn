@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_observability.model_rates import apply_due_model_rates
 
@@ -12,7 +12,7 @@ JOB = "processa.ai_agent_observability.model_rates.apply_due_model_rates"
 CATALOGUE = "processa.patches.v1_0.seed_ai_model_catalogue.apply_due_rates"
 
 
-class TestModelRatesJob(FrappeTestCase):
+class TestModelRatesJob(UnitTestCase):
 	def test_the_scheduler_entry_points_at_the_new_module(self):
 		scheduled = [job for jobs in frappe.get_hooks("scheduler_events")["cron"].values() for job in jobs]
 		self.assertIn(JOB, scheduled)

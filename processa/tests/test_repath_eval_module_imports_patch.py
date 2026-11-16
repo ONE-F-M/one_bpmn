@@ -2,7 +2,7 @@
 """The patch that points stored Server Script imports at the eval modules in ai_agent_evals."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.script_gate import script_hash
 from processa.patches.v1_0 import repath_eval_module_imports as P
@@ -15,7 +15,7 @@ NEW_SCRIPT = (
 )
 
 
-class TestRepathEvalModuleImports(FrappeTestCase):
+class TestRepathEvalModuleImports(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.delete("Server Script", {"name": SCRIPT_NAME})
 		frappe.get_doc(

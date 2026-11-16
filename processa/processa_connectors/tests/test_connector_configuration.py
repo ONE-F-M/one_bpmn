@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.operations import http as http_ops
 from processa.processa_connectors.manifest import (
@@ -83,7 +83,7 @@ def _by_id(manifests):
     return {m["connectorId"]: _normalize_manifest(m) for m in manifests}
 
 
-class TestSeedParity(FrappeTestCase):
+class TestSeedParity(IntegrationTestCase):
     """The DocTypes must reproduce the shipped manifests exactly."""
 
     def test_db_projection_matches_what_was_seeded(self):
@@ -134,7 +134,7 @@ class TestSeedParity(FrappeTestCase):
         self.assertTrue(python.handler_path)
 
 
-class TestFieldProjection(FrappeTestCase):
+class TestFieldProjection(IntegrationTestCase):
     """A configured field row must project into the manifest field schema."""
 
     def setUp(self):
@@ -221,7 +221,7 @@ class TestFieldProjection(FrappeTestCase):
         )
 
 
-class TestValueTransform(FrappeTestCase):
+class TestValueTransform(IntegrationTestCase):
     """Provider-specific input handling must be configuration, not code.
 
     The generic dispatcher used to hardcode "if the field type is DriveFile or
@@ -313,7 +313,7 @@ class TestValueTransform(FrappeTestCase):
         self.assertEqual(specs, [])
 
 
-class TestDynamicChoices(FrappeTestCase):
+class TestDynamicChoices(IntegrationTestCase):
     """Dynamic dropdowns resolve their function from configuration, never input."""
 
     def setUp(self):
@@ -396,7 +396,7 @@ def exploding_transform(_value):
 NOT_CALLABLE = "importable, but not a function"
 
 
-class TestConfigValidation(FrappeTestCase):
+class TestConfigValidation(IntegrationTestCase):
     """The DocTypes must refuse configurations that could only fail at runtime."""
 
     def test_bad_connector_id_rejected(self):
@@ -473,7 +473,7 @@ class TestConfigValidation(FrappeTestCase):
             )
 
 
-class TestHttpExecutor(FrappeTestCase):
+class TestHttpExecutor(IntegrationTestCase):
     """An HTTP connector must run end to end with no Python handler at all."""
 
     def setUp(self):
@@ -633,7 +633,7 @@ class TestHttpExecutor(FrappeTestCase):
         req.assert_not_called()
 
 
-class TestCredentialOnConnector(FrappeTestCase):
+class TestCredentialOnConnector(IntegrationTestCase):
     """A connector holds its own credential — no Customize Form detour.
 
     The secret is an encrypted Password field on BPMN Connector. These tests pin
@@ -753,7 +753,7 @@ class TestCredentialOnConnector(FrappeTestCase):
         req.assert_not_called()
 
 
-class TestHttpSafety(FrappeTestCase):
+class TestHttpSafety(IntegrationTestCase):
     def test_internal_hosts_refused_by_default(self):
         for url in (
             "http://127.0.0.1/x",
@@ -788,7 +788,7 @@ class TestHttpSafety(FrappeTestCase):
         self.assertIsNone(http_ops.dig(data, "a.b.c"))  # list indexed as a dict
 
 
-class TestExportImportRoundTrip(FrappeTestCase):
+class TestExportImportRoundTrip(IntegrationTestCase):
     def test_export_then_import_reproduces_the_connector(self):
         import_seed_manifests(overwrite=True)
         exported = export_manifest("google_drive")
@@ -822,7 +822,7 @@ class TestExportImportRoundTrip(FrappeTestCase):
         self.assertNotIn("password", blob.lower())
 
 
-class TestCacheInvalidation(FrappeTestCase):
+class TestCacheInvalidation(IntegrationTestCase):
     def test_saving_a_connector_refreshes_the_manifests(self):
         _make_connector("cache_test", base_url=_PUBLIC, execution_type="HTTP Request")
         _make_operation("cache_test", "opOne", url_template="/one")

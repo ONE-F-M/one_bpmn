@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import frontend_and_mobile_agents_search_and_read_less as patch
 
 
-class TestFrontendAndMobileSearchPatch(FrappeTestCase):
+class TestFrontendAndMobileSearchPatch(IntegrationTestCase):
 	def setUp(self):
 		self.present = [a for a in patch.RULES if frappe.db.exists("AI Agent Configuration", a)]
 		if not self.present:

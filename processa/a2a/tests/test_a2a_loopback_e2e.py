@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.a2a import poller
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
@@ -65,7 +65,7 @@ class LoopbackTransport:
 		raise NotImplementedError
 
 
-class TestA2ALoopback(FrappeTestCase):
+class TestA2ALoopback(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		# The exposed worker — receives work through the server side.

@@ -11,13 +11,13 @@ import json
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.tool_bounds import validate_tool_arguments
 from processa.patches.v1_0.migrate_lucrusher_agent_to_generic_path import PROCESS_MODEL as MAP
 
 
-class TestFinalizeRequiresSources(FrappeTestCase):
+class TestFinalizeRequiresSources(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", MAP):
 			self.skipTest(f"{MAP} ships by export and is not on this site")
@@ -98,7 +98,7 @@ class TestFinalizeRequiresSources(FrappeTestCase):
 		self.assertIsNone(self._check())
 
 
-class TestSkillsCiteSourcesPatch(FrappeTestCase):
+class TestSkillsCiteSourcesPatch(IntegrationTestCase):
 	def test_each_phase_skill_gains_the_sources_rule_once(self):
 		from processa.patches.v1_0 import lucrusher_skills_cite_sources as patch
 		from processa.patches.v1_0.seed_lucrusher_skills import SKILLS
@@ -122,7 +122,7 @@ class TestSkillsCiteSourcesPatch(FrappeTestCase):
 		self.assertIn("prompt_block, source}", bodies[patch.PROSALLY_SKILL])
 
 
-class TestBaselineStateInSessionStatePatch(FrappeTestCase):
+class TestBaselineStateInSessionStatePatch(IntegrationTestCase):
 	def test_hidden_state_note_moves_into_session_state(self):
 		from processa.patches.v1_0 import lucrusher_baseline_state_in_session_state as patch
 		from processa.patches.v1_0.seed_lucrusher_eval_suite import SUITE_TITLE

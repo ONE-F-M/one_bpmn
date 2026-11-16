@@ -9,7 +9,7 @@ the one hand-off gate — whichever direction the work goes.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.a2a import contract as a2a_contract
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
@@ -39,7 +39,7 @@ def make_task(execution_id, depth=1, handoffs=1):
 	return task.insert(ignore_permissions=True)
 
 
-class TestExposureIsTheGrant(FrappeTestCase):
+class TestExposureIsTheGrant(IntegrationTestCase):
 	def test_any_exposed_agent_may_delegate_to_any_other_exposed_agent(self):
 		"""No list to maintain: exposure is the whole grant."""
 		orchestrator = make_agent_configuration()
@@ -51,7 +51,7 @@ class TestExposureIsTheGrant(FrappeTestCase):
 			guardrails.check_allowed(orchestrator.name, unexposed.name)
 
 
-class TestDelegationLimits(FrappeTestCase):
+class TestDelegationLimits(IntegrationTestCase):
 	def test_defaults_when_unset(self):
 		agent = make_agent_configuration()
 		limits = guardrails.guardrails_for(agent.name)
@@ -115,7 +115,7 @@ class TestDelegationLimits(FrappeTestCase):
 		self.assertEqual(read_trace({"metadata": metadata}), counters)
 
 
-class TestRefusalIsSurfaced(FrappeTestCase):
+class TestRefusalIsSurfaced(IntegrationTestCase):
 	"""A limit breach must not fail silently — it leaves a failed
 	task behind and tells a person, choosing the most accountable one it can
 	find."""

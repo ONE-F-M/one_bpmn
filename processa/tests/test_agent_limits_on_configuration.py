@@ -6,7 +6,7 @@ import json
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	resolve_dispatch_overrides,
@@ -45,7 +45,7 @@ def _limits() -> dict:
 	return frappe.db.get_value("AI Agent Configuration", CONFIG, list(LIMITS), as_dict=True)
 
 
-class TestAgentLimitsOnConfiguration(FrappeTestCase):
+class TestAgentLimitsOnConfiguration(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

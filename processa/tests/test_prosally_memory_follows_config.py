@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_memory import budget as B
 from processa.ai_agent_registry.definitions.prosally import helpers
@@ -23,7 +23,7 @@ TURN = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], 
 DRAWN = {"intent": "BPMN_GENERATED", "response": "Drew it."}
 
 
-class TestRecallFollowsTheConfiguration(FrappeTestCase):
+class TestRecallFollowsTheConfiguration(UnitTestCase):
 	def _recall(self, fields):
 		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(helpers, "process_for_diagram", return_value="Zz Process"), patch(
@@ -52,7 +52,7 @@ class TestRecallFollowsTheConfiguration(FrappeTestCase):
 		self.assertEqual(bound.call_args.args[1], B.DEFAULT_MEMORY_TOKEN_BUDGET)
 
 
-class TestWriteFollowsTheConfiguration(FrappeTestCase):
+class TestWriteFollowsTheConfiguration(IntegrationTestCase):
 	def _queue(self, fields):
 		cfg = {"name": "CFG", "ai_model": "agent-model", "ai_provider": "p"}
 		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
@@ -78,7 +78,7 @@ class TestWriteFollowsTheConfiguration(FrappeTestCase):
 		self.assertEqual((kwargs["model"], kwargs["reconcile_model"]), ("agent-model", "agent-model"))
 
 
-class TestOrchestratorSkipsMemory(FrappeTestCase):
+class TestOrchestratorSkipsMemory(UnitTestCase):
 	INSTANCE = SimpleNamespace(context_doctype="Chat Conversation", context_docname="CONV-1")
 
 	def test_blank_keys_stop_the_dispatcher_under_entity_scope(self):
@@ -90,7 +90,7 @@ class TestOrchestratorSkipsMemory(FrappeTestCase):
 		self.assertEqual(target[1]["reference_name"], "CONV-1")
 
 
-class TestConfigurationPatch(FrappeTestCase):
+class TestConfigurationPatch(IntegrationTestCase):
 	CODE = "x = 1\n# The AI Agent Task does tool-calling internally\nresult = 1\n"
 
 	def _run(self, code, budget):

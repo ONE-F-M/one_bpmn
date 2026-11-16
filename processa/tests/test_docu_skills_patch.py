@@ -11,14 +11,14 @@ from __future__ import annotations
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_docu_skills as seed
 
 DOCU = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 
 
-class TestDocuSkillsSeed(FrappeTestCase):
+class TestDocuSkillsSeed(IntegrationTestCase):
 	def _sub_prompt(self, sub_agent_id: str) -> str:
 		return frappe.db.get_value(
 			"AI Agent Sub Prompt", {"parent": DOCU, "sub_agent_id": sub_agent_id}, "prompt_text"

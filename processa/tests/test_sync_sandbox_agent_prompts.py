@@ -5,12 +5,12 @@ prompts and the Mobile App Agent's base branch."""
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import sync_sandbox_agent_prompts as patch
 
 
-class TestSyncSandboxAgentPrompts(FrappeTestCase):
+class TestSyncSandboxAgentPrompts(IntegrationTestCase):
 	def setUp(self):
 		for agent in patch._AGENT_SEEDS:
 			if not frappe.db.exists("AI Agent Configuration", agent):

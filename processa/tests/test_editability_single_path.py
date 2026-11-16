@@ -6,12 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import editability
 
 
-class TestEditabilitySinglePath(FrappeTestCase):
+class TestEditabilitySinglePath(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.tag = frappe.generate_hash(length=6)

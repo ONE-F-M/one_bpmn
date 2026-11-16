@@ -2,7 +2,7 @@
 """The patch that points stored Server Script imports at the renamed Docu, notification and Server Script modules."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.script_gate import script_hash
 from processa.patches.v1_0 import repath_docu_notification_server_script_imports as P
@@ -20,7 +20,7 @@ NEW_SCRIPT = (
 )
 
 
-class TestRepathDocuNotificationServerScriptImports(FrappeTestCase):
+class TestRepathDocuNotificationServerScriptImports(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.delete("Server Script", {"name": SCRIPT_NAME})
 		frappe.get_doc(

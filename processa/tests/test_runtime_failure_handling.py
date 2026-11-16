@@ -20,14 +20,14 @@ import re
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.runtime.failures import fail_runtime, record_runtime_failure
 
 _REF_ID_RE = re.compile(r"[0-9A-F]{12}")
 
 
-class TestRuntimeFailureHandling(FrappeTestCase):
+class TestRuntimeFailureHandling(IntegrationTestCase):
 	def _make_instance(self):
 		inst = frappe.new_doc("BPMN Process Instance")
 		inst.name = "TEST-RUNTIME-FAIL-INSTANCE"
@@ -156,7 +156,7 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		self.assertNotIn("boom", str(ctx.exception))
 
 
-class TestCompleteTaskPermissionError(FrappeTestCase):
+class TestCompleteTaskPermissionError(IntegrationTestCase):
 	def _instance(self):
 		instance = frappe.new_doc("BPMN Process Instance")
 		instance.update({"process_id": f"test-{frappe.generate_hash(length=6)}", "status": "Active"})

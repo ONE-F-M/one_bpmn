@@ -3,14 +3,14 @@
 """Jira is gone from Processa Settings and from the BA agents' prompts."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import remove_jira_from_agent_prompts as patch
 
 JIRA_BLOCK = patch.EDITS["BA Agent"][1][0]
 
 
-class TestJiraRemoval(FrappeTestCase):
+class TestJiraRemoval(IntegrationTestCase):
 	def test_processa_settings_has_no_jira_fields(self):
 		fields = [f.fieldname for f in frappe.get_meta("Processa Settings").fields]
 		self.assertFalse([f for f in fields if f.startswith("jira")])

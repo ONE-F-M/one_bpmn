@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 """The validator checks what is inside a sub-process, not only the main process."""
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 
@@ -78,7 +78,7 @@ def _document(sub_body, sub_shapes=None, own_plane=True, main_extra="", main_flo
 	return f'{HEAD}<bpmn:process id="P" name="P" isExecutable="true">{main}</bpmn:process>{planes}</bpmn:definitions>'
 
 
-class TestSubProcessScopes(FrappeTestCase):
+class TestSubProcessScopes(UnitTestCase):
 	def _violations(self, xml):
 		return validate_bpmn_xml(xml)["violations"]
 

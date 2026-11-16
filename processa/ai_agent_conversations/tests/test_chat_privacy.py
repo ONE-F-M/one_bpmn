@@ -11,7 +11,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.permissions import chat_message_has_permission, is_participant
 
@@ -37,7 +37,7 @@ def _user(email: str, roles=()):
 	return email
 
 
-class ChatPrivacyCase(FrappeTestCase):
+class ChatPrivacyCase(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		_user(OWNER)

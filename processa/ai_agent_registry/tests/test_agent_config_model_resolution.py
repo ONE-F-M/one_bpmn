@@ -15,14 +15,14 @@ before a fix survives one.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 	get_agent_config,
 )
 
 
-class TestAgentConfigModelResolution(FrappeTestCase):
+class TestAgentConfigModelResolution(IntegrationTestCase):
 	def _live_configs(self):
 		"""Enabled configs that name both an agent_id and a model."""
 		return [

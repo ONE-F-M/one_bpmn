@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_logix_baseline_suite as seed
 from processa.tests.site_scripts import as_deployed
@@ -12,7 +12,7 @@ from processa.tests.site_scripts import as_deployed
 FINALIZE_BODY = 'import json\nfrom processa.processa_engine.agent_runtime.turn_state import get_turn\nresult["finalized"] = True\n'
 
 
-class TestLogixBaselineSuitePatch(FrappeTestCase):
+class TestLogixBaselineSuitePatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("AI Agent Configuration", {"agent_id": seed.AGENT_ID}):

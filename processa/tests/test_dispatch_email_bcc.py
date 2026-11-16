@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.dispatch.email import dispatch_email
 
@@ -27,7 +27,7 @@ def _cfg(**extra):
 	return {"emailTo": "to@one-fm.com", "emailCc": "cc@one-fm.com", "emailSubject": "Hello", **extra}
 
 
-class TestDispatchEmailBcc(FrappeTestCase):
+class TestDispatchEmailBcc(UnitTestCase):
 	def _run(self, task_cfg):
 		with patch("processa.processa_engine.notifications.composer.compose_and_send_info_email", return_value=""), patch(
 			"processa.processa_engine.notifications.composer.frappe.sendmail"

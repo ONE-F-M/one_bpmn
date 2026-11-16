@@ -12,17 +12,15 @@ from datetime import timedelta
 import frappe
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from processa.ai_agent_observability import observability as obs
 from processa.ai_agent_observability.reports.runs import _step_rows
 from processa.api.insights import get_run_detail, list_runs, run_filter_options
 
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
-
-class RunsPageFixture(FrappeTestCase):
+class RunsPageFixture(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -241,14 +239,14 @@ class TestListRuns(RunsPageFixture):
 
 		# frappe.only_for is a no-op while in_test is set, so the guard cannot
 		# fire unless the flag is cleared. Both calls below only read.
-		frappe.flags.in_test = False
+		frappe.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				list_runs()
 			with self.assertRaises(frappe.PermissionError):
 				get_run_detail("x")
 		finally:
-			frappe.flags.in_test = True
+			frappe.in_test = True
 
 
 class TestRunDetail(RunsPageFixture):
@@ -310,7 +308,7 @@ class TestRunDetail(RunsPageFixture):
 			get_run_detail("no-such-run")
 
 
-class TestADelegatedRunKnowsItsCaller(FrappeTestCase):
+class TestADelegatedRunKnowsItsCaller(IntegrationTestCase):
 	"""A run started by an A2A Task executes in its own request, so the
 	in-request flag is empty and the chain has to come from the task."""
 
@@ -420,7 +418,7 @@ class TestEveryRunNumbersItsStepsFromOne(RunsPageFixture):
 		self.assertEqual(self._indexes(high), [1, 2])
 
 
-class TestDelegatedWorkSitsUnderTheStepThatAskedForIt(FrappeTestCase):
+class TestDelegatedWorkSitsUnderTheStepThatAskedForIt(UnitTestCase):
 	"""A child reached over A2A carries the start shape of its own map, not
 	the name the caller used, so the tool name has to come off the task."""
 

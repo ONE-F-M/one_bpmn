@@ -7,7 +7,7 @@ import types
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import (
     ErrorCode,
@@ -63,7 +63,7 @@ def _mock_provider(enabled=True, endpoint="https://api.openai.com/v1"):
     return p
 
 
-class TestDirectApiExecutor(FrappeTestCase):
+class TestDirectApiExecutor(IntegrationTestCase):
 
     def _run(self, mock_response, config=None, **response_kw):
         cfg = config or _make_config()
@@ -250,7 +250,7 @@ def _gemini_model():
     return "test-gemini-antigravity"
 
 
-class TestAntigravityExecutor(FrappeTestCase):
+class TestAntigravityExecutor(IntegrationTestCase):
 
     def _run(self, agent, **kwargs):
         cfg = _make_config(backend="antigravity", provider_name="Google", model=_gemini_model(), **kwargs)
@@ -314,7 +314,7 @@ class TestAntigravityExecutor(FrappeTestCase):
         self.assertIn("bench setup requirements", result.error_message)
 
 
-class TestExecutorRegistry(FrappeTestCase):
+class TestExecutorRegistry(IntegrationTestCase):
 
     def test_get_executor_direct_api(self):
         cls = get_executor("direct_api")

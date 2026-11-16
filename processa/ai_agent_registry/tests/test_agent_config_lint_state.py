@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import get_agent_config_lint_state
 
@@ -24,7 +24,7 @@ def lint_state(name):
 	return get_agent_config_lint_state(frappe.as_json([name]))[name]
 
 
-class TestAgentConfigLintState(FrappeTestCase):
+class TestAgentConfigLintState(IntegrationTestCase):
 	def test_a_config_that_does_not_exist_is_reported_absent(self):
 		self.assertEqual(lint_state("No Such Agent"), {"exists": False})
 

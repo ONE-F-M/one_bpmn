@@ -1,7 +1,7 @@
 """tests for AI Evals permission scoping."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.eval_permissions import (
 	eval_case_query_conditions,
@@ -10,7 +10,7 @@ from processa.ai_agent_evals.eval_permissions import (
 )
 
 
-class TestEvalPermissions(FrappeTestCase):
+class TestEvalPermissions(IntegrationTestCase):
 	def test_system_manager_is_unrestricted(self):
 		"""System Manager gets an empty condition (sees everything)."""
 		self.assertEqual(eval_suite_query_conditions("Administrator"), "")

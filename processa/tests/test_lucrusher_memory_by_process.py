@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, Executor, ExecutorResult, TokenUsage, register_executor
 from processa.ai_agent_memory import tools, writeback
@@ -78,7 +78,7 @@ def _user_row(user, content, **extra):
 	).insert(ignore_permissions=True)
 
 
-class TestMemoryTargetFromTaskData(FrappeTestCase):
+class TestMemoryTargetFromTaskData(UnitTestCase):
 	def test_task_data_keys_win_over_the_instance_context(self):
 		data = {"memory_reference_doctype": "Process", "memory_reference_name": "Absence"}
 		target = D._resolve_memory_target({"aiMemoryScope": "Entity"}, _instance(), "Act_1", data)
@@ -93,7 +93,7 @@ class TestMemoryTargetFromTaskData(FrappeTestCase):
 		self.assertIsNone(D._resolve_memory_target({"aiMemoryScope": "Entity"}, _instance(), "Act_1", data))
 
 
-class TestUserScope(FrappeTestCase):
+class TestUserScope(IntegrationTestCase):
 	def test_user_scope_needs_a_user(self):
 		with self.assertRaises(frappe.ValidationError):
 			tools._resolve_scope("User", {})
@@ -108,7 +108,7 @@ class TestUserScope(FrappeTestCase):
 			doc.insert(ignore_permissions=True)
 
 
-class TestDispatchRecall(FrappeTestCase):
+class TestDispatchRecall(IntegrationTestCase):
 	def setUp(self):
 		_CAPTURED.clear()
 		for target in (
@@ -187,7 +187,7 @@ class TestDispatchRecall(FrappeTestCase):
 		self.assertEqual(kwargs["user"], "Administrator")
 
 
-class TestWritebackRouting(FrappeTestCase):
+class TestWritebackRouting(UnitTestCase):
 	FACTS = [
 		{"content": "absence needs a manager", "topic": "approval", "dedup_key": "a:approval", "audience": "process"},
 		{"content": "keeps answers short", "topic": "style", "dedup_key": "a:style", "audience": "user"},
@@ -221,7 +221,7 @@ class TestWritebackRouting(FrappeTestCase):
 		self.assertEqual({scope for scope, _ in calls}, {"Entity"})
 
 
-class TestBuildContextKeys(FrappeTestCase):
+class TestBuildContextKeys(UnitTestCase):
 	def _run(self, confirmed, known=("Absence",)):
 		scope = {
 			"context_state": {"confirmed_process": confirmed} if confirmed is not None else {},
@@ -245,7 +245,7 @@ class TestBuildContextKeys(FrappeTestCase):
 		self.assertEqual(self._run(None), {"memory_reference_doctype": "", "memory_reference_name": ""})
 
 
-class TestMemoryKeysPatch(FrappeTestCase):
+class TestMemoryKeysPatch(IntegrationTestCase):
 	CODE = "x = 1\nset_turn(conversation_id, {\n})\n"
 
 	def test_add_keys_needs_the_anchor_exactly_once(self):

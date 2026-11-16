@@ -6,12 +6,12 @@ Pins that phases concatenate in order into one IR sharing the outline's lane
 set, and that the hand-off id between phases is each chunk's last node.
 """
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import chunk_exit_node_id, merge_chunked_ir
 
 
-class TestMergeChunkedIR(FrappeTestCase):
+class TestMergeChunkedIR(UnitTestCase):
 	def test_concatenates_nodes_and_flows_in_order(self):
 		lanes = [{"id": "user", "name": "User"}, {"id": "system", "name": "System (Automatic)"}]
 		chunk_1 = {
@@ -33,7 +33,7 @@ class TestMergeChunkedIR(FrappeTestCase):
 		self.assertEqual(merged["flows"], [])
 
 
-class TestChunkExitNodeId(FrappeTestCase):
+class TestChunkExitNodeId(UnitTestCase):
 	def test_returns_the_last_node_id(self):
 		chunk = {"nodes": [{"id": "n1"}, {"id": "n2"}, {"id": "n3"}]}
 		self.assertEqual(chunk_exit_node_id(chunk), "n3")

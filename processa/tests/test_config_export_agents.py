@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.config_export_import import confirm_overwrite_config, export_bpmn_config, import_bpmn_config
 
@@ -93,7 +93,7 @@ def names(rows, type_name):
 	return {r["name"] for r in rows if r["type"] == type_name}
 
 
-class TestExportCarriesAgents(FrappeTestCase):
+class TestExportCarriesAgents(IntegrationTestCase):
 	def setUp(self):
 		self.n = fixtures(self)
 
@@ -125,7 +125,7 @@ class TestExportCarriesAgents(FrappeTestCase):
 		self.assertEqual(out["counts"]["agent_configurations"], 0)
 
 
-class TestImportAgents(FrappeTestCase):
+class TestImportAgents(IntegrationTestCase):
 	def setUp(self):
 		self.n = fixtures(self)
 		self.payload = export_bpmn_config(self.n.XML)

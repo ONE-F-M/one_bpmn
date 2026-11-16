@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble, drop_duplicated_instructions
 from processa.patches.v1_0 import logix_turn_rules_in_system_prompt as fix
@@ -32,7 +32,7 @@ def _system_prompt() -> str:
 	return frappe.db.get_value("AI Agent Configuration", fix.AGENT, "system_prompt")
 
 
-class TestLogixTurnRules(FrappeTestCase):
+class TestLogixTurnRules(IntegrationTestCase):
 	def test_the_rules_are_appended_once(self):
 		_logix(PROMPT)
 		fix.execute()

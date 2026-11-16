@@ -71,7 +71,7 @@ class AISkill(Document):
 		A migrate or a test run makes no model calls; a seed patch saving five
 		skills must not cost five judge calls.
 		"""
-		if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_test:
+		if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.in_test:
 			return
 		try:
 			from processa.processa_engine.agent_runtime.direct_api import run_coro_blocking

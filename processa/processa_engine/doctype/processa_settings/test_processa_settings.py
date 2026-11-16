@@ -2,7 +2,7 @@
 # See license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
 STAGING_FIELDS = [
@@ -14,7 +14,7 @@ STAGING_FIELDS = [
 ]
 
 
-class TestProcessaSettings(FrappeTestCase):
+class TestProcessaSettings(IntegrationTestCase):
 	def test_staging_site_fields(self):
 		meta = frappe.get_meta("Processa Settings")
 		fieldnames = [df.fieldname for df in meta.fields]

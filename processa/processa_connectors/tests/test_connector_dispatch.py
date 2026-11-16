@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.manifest import get_operation_spec, load_manifests
 from processa.processa_connectors.google.common import normalize_drive_id
@@ -55,7 +55,7 @@ def _instance():
     return SimpleNamespace(context_doctype="", context_docname="", name="T", initiated_by="Administrator")
 
 
-class TestNormalizeDriveId(FrappeTestCase):
+class TestNormalizeDriveId(IntegrationTestCase):
     def test_link_forms_and_bare_id(self):
         self.assertEqual(normalize_drive_id("https://docs.google.com/document/d/ABCDEFGHIJ123/edit"), "ABCDEFGHIJ123")
         self.assertEqual(normalize_drive_id("https://drive.google.com/open?id=ZYXWVUT98765"), "ZYXWVUT98765")
@@ -63,7 +63,7 @@ class TestNormalizeDriveId(FrappeTestCase):
         self.assertEqual(normalize_drive_id(""), "")
 
 
-class TestManifestAndRegistry(FrappeTestCase):
+class TestManifestAndRegistry(IntegrationTestCase):
     def test_only_the_operations_that_need_python_name_a_handler(self):
         """Everything an HTTP template can express is configuration now.
 
@@ -108,7 +108,7 @@ class TestManifestAndRegistry(FrappeTestCase):
                          {"owner", "organizer", "fileOrganizer", "writer", "commenter", "reader"})
 
 
-class TestDispatchConnector(FrappeTestCase):
+class TestDispatchConnector(IntegrationTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -164,7 +164,7 @@ _GDOCS = "processa.processa_connectors.google.docs"
 _GSLIDES = "processa.processa_connectors.google.slides"
 
 
-class TestDocsSlidesConnectors(FrappeTestCase):
+class TestDocsSlidesConnectors(IntegrationTestCase):
     def test_only_the_multi_call_operations_name_a_handler(self):
         from processa.processa_connectors.manifest import get_execution_spec, load_manifests
 
@@ -194,14 +194,14 @@ class TestDocsSlidesConnectors(FrappeTestCase):
 
 
 
-class TestManifestValidator(FrappeTestCase):
+class TestManifestValidator(IntegrationTestCase):
     def test_all_manifests_valid(self):
         from processa.processa_connectors.validator import validate_manifests
         issues = validate_manifests()
         self.assertEqual(issues, [], "manifest issues: " + "; ".join(issues))
 
 
-class TestRetryAndChoices(FrappeTestCase):
+class TestRetryAndChoices(IntegrationTestCase):
     def test_call_with_retry_retries_transient(self):
         from processa.processa_connectors.retry import call_with_retry
         calls = {"n": 0}
@@ -237,7 +237,7 @@ class TestRetryAndChoices(FrappeTestCase):
         self.assertEqual(get_connector_field_choices("__nope__", "__nope__", "__nope__"), [])
 
 
-class TestSheetsIsPureConfiguration(FrappeTestCase):
+class TestSheetsIsPureConfiguration(IntegrationTestCase):
     """Sheets was the proof that a whole provider can be configuration.
 
     Its Python module is gone: every operation is a Jinja-templated REST call on
@@ -285,7 +285,7 @@ class TestSheetsIsPureConfiguration(FrappeTestCase):
 
 
 
-class TestConnectorModuleMove(FrappeTestCase):
+class TestConnectorModuleMove(IntegrationTestCase):
     """Stored paths follow the move into processa_connectors, and one lookup finds an operation."""
 
     OLD_HANDLER = "processa.processa.connectors.google_drive_ops.download_text"

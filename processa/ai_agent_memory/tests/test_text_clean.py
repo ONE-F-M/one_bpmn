@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
-import unittest
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_memory.text_clean import strip_html
 
 
-class TestStripHtml(unittest.TestCase):
+class TestStripHtml(UnitTestCase):
 	def test_removes_tags_and_decodes_entities(self):
 		self.assertEqual(strip_html("<b>Hi</b> &amp; welcome"), "Hi & welcome")
 

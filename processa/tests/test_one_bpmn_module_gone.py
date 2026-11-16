@@ -5,13 +5,13 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import apply_doctype
 from processa.patches.v1_0.delete_one_bpmn_module import execute
 
 
-class TestOneBpmnModuleGone(FrappeTestCase):
+class TestOneBpmnModuleGone(IntegrationTestCase):
 	def test_modules_txt_lists_thirteen_modules_and_not_one_bpmn(self):
 		with open(frappe.get_app_path("processa", "modules.txt")) as f:
 			modules = [line.strip() for line in f if line.strip()]

@@ -4,7 +4,7 @@
 import os
 import re
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOURCE = os.path.join(ROOT, "frontend", "src")
@@ -24,7 +24,7 @@ def named_paths():
 	return found
 
 
-class TestFrontendBackendPaths(FrappeTestCase):
+class TestFrontendBackendPaths(UnitTestCase):
 	def test_the_frontend_names_backend_paths(self):
 		self.assertTrue(named_paths())
 

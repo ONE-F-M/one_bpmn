@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import execute_shape
 from processa.processa_engine.agent_runtime.turn_state import get_turn, set_turn
@@ -55,7 +55,7 @@ PATCHED_SAVE_RESPONSE = _patched(
 )
 
 
-class ChatTurnFixture(FrappeTestCase):
+class ChatTurnFixture(IntegrationTestCase):
 	def setUp(self):
 		self.conversation = frappe.get_doc(
 			{
@@ -134,7 +134,7 @@ class TestTheUserIsToldItFailed(ChatTurnFixture):
 		self.assertEqual(get_turn(self.conversation.name)["output"]["response"], "Done.")
 
 
-class TestThePatchEdits(FrappeTestCase):
+class TestThePatchEdits(UnitTestCase):
 	def test_lucrusher_save_response_carries_the_tool_error(self):
 		script = _patched(
 			f"import json\n{fix.LUCRUSHER_META_ANCHOR}\n", fix.LUCRUSHER_META_ANCHOR, fix.LUCRUSHER_META

@@ -1,12 +1,12 @@
 from pathlib import Path
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
-class TestAppMetadata(FrappeTestCase):
+class TestAppMetadata(IntegrationTestCase):
 	def test_type_annotations_export_is_enabled(self):
 		self.assertTrue(frappe.get_hooks("export_python_type_annotations"))
 

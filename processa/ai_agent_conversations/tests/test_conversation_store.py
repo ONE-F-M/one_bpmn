@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_conversations.conversation_store import (
 	ContextWindowPolicy,
@@ -17,7 +17,7 @@ from processa.ai_agent_conversations.conversation_store import (
 )
 
 
-class TestProcessVariableStore(FrappeTestCase):
+class TestProcessVariableStore(UnitTestCase):
 	def test_round_trip_and_isolation(self):
 		task = SimpleNamespace(data={})
 		store = get_conversation_store("process_variable", task=task)
@@ -35,7 +35,7 @@ class TestProcessVariableStore(FrappeTestCase):
 			get_conversation_store("process_variable").load("I", "A")
 
 
-class TestDocumentStore(FrappeTestCase):
+class TestDocumentStore(IntegrationTestCase):
 	def test_field_mapping_and_order(self):
 		# A unique instance per run. The thread container is now named
 		# deterministically from (instance, bpmn_id) and committed on creation —
@@ -72,7 +72,7 @@ class TestDocumentStore(FrappeTestCase):
 		self.assertEqual([m["content"] for m in store.load(instance, "Y")], ["y"])
 
 
-class TestCustomStore(FrappeTestCase):
+class TestCustomStore(UnitTestCase):
 	def test_missing_hook_raises(self):
 		with patch("frappe.get_hooks", return_value=[]):
 			with self.assertRaises(frappe.ValidationError):
@@ -85,7 +85,7 @@ class TestCustomStore(FrappeTestCase):
 		self.assertIsInstance(store, ProcessVariableStore)
 
 
-class TestContextWindowPolicy(FrappeTestCase):
+class TestContextWindowPolicy(UnitTestCase):
 	def test_trims_and_retains_system(self):
 		policy = ContextWindowPolicy(max_messages=3)
 		thread = [{"role": "system", "content": "S"}] + [

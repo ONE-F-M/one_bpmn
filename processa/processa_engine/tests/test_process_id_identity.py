@@ -14,7 +14,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.doctype.bpmn_process_model.bpmn_process_model import (
 	new_process_id,
@@ -36,7 +36,7 @@ def _diagram(process_id: str, calls: str = "") -> str:
 	)
 
 
-class TestSwappingAnIdInADiagram(FrappeTestCase):
+class TestSwappingAnIdInADiagram(UnitTestCase):
 	def test_it_moves_the_process_and_the_plane_that_draws_it(self):
 		out = swap_process_id(_diagram("Process_1"), "Process_1", "leave_request_ab12cd34")
 
@@ -62,7 +62,7 @@ class TestSwappingAnIdInADiagram(FrappeTestCase):
 		self.assertEqual(swap_process_id(xml, "Process_1", "Process_1"), xml)
 
 
-class TestTheRecordOwnsTheId(FrappeTestCase):
+class TestTheRecordOwnsTheId(IntegrationTestCase):
 	"""A save must not let the diagram rename the record."""
 
 	def _model(self, **kwargs):
@@ -100,7 +100,7 @@ class TestTheRecordOwnsTheId(FrappeTestCase):
 		self.assertNotEqual(new_process_id("Leave Request"), new_process_id("Leave Request"))
 
 
-class TestDeployWithAMismatch(FrappeTestCase):
+class TestDeployWithAMismatch(IntegrationTestCase):
 	"""The parser looks the process up by the id it is handed.
 
 	Removing the old diagram-wins sync from deploy left a record whose diagram
@@ -178,7 +178,7 @@ class TestDeployWithAMismatch(FrappeTestCase):
 		self.assertIn(new_id, parent.serialized_spec or "")
 
 
-class TestTheOtherWaysAModelIsCreated(FrappeTestCase):
+class TestTheOtherWaysAModelIsCreated(IntegrationTestCase):
 	def tearDown(self):
 		for name in getattr(self, "_made", []):
 			if frappe.db.exists("BPMN Process Model", name):
@@ -207,7 +207,7 @@ class TestTheOtherWaysAModelIsCreated(FrappeTestCase):
 		self.assertEqual(xml_process_id(doc.bpmn_xml), doc.process_id)
 
 
-class TestAnIdIsALegalXmlId(FrappeTestCase):
+class TestAnIdIsALegalXmlId(UnitTestCase):
 	"""bpmn-js rejects an id that starts with a digit and draws the map as one collapsed pool."""
 
 	def test_a_process_named_with_a_leading_digit_gets_a_letter_first(self):
@@ -220,7 +220,7 @@ class TestAnIdIsALegalXmlId(FrappeTestCase):
 		self.assertTrue(new_process_id("Leave Request").startswith("leave_request_"))
 
 
-class TestRepairingDigitLeadingIds(FrappeTestCase):
+class TestRepairingDigitLeadingIds(IntegrationTestCase):
 	def setUp(self):
 		from processa.patches.v1_0 import repair_digit_leading_process_ids
 

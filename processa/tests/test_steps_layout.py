@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.processa_engine.notifications import composer
@@ -29,7 +29,7 @@ def _steps_ctx(**extra):
 	)
 
 
-class TestStepsLayout(FrappeTestCase):
+class TestStepsLayout(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 

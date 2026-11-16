@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_conversations import compaction_triggers as triggers
@@ -35,7 +35,7 @@ _BOT = (
 )
 
 
-class CompactionTriggerCase(FrappeTestCase):
+class CompactionTriggerCase(IntegrationTestCase):
 	"""One agent, one conversation, compaction configured however the test needs."""
 
 	def setUp(self):

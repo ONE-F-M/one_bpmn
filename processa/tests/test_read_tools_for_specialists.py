@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security import identity
 from processa.ai_agent_security.tests.test_agent_identity import make_agent_configuration, make_work_item
@@ -54,7 +54,7 @@ def _a2a_task(agent_configuration, work_item=None, pull_request=None):
 	return task.name
 
 
-class TestReadWorkItem(FrappeTestCase):
+class TestReadWorkItem(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", "Frontend Agent"):
 			self.skipTest("Frontend Agent is not on this site")
@@ -94,7 +94,7 @@ class TestReadWorkItem(FrappeTestCase):
 		self.assertEqual(out.get("work_item"), self.item)
 
 
-class TestReadPullRequest(FrappeTestCase):
+class TestReadPullRequest(IntegrationTestCase):
 	def setUp(self):
 		self.item = make_work_item()
 

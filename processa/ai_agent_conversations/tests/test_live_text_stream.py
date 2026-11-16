@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 
 def _events(chunks):
@@ -41,7 +41,7 @@ class _FakeStream:
 		return gen()
 
 
-class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
+class TestTheAdapterForwardsTextAsItArrives(UnitTestCase):
 	def _run(self, events, sink):
 		from processa.processa_engine.agent_runtime import llm_anthropic
 
@@ -83,7 +83,7 @@ class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
 		self._run([SimpleNamespace(type="text", text="a")], boom)  # must not raise
 
 
-class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
+class TestTheSinkExistsForARequestOrANamedInstance(IntegrationTestCase):
 	"""A turn in the request gets a queue. A turn on the worker gets one when
 	the dispatcher names the conversation's instance. A tool call masks both."""
 
@@ -167,7 +167,7 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		self.assertEqual([c.args[1] for c in announced.call_args_list], ["TOOL_CALL_START", "TOOL_CALL_END"])
 
 
-class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
+class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(UnitTestCase):
 	def _relay(self, child_events, state):
 		from ag_ui.encoder import EventEncoder
 
@@ -242,7 +242,7 @@ class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
 		self.assertNotIn("lumina_general_chat", agui_stream._REPLY_SHAPERS)
 
 
-class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
+class TestTheBufferedPathDoesNotResendStreamedText(UnitTestCase):
 	def _stream(self, result):
 		from processa.ai_agent_conversations.agui import stream as agui_stream
 
@@ -287,7 +287,7 @@ class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 		self.assertEqual("".join(e["delta"] for e in _events(out) if e["type"] == "TEXT_MESSAGE_CONTENT"), "never streamed")
 
 
-class TestAReplyIsTheSameOnlyWhenItIsEqual(FrappeTestCase):
+class TestAReplyIsTheSameOnlyWhenItIsEqual(UnitTestCase):
 	def test_whitespace_does_not_matter(self):
 		from processa.ai_agent_conversations.agui.stream import _same_text
 
@@ -300,7 +300,7 @@ class TestAReplyIsTheSameOnlyWhenItIsEqual(FrappeTestCase):
 		self.assertFalse(_same_text("", "Hi there"))
 
 
-class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
+class TestADirectTurnStreamsFromTheRequest(UnitTestCase):
 	"""A turn with no instance runs inside the request, so the adapter is
 	handed a queue instead of a list to publish on."""
 

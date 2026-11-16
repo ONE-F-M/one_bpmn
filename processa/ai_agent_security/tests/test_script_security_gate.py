@@ -14,7 +14,7 @@ Requires a Frappe bench (DB). Run with:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks import script_gate
 
@@ -47,7 +47,7 @@ def _bpmn_with_server_script(script_name: str, task_id: str = "Task_1") -> str:
 	)
 
 
-class TestProcessModelScriptGate(FrappeTestCase):
+class TestProcessModelScriptGate(IntegrationTestCase):
 	def test_safe_inline_passes(self):
 		xml = _bpmn_with_inline("doc = frappe.get_doc('User', 'Administrator')")
 		# Should not raise.
@@ -85,7 +85,7 @@ class TestProcessModelScriptGate(FrappeTestCase):
 		self.assertNotIn("exec() is not allowed", msg)
 
 
-class TestServerScriptGate(FrappeTestCase):
+class TestServerScriptGate(IntegrationTestCase):
 	def _make_server_script(self, name: str, body: str):
 		if frappe.db.exists("Server Script", name):
 			frappe.delete_doc("Server Script", name, force=True)

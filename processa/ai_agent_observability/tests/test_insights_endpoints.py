@@ -5,7 +5,7 @@ import ast
 import inspect
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import insights
 
@@ -41,7 +41,7 @@ def _whitelisted():
 	}
 
 
-class TestInsightsEndpoints(FrappeTestCase):
+class TestInsightsEndpoints(IntegrationTestCase):
 	def test_the_exposed_endpoints_are_exactly_the_expected_set(self):
 		self.assertEqual(set(_whitelisted()), ENDPOINTS)
 
@@ -67,8 +67,8 @@ class TestInsightsEndpoints(FrappeTestCase):
 
 	def test_a_user_without_system_manager_is_refused(self):
 		# frappe.only_for skips the role check while the test flag is set, so clear it for this call.
-		in_test = frappe.flags.in_test
-		frappe.flags.in_test = False
+		in_test = frappe.in_test
+		frappe.in_test = False
 		frappe.set_user("Guest")
 		try:
 			for fn in (insights.get_agent_overview, insights.list_runs, insights.run_filter_options):
@@ -76,4 +76,4 @@ class TestInsightsEndpoints(FrappeTestCase):
 					fn()
 		finally:
 			frappe.set_user("Administrator")
-			frappe.flags.in_test = in_test
+			frappe.in_test = in_test

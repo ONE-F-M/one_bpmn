@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_memory import tools as T
@@ -29,7 +29,7 @@ def _seed_agent_memories():
 	return agent, other
 
 
-class TestMemorySearch(FrappeTestCase):
+class TestMemorySearch(IntegrationTestCase):
 	def test_scope_isolation_and_keyword(self):
 		agent, _ = _seed_agent_memories()
 		res = T.memory_search("Agent", agent, "net-30", ignore_permissions=True)
@@ -48,7 +48,7 @@ class TestMemorySearch(FrappeTestCase):
 		self.assertEqual(set(row), {"name", "content", "metadata"})
 
 
-class TestQueryTokenizer(FrappeTestCase):
+class TestQueryTokenizer(UnitTestCase):
 	def test_stopwords_and_short_tokens_dropped(self):
 		# "the"/"with" are stopwords; "of"/"a" are below the min length; only the
 		# content words survive so a whole prompt no longer matches everything.
@@ -64,7 +64,7 @@ class TestQueryTokenizer(FrappeTestCase):
 		self.assertEqual(T.query_tokens("invoice invoice invoice"), ["invoice"])
 
 
-class TestFulltextPath(FrappeTestCase):
+class TestFulltextPath(IntegrationTestCase):
 	def test_trusted_search_returns_only_in_scope(self):
 		# Exercises the relevance (FULLTEXT) path; it must never leak another
 		# scope key regardless of which path (fulltext or like) actually serves.
@@ -74,7 +74,7 @@ class TestFulltextPath(FrappeTestCase):
 		self.assertIn("customer prefers net-30 terms", [r["content"] for r in res])
 
 
-class TestMemoryWrite(FrappeTestCase):
+class TestMemoryWrite(IntegrationTestCase):
 	def test_insert_and_dedup_overwrite(self):
 		agent = f"D_{frappe.generate_hash(length=8)}"
 		d1 = T.memory_write("Agent", agent, "v1", dedup_key="k", metadata={"a": 1}, ignore_permissions=True)
@@ -136,7 +136,7 @@ class TestMemoryWrite(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "content"), content)
 
 
-class TestMemoryWriteUserDirected(FrappeTestCase):
+class TestMemoryWriteUserDirected(IntegrationTestCase):
 	def test_user_directed_flag_defaults_false(self):
 		agent = f"U_{frappe.generate_hash(length=8)}"
 		rec = T.memory_write("Agent", agent, "some agent-produced fact", ignore_permissions=True)
@@ -160,7 +160,7 @@ class TestMemoryWriteUserDirected(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("AI Memory", d1["name"], "user_directed"), 1)
 
 
-class TestValidOnlySearch(FrappeTestCase):
+class TestValidOnlySearch(IntegrationTestCase):
 	def test_expired_memory_is_hidden(self):
 		agent = f"E_{frappe.generate_hash(length=8)}"
 		valid = T.memory_write("Agent", agent, "quarterly report is due friday", ignore_permissions=True)
@@ -181,7 +181,7 @@ class TestValidOnlySearch(FrappeTestCase):
 		self.assertIn(rec["name"], [r["name"] for r in res])
 
 
-class TestMemoryListUserDirected(FrappeTestCase):
+class TestMemoryListUserDirected(IntegrationTestCase):
 	def test_returns_only_user_directed_in_scope(self):
 		agent = f"V_{frappe.generate_hash(length=8)}"
 		other = f"V_{frappe.generate_hash(length=8)}"
@@ -247,7 +247,7 @@ def _fake_reconcile_degraded(content, candidates, **kw):
 	return {"action": "add", "supersedes": [], "degraded": "exec_error"}
 
 
-class TestReconcileWrite(FrappeTestCase):
+class TestReconcileWrite(IntegrationTestCase):
 	_CTX = {"provider_name": "p", "backend": "direct_api", "model": "m"}
 
 	def test_replace_invalidates_old_and_inserts_new(self):
@@ -480,7 +480,7 @@ class TestReconcileWrite(FrappeTestCase):
 		self.assertFalse(_retired(frappe.db.get_value("AI Memory", foreign["name"], "expires_on")))
 
 
-class TestReconciler(FrappeTestCase):
+class TestReconciler(UnitTestCase):
 	"""Unit-test processa.ai_agent_memory.reconcile.reconcile in isolation, stubbing
 	the executor so no live model is called."""
 
@@ -531,7 +531,7 @@ class TestReconciler(FrappeTestCase):
 		self.assertEqual(out, {"action": "add", "supersedes": [], "degraded": None})
 
 
-class TestMemoryToolRegistry(FrappeTestCase):
+class TestMemoryToolRegistry(UnitTestCase):
 	def test_registry_definitions_are_valid_json_schema(self):
 		self.assertEqual(set(T.MEMORY_TOOLS), {"memory_search", "memory_write"})
 		try:
@@ -550,7 +550,7 @@ class TestMemoryToolRegistry(FrappeTestCase):
 			self.assertTrue(callable(defn["handler"]))
 
 
-class TestSemanticSearch(FrappeTestCase):
+class TestSemanticSearch(IntegrationTestCase):
 	"""Hybrid semantic + FULLTEXT path. The live-model tests skip where the
 	VECTOR column (MariaDB 11.7+) or the embedding model is unavailable; the
 	fallback and blend tests run everywhere."""
@@ -614,7 +614,7 @@ class TestSemanticSearch(FrappeTestCase):
 		self.assertEqual(T.REVISIT_TOTAL_ROWS, 500_000)
 
 
-class TestMultiDimensionalScoring(FrappeTestCase):
+class TestMultiDimensionalScoring(IntegrationTestCase):
 	"""Relevance, recency and importance each change the ranking on their own.
 	Rows are otherwise identical so one dimension decides."""
 
@@ -691,7 +691,7 @@ class TestMultiDimensionalScoring(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "importance"), 3)
 
 
-class TestDistillerImportance(FrappeTestCase):
+class TestDistillerImportance(UnitTestCase):
 	def test_importance_is_clamped_with_a_default(self):
 		from processa.ai_agent_memory.distill import _importance
 
@@ -709,7 +709,7 @@ def _decide(action, supersedes):
 _TRUST_CTX = {"provider_name": "p", "backend": "direct_api", "model": "m"}
 
 
-class TestProvenanceTrust(FrappeTestCase):
+class TestProvenanceTrust(IntegrationTestCase):
 	"""Source type, trust hierarchy, confidence and corroboration in memory_write."""
 
 	@property
@@ -795,7 +795,7 @@ class TestProvenanceTrust(FrappeTestCase):
 		self.assertEqual(T._trust_rank("Agent Inference", order), 0)
 
 
-class TestDistillerSourceType(FrappeTestCase):
+class TestDistillerSourceType(UnitTestCase):
 	def test_source_type_is_normalised(self):
 		from processa.ai_agent_memory.distill import _source_type
 
@@ -803,7 +803,7 @@ class TestDistillerSourceType(FrappeTestCase):
 			["User Statement", "Tool Output", "Agent Inference", "Agent Inference"])
 
 
-class TestUserScope(FrappeTestCase):
+class TestUserScope(IntegrationTestCase):
 	"""The person dimension: one user's memories never reach another; shared
 	memories reach everyone; an agent-only key sees and writes shared only."""
 

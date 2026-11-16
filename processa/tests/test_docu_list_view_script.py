@@ -2,7 +2,7 @@
 """Docu creates and updates the List View Client Script on a DocType, behind a safety gate."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.client_script_validator import (
 	MAX_SCRIPT_LENGTH,
@@ -16,7 +16,7 @@ NEXT_SCRIPT = 'frappe.listview_settings["Note"] = { add_fields: ["public", "seen
 NO_ROLE_USER = "docu-list-script-probe@example.com"
 
 
-class TestValidateListViewScript(FrappeTestCase):
+class TestValidateListViewScript(IntegrationTestCase):
 	def test_a_script_for_the_named_list_passes(self):
 		self.assertEqual(validate_list_view_script(DOCTYPE, SCRIPT), [])
 
@@ -55,7 +55,7 @@ class TestValidateListViewScript(FrappeTestCase):
 		self.assertIn(str(MAX_SCRIPT_LENGTH), validate_list_view_script(DOCTYPE, padded)[0])
 
 
-class TestApplyListViewScript(FrappeTestCase):
+class TestApplyListViewScript(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.savepoint("docu_list_script")
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.boot import boot_session
 from processa.processa_engine.triggers import guard_bpmn_document
@@ -16,7 +16,7 @@ def _doc(doctype="Note"):
 	return frappe._dict(doctype=doctype, name="PROBE-0001")
 
 
-class TestNativeActionGuard(FrappeTestCase):
+class TestNativeActionGuard(IntegrationTestCase):
 	def test_submit_and_cancel_are_blocked_without_a_live_instance(self):
 		with patch(CONTROLLED, return_value=["Note"]):
 			for method in ("before_submit", "before_cancel", "before_workflow_action"):
@@ -40,7 +40,7 @@ class TestNativeActionGuard(FrappeTestCase):
 			guard_bpmn_document(_doc(), "before_submit")
 
 
-class TestListActionsContract(FrappeTestCase):
+class TestListActionsContract(IntegrationTestCase):
 	def test_boot_carries_the_controlled_doctypes(self):
 		bootinfo = frappe._dict()
 		with patch("processa.boot.get_processa_controlled_doctypes", return_value=["Note"]):

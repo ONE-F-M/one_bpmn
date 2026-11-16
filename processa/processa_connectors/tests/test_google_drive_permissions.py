@@ -5,8 +5,9 @@ The Drive client is replaced by a small in-memory fake, so these tests check
 which Drive calls are made (update vs create vs delete) without any network.
 """
 
-import unittest
 from unittest.mock import MagicMock
+
+from frappe.tests import UnitTestCase
 
 from processa.processa_connectors.google import drive as gd
 
@@ -41,7 +42,7 @@ def fake_service(permissions):
 	return service, perms
 
 
-class TestSetPermissionsUpsert(unittest.TestCase):
+class TestSetPermissionsUpsert(UnitTestCase):
 	def test_existing_user_grant_changes_role_from_writer_to_reader(self):
 		service, perms = fake_service([DOMAIN_READER, REQUESTER])
 
@@ -93,7 +94,7 @@ class TestSetPermissionsUpsert(unittest.TestCase):
 		perms.create.assert_called_once()
 
 
-class TestDirectGrantAlongsideInheritedAccess(unittest.TestCase):
+class TestDirectGrantAlongsideInheritedAccess(UnitTestCase):
 	def test_upsert_changes_the_direct_grant_of_a_drive_member(self):
 		service, perms = fake_service([DOMAIN_READER, MEMBER_WITH_DIRECT_GRANT])
 
@@ -121,7 +122,7 @@ class TestDirectGrantAlongsideInheritedAccess(unittest.TestCase):
 		self.assertEqual(outcome["skipped"], [])
 
 
-class TestNamedRevoke(unittest.TestCase):
+class TestNamedRevoke(UnitTestCase):
 	def test_named_revoke_leaves_other_user_and_domain_grant(self):
 		service, perms = fake_service([DOMAIN_READER, REQUESTER, OTHER_USER])
 

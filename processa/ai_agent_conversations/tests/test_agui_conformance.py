@@ -19,7 +19,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.agui import contract as agui_contract
 
@@ -60,7 +60,7 @@ def _run_recorded(agent_id: str, reply, runner_key: str = "bpmn_map") -> list:
 			p.stop()
 
 
-class TestCrossAgentConformance(FrappeTestCase):
+class TestCrossAgentConformance(IntegrationTestCase):
 	"""One recorded turn per system agent, validated by the shared rules."""
 
 	def assertConformant(self, chunks, agent_id):
@@ -143,7 +143,7 @@ class TestCrossAgentConformance(FrappeTestCase):
 		self.assertIn('"new_mode": "Planning"', joined, "the payload must reach the client under value")
 
 
-class TestPureConfigurationAgent(FrappeTestCase):
+class TestPureConfigurationAgent(IntegrationTestCase):
 	"""The zero-code path, end to end: a chat agent that exists ONLY as an
 	AI Agent Configuration row — real conversation, real persistence, real
 	direct_api runner; only the model adapter is mocked."""
@@ -197,7 +197,7 @@ class TestPureConfigurationAgent(FrappeTestCase):
 		self.assertGreaterEqual(count, 2, "user + bot messages should persist")
 
 
-class TestValidatorNamesTheViolator(FrappeTestCase):
+class TestValidatorNamesTheViolator(IntegrationTestCase):
 	"""A failure must say WHO and WHAT — that is the whole point of CI."""
 
 	def test_rogue_dialect_fails_naming_agent_and_event(self):

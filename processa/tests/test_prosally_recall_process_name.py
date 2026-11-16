@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers
 from processa.patches.v1_0 import prosally_recall_falls_back_to_process_name as name_patch
@@ -29,7 +29,7 @@ def _process(name):
 	).insert(ignore_permissions=True)
 
 
-class TestProcessForDiagram(FrappeTestCase):
+class TestProcessForDiagram(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -53,7 +53,7 @@ class TestProcessForDiagram(FrappeTestCase):
 		self.assertEqual(helpers.process_for_diagram(PROCESS + " - v1"), PROCESS)
 
 
-class TestRecallUsesTheProcessName(FrappeTestCase):
+class TestRecallUsesTheProcessName(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -69,7 +69,7 @@ class TestRecallUsesTheProcessName(FrappeTestCase):
 		self.assertEqual(search.call_args_list[0].args[:2], ("Entity", key))
 
 
-class TestBuildContextPatch(FrappeTestCase):
+class TestBuildContextPatch(IntegrationTestCase):
 	CODE = memory_patch.EDITS[BUILD_CONTEXT][2]
 
 	def test_the_recall_call_gets_the_process_name_once(self):

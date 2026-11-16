@@ -2,7 +2,7 @@
 """save_process_model refuses a user without permission on BPMN Process Model."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.process_maps import save_process_model
 
@@ -17,7 +17,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestSaveProcessModelPermission(FrappeTestCase):
+class TestSaveProcessModelPermission(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Process Model", MODEL):
 			doc = frappe.new_doc("BPMN Process Model")

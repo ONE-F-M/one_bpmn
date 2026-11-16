@@ -3,7 +3,7 @@
 
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.patches.v1_0 import inline_prosally_tool_scripts as inline
 from processa.patches.v1_0 import prosally_stage_scripts_record_artifacts as artifacts_patch
@@ -33,7 +33,7 @@ def _run(bodies):
 	return written, store
 
 
-class TestStageScriptsRecordArtifacts(FrappeTestCase):
+class TestStageScriptsRecordArtifacts(UnitTestCase):
 	def test_both_inline_bodies_get_the_call_and_still_compile(self):
 		written, _ = _run(BODIES)
 		self.assertEqual(sorted(written), ["generate", "modify"])

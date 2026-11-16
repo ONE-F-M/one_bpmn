@@ -7,7 +7,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.agents_sandbox.sandbox import reaper
@@ -31,7 +31,7 @@ def _run(action="read_file", minutes_old=0, minutes_silent=None, caller=False, s
 	return frappe.get_doc("Agent Sandbox Run", run.name)
 
 
-class TestTheReaper(FrappeTestCase):
+class TestTheReaper(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -145,7 +145,7 @@ class TestTheReaper(FrappeTestCase):
 		self.assertNotIn(young.name, resumed)
 
 
-class TestTheSchedule(FrappeTestCase):
+class TestTheSchedule(IntegrationTestCase):
 	def test_the_reaper_runs_every_two_minutes(self):
 		from processa import hooks
 

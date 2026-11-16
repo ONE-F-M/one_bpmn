@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import logix_review_keeps_the_requested_change as revert_patch
 from processa.patches.v1_0 import logix_review_skips_an_answer_in_words as review_patch
@@ -17,7 +17,7 @@ ORIGINAL = 'result["dept"] = "IT"'
 CHANGED = 'result["dept"] = "Operations"'
 
 
-class TestLogixReviewSkipsAnAnswerInWords(FrappeTestCase):
+class TestLogixReviewSkipsAnAnswerInWords(IntegrationTestCase):
 	def setUp(self):
 		if frappe.db.exists("Server Script", review_patch.SCRIPT):
 			frappe.db.set_value("Server Script", review_patch.SCRIPT, "script", REVIEW)

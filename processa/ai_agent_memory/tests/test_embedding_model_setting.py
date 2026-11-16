@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_memory import embedding as E
 from processa.ai_agent_memory.doctype.ai_memory.ai_memory import EMBEDDING_DIMENSIONS
@@ -18,7 +18,7 @@ def _options() -> list[str]:
 	return [line.strip() for line in (field.options or "").splitlines() if line.strip()]
 
 
-class TestEmbeddingModelChoices(FrappeTestCase):
+class TestEmbeddingModelChoices(IntegrationTestCase):
 	def test_the_field_is_a_list_not_a_text_box(self):
 		field = frappe.get_meta("Processa Settings").get_field("memory_embedding_model")
 		self.assertEqual(field.fieldtype, "Select")
@@ -44,7 +44,7 @@ class TestEmbeddingModelChoices(FrappeTestCase):
 		self.assertIn(E.DEFAULT_MODEL, options)
 
 
-class TestDisabledTurnsSemanticSearchOff(FrappeTestCase):
+class TestDisabledTurnsSemanticSearchOff(UnitTestCase):
 	def test_disabled_returns_nothing_to_embed_with(self):
 		with patch.object(E, "model_name", return_value=E.SEMANTIC_DISABLED):
 			self.assertIsNone(E.embed(["anything"]))
@@ -56,7 +56,7 @@ class TestDisabledTurnsSemanticSearchOff(FrappeTestCase):
 			self.assertIsNone(E.embed(["anything"]))
 
 
-class TestSaveCheck(FrappeTestCase):
+class TestSaveCheck(IntegrationTestCase):
 	"""The list stops a wrong model in the form; this stops one that arrives by
 	patch, fixture or API, which is the path that would otherwise leave semantic
 	search off with nothing on screen to say so."""

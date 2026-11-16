@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -111,7 +111,7 @@ COMMENT_CONTENT = {
 # ---------------------------------------------------------------------------
 
 
-class TestGoldenSamples(FrappeTestCase):
+class TestGoldenSamples(UnitTestCase):
 	"""Validate the committed golden AMP sample files."""
 
 	def test_golden_file_passes_validation(self) -> None:
@@ -134,7 +134,7 @@ class TestGoldenSamples(FrappeTestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestRenderedAmpValidation(FrappeTestCase):
+class TestRenderedAmpValidation(UnitTestCase):
 	"""Render AMP docs from fixture data and validate them."""
 
 	def setUp(self):

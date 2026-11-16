@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import logix_settings_are_bounded_and_match_its_skills as patch
 
@@ -13,7 +13,7 @@ OLD_RULE = "Check token usage: do not echo an entire script back when a diff wou
 OTHER_RULE = "Keep every script you write under 300 lines."
 
 
-class TestLogixSettingsPatch(FrappeTestCase):
+class TestLogixSettingsPatch(IntegrationTestCase):
 	def _config(self, **fields):
 		agent_id = f"t_{frappe.generate_hash(length=8)}"
 		doc = frappe.get_doc(

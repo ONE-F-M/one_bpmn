@@ -224,9 +224,9 @@ def execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: b
     # Background finalise: the job writes results on the user's behalf, so it
     # must not depend on that user holding write rights on AI Eval Run.
     run.save(ignore_permissions=True)  # perms: the background finalise must not depend on the user's write rights
-    # Background-job commit; skipped in tests so FrappeTestCase rollback
+    # Background-job commit; skipped in tests so IntegrationTestCase rollback
     # still cleans up fixture docs instead of leaking them into the DB.
-    if not frappe.flags.in_test:
+    if not frappe.in_test:
         frappe.db.commit()  # nosemgrep
 
     frappe.publish_realtime(

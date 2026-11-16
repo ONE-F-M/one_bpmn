@@ -2,7 +2,7 @@ import importlib.util
 import re
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -21,7 +21,7 @@ REMOVED_PATHS = [
 COMMENTED_HOOK = re.compile(r"^#\s*[a-z_]+\s*=")
 
 
-class TestDeadFilesRemoved(FrappeTestCase):
+class TestDeadFilesRemoved(UnitTestCase):
 	def test_removed_paths_do_not_exist(self):
 		for rel_path in REMOVED_PATHS:
 			self.assertFalse((REPO_ROOT / rel_path).exists(), rel_path)

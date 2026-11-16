@@ -12,12 +12,12 @@ why these assert the sid and the data, not just the user.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.utils.session import as_user
 
 
-class TestAsUser(FrappeTestCase):
+class TestAsUser(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		# What a resumed browser session looks like: a hashed sid, and a data dict

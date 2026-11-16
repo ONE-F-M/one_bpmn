@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import (
 	make_agent_configuration,
@@ -26,7 +26,7 @@ from processa.ai_agent_evals.runner.suite import execute_eval_suite
 from processa.api.evals import get_run_comparison, list_comparable_runs
 
 
-class TestEvalComparison(FrappeTestCase):
+class TestEvalComparison(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		# Distinct system prompts: the executor is handed an ExecutorConfig, not

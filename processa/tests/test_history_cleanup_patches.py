@@ -10,7 +10,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.chat_persistence import create_conversation, save_user_message
 from processa.ai_agent_conversations.conversation_store import AGENT_MEMORY_MODE
@@ -35,7 +35,7 @@ def _tool_message(conversation: str, metadata: dict, text: str = move_state.STAT
 	return msg.name
 
 
-class TestHistoryCleanupPatches(FrappeTestCase):
+class TestHistoryCleanupPatches(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 

@@ -6,12 +6,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox import ops
 
 
-class TestEditFileBatchHint(FrappeTestCase):
+class TestEditFileBatchHint(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

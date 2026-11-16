@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
@@ -38,7 +38,7 @@ class _AlwaysCallsTools:
 		)
 
 
-class TestStepLoopTurnCap(FrappeTestCase):
+class TestStepLoopTurnCap(UnitTestCase):
 	def test_turn_cap_carries_the_last_narration_out(self):
 		adapter = _AlwaysCallsTools("Now I'll add the test cases:")
 		completion, suspension = asyncio.run(

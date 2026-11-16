@@ -1,13 +1,13 @@
 # Copyright (c) 2026, one-fm and contributors
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 from processa.patches.v1_0 import logix_routes_questions_and_vague_requests as routing
 
 
-class TestLogixRoutingPatch(FrappeTestCase):
+class TestLogixRoutingPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		for agent_id in routing.RULES:
@@ -44,7 +44,7 @@ class TestLogixRoutingPatch(FrappeTestCase):
 		self.assertIn("is DISAMBIGUATE", prompt)
 
 
-class TestTurnSurvivesCacheWipe(FrappeTestCase):
+class TestTurnSurvivesCacheWipe(IntegrationTestCase):
 	def test_a_running_turn_outlives_a_global_cache_clear(self):
 		set_turn("zz-turn-conv", {"element_name": "Update Employee Checkin"})
 		self.addCleanup(frappe.cache.delete_value, "ait_turn:zz-turn-conv")

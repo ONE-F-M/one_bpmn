@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_baseline_matches_the_current_agent as p
 from processa.patches.v1_0 import docu_property_case_ends_at_the_stage as ends_at_the_stage
@@ -17,7 +17,7 @@ UNTOUCHED = "A question that is not about designing a DocType designs nothing"
 STUB_CLASSIFIER = "Classify.\n" + p.CLASSIFIER_ANCHOR + "- PARTS: list the parts.\n"
 
 
-class TestDocuBaselineMatchesTheAgent(FrappeTestCase):
+class TestDocuBaselineMatchesTheAgent(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 		model = frappe.db.get_value("BPMN Process Model", {}, "name")
@@ -116,7 +116,7 @@ class TestDocuBaselineMatchesTheAgent(FrappeTestCase):
 		self.assertEqual(self._case(UNTOUCHED).input_user_prompt, "edited by a person")
 
 
-class TestTheProbeDoctype(FrappeTestCase):
+class TestTheProbeDoctype(IntegrationTestCase):
 	def test_it_has_the_fields_the_display_case_names(self):
 		existed = frappe.db.exists("DocType", seed.PROBE)
 		try:

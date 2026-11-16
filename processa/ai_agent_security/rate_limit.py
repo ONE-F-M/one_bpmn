@@ -227,7 +227,7 @@ def raise_lock(
 		doc.detail = detail
 		doc.insert(ignore_permissions=True)
 		# Commit now: the caller's frappe.throw rolls the request back and would undo the lock.
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 		return doc.name
 	except Exception:
@@ -263,7 +263,7 @@ def enforce(
 			detail=f"refused: conversation frozen by lock {lock}",
 		)
 		# Commit the refusal record, because the throw below rolls the request back.
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 		frappe.throw(
 			_(

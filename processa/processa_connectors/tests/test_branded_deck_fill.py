@@ -31,7 +31,7 @@ structural pass is genuinely exercised rather than asserted about.
 
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_connectors.google import slides as gs
 from processa.processa_connectors.operations import google_slides as ops
@@ -131,7 +131,7 @@ CONTENT = {
 }
 
 
-class TestBrandedDeckFill(FrappeTestCase):
+class TestBrandedDeckFill(UnitTestCase):
     def _run(self, content=None, content_pages=1):
         deck = FakeDeck(content_pages=content_pages)
         with patch.object(gs, "get_presentation", side_effect=deck.get_presentation), \
@@ -260,7 +260,7 @@ class TestBrandedDeckFill(FrappeTestCase):
                     {"presentation": PID, "content": CONTENT, "failIfUnmatched": "1"}, None)
 
 
-class TestTheDeckOperationShipsWithTheApp(FrappeTestCase):
+class TestTheDeckOperationShipsWithTheApp(IntegrationTestCase):
     """A fresh site gets the Slides connector, deck operation included, from install."""
 
     def test_after_install_seeds_it(self):

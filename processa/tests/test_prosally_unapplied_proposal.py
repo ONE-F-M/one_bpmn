@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_subprocess import unapplied_proposal
 
@@ -45,7 +45,7 @@ def _check(last, canvas, previous=(REQUEST,), message=""):
 		return unapplied_proposal("conv", canvas, message)
 
 
-class TestUnappliedProposal(FrappeTestCase):
+class TestUnappliedProposal(UnitTestCase):
 	def test_a_proposal_whose_new_elements_are_not_on_the_canvas_is_reported_with_their_names(self):
 		found = _check(_modified(), BEFORE)
 		self.assertEqual(found["added"], ["Complete Payroll Acceptance", "Check Pending Salary"])

@@ -16,7 +16,7 @@ there.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_suite
 from processa.ai_agent_evals.runner.assertions import _evaluate_tool_calls, expected_tool_calls
@@ -41,7 +41,7 @@ def matcher(argument, kind, expected):
 	return {"argument": argument, "matcher": kind, "expected": expected}
 
 
-class TestToolCallModes(FrappeTestCase):
+class TestToolCallModes(UnitTestCase):
 	def test_exact_accepts_the_same_calls_in_the_same_order(self):
 		result = _evaluate_tool_calls("EXACT", facts(
 			[call("read_api_docs"), call("draft_connector")],
@@ -124,7 +124,7 @@ class TestToolCallModes(FrappeTestCase):
 		self.assertTrue(result["error"])
 
 
-class TestArgumentMatchers(FrappeTestCase):
+class TestArgumentMatchers(UnitTestCase):
 	def test_equals_compares_the_whole_value(self):
 		expected = [want(1, "read_api_docs", matcher("url", "equals", "https://api.frankfurter.dev"))]
 		self.assertTrue(_evaluate_tool_calls("EXACT", facts(
@@ -182,7 +182,7 @@ class TestArgumentMatchers(FrappeTestCase):
 		self.assertEqual(len(grouped[0]["matchers"]), 1)
 
 
-class TestOrderRequiredForActionTier(FrappeTestCase):
+class TestOrderRequiredForActionTier(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		# A skill cannot be saved straight into Action-Allowed — graduating to

@@ -21,11 +21,11 @@ import ast
 import inspect
 import json
 import textwrap
-import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.operations import http as http_ops
 from processa.api.connectors import get_connector_manifests
@@ -79,7 +79,7 @@ class ConnectorAccessFixtures:
 		clear_manifest_cache()
 
 
-class TestRoleGating(ConnectorAccessFixtures, unittest.TestCase):
+class TestRoleGating(ConnectorAccessFixtures, IntegrationTestCase):
 	def test_a_connector_with_no_roles_is_open(self):
 		"""The default, and what every existing connector is — the gate must be
 		opt-in or this change would lock everyone out of everything."""
@@ -116,7 +116,7 @@ class TestRoleGating(ConnectorAccessFixtures, unittest.TestCase):
 		self.assertTrue({"google_drive", "google_docs", "google_sheets"} <= offered)
 
 
-class TestGateIsEnforcedAtRuntime(ConnectorAccessFixtures, unittest.TestCase):
+class TestGateIsEnforcedAtRuntime(ConnectorAccessFixtures, IntegrationTestCase):
 	"""The half that actually matters.
 
 	A diagram authored before the restriction — or by someone who had the role
@@ -165,7 +165,7 @@ class TestGateIsEnforcedAtRuntime(ConnectorAccessFixtures, unittest.TestCase):
 		self.assertEqual(task.data["out"], {"text": "hello"})
 
 
-class TestServiceAccountAuth(unittest.TestCase):
+class TestServiceAccountAuth(IntegrationTestCase):
 	"""Minting a Google token from the key on the connector."""
 
 	def _spec(self, **overrides):
@@ -241,7 +241,7 @@ class TestServiceAccountAuth(unittest.TestCase):
 			self.assertTrue(doc.auth_scopes, "scopes are per connector")
 
 
-class TestGoogleConnectorsAreConfigured(unittest.TestCase):
+class TestGoogleConnectorsAreConfigured(IntegrationTestCase):
 	"""What the conversion patch was for."""
 
 	def test_no_google_operation_relies_on_implicit_registry_lookup(self):
@@ -298,7 +298,7 @@ class TestGoogleConnectorsAreConfigured(unittest.TestCase):
 					json.loads(rendered)  # raises if the template produced junk
 
 
-class TestCredentialsLiveOnTheConnector(unittest.TestCase):
+class TestCredentialsLiveOnTheConnector(IntegrationTestCase):
 	"""A connector's Secret is the only place a Google key is read from.
 
 	These guard the absence of a fallback, which is harder to keep than it

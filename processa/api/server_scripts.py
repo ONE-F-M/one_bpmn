@@ -74,7 +74,7 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 	read snapshot, because a transaction that opened before the worker committed
 	would keep answering with the rows it saw then, however long it waited.
 	"""
-	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
+	if frappe.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
 		# Parking is off in tests, so the reply is already there and a wait
 		# would block on a worker that never runs.
 		return None

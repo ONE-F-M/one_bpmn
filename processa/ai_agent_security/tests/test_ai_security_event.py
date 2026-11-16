@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.adversarial_pack import SUITE_SUFFIX
 from processa.ai_agent_security.doctype.ai_injection_pattern.ai_injection_pattern import (
@@ -32,7 +32,7 @@ from processa.api.security import (
 PREFIX = "ZZ-wi1967"
 
 
-class TestAISecurityEvent(FrappeTestCase):
+class TestAISecurityEvent(IntegrationTestCase):
 	def setUp(self):
 		self._cleanup()
 		clear_pattern_cache()
@@ -806,7 +806,7 @@ def _never():
 	return re.compile(r"(?!x)x")
 
 
-class TestTheInstructionOverrideRuleCoversItsVariants(FrappeTestCase):
+class TestTheInstructionOverrideRuleCoversItsVariants(IntegrationTestCase):
 	"""One word defeated the flagship rule of the pack.
 
 	``ignore-previous-instructions`` allowed "all" and "any" between the verb

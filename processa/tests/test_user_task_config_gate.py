@@ -3,7 +3,7 @@
 """Deploy and the readiness check require an Assignment Mode and a Task Action on every executable User Task."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.checks import validate_user_task_config
 from processa.api.process_maps import validate_bpmn_readiness
@@ -31,7 +31,7 @@ def _user_task_items(xml: str) -> list:
 	return [i for c in categories if c["label"] == "User Task Configuration" for i in c["items"]]
 
 
-class TestUserTaskConfigGate(FrappeTestCase):
+class TestUserTaskConfigGate(IntegrationTestCase):
 	def test_deploy_is_blocked_without_an_assignment_mode(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			validate_user_task_config(_xml(ACTIONS))

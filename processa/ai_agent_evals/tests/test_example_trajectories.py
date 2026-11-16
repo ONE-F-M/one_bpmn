@@ -7,14 +7,12 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import _EXAMPLE_FIELDS, _clean_example_rows, _rows_for_shape
 from processa.ai_agent_registry.provisioning.context_assembler import _render_examples
 from processa.ai_agent_evals.eval_case_factory import EXAMPLE_RESULT_CHARS, create_example_from_run
 from processa.ai_agent_evals.tests.test_eval_case_from_run import _agent_configuration, _run
-
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 THREE_CALLS = [
 	{"tool": "classify_intent", "args": {}, "result": '{"intent": "CREATE"}'},
@@ -23,7 +21,7 @@ THREE_CALLS = [
 ]
 
 
-class TestExamplesShowTheirCalls(FrappeTestCase):
+class TestExamplesShowTheirCalls(UnitTestCase):
 	def test_three_calls_render_in_order_with_their_arguments(self):
 		text = _render_examples(
 			[
@@ -62,7 +60,7 @@ class TestExamplesShowTheirCalls(FrappeTestCase):
 		)
 
 
-class TestTheEditorKeepsTheCalls(FrappeTestCase):
+class TestTheEditorKeepsTheCalls(IntegrationTestCase):
 	def test_a_save_from_the_editor_keeps_context_and_trajectory(self):
 		rows = _clean_example_rows(
 			[{"input": "hi", "context_summary": "Form open.", "trajectory": THREE_CALLS, "enabled": 0}]
@@ -80,7 +78,7 @@ class TestTheEditorKeepsTheCalls(FrappeTestCase):
 		self.assertIsNone(_clean_example_rows([{"input": "hi", "trajectory": []}])[0]["trajectory"])
 
 
-class TestCreateExampleFromRun(FrappeTestCase):
+class TestCreateExampleFromRun(IntegrationTestCase):
 	def _run_with_calls(self, status="Success"):
 		run = _run(status=status, final_output="Here is the form.")
 		frappe.db.set_value("AI Agent Run", run.name, "agent_configuration", _agent_configuration())

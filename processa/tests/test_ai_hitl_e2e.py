@@ -16,7 +16,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall
@@ -28,8 +28,6 @@ from processa.processa_engine.compiler.extensions import (
 from processa.processa_engine import engine as bpmn_engine
 from processa.processa_engine.runtime.common import AI_HUMAN_PREFIX
 from processa.processa_engine.runtime.engine_loop import run_engine
-
-test_ignore = ["BPMN Process Model"]
 
 # Agent flow: start → Agent_1 → end. The agent's tools live in the (unwired)
 # ad-hoc sub-process: one script tool + one human approval tool.
@@ -87,7 +85,7 @@ def _turn_tool(name, args, call_id="c1"):
 	)
 
 
-class TestDurableAgentHitlEndToEnd(FrappeTestCase):
+class TestDurableAgentHitlEndToEnd(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
