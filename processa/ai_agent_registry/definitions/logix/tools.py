@@ -1,4 +1,4 @@
-"""Logix's tool functions: the debug stage and read-only Server Script lookups."""
+"""Logix's tool functions: the debug stage, the revert to the previous version and read-only Server Script lookups."""
 
 import difflib
 import json
@@ -9,6 +9,7 @@ from frappe import _
 from processa.ai_agent_registry.definitions.shared.helpers import tool_envelope
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from processa.ai_agent_security.code_checks.script_validator import validate_script
+from processa.api.versions import script_versions
 from processa.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from processa.processa_engine.agent_runtime.structured_output import provider_schema
 from processa.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
@@ -75,6 +76,32 @@ def run_debug_stage(conversation: str) -> dict:
 	return _reply(conversation, "\n".join(lines))
 
 
+def revert_output(conversation: str) -> dict:
+	"""Offer the linked script's previous version from its history as a diff against the current one."""
+	script = get_turn(conversation).get("current_script") or ""
+	if not script:
+		say = _("No script is linked to this step, so there is nothing to revert.")
+		return _reply(conversation, say, intent="REVERT")
+	# Reads history without the read check: the agent user holds no roles.
+	history = script_versions(script) if frappe.db.exists("Server Script", script) else []
+	if len(history) < 2:
+		say = _("The script {0} has no earlier version to go back to.").format(script)
+		return _reply(conversation, say, intent="REVERT")
+	current, previous = history[0]["script"], history[1]["script"]
+	diff = "".join(
+		difflib.unified_diff(
+			current.splitlines(keepends=True),
+			previous.splitlines(keepends=True),
+			fromfile="current",
+			tofile="previous version",
+		)
+	)
+	say = _("Here is the previous version of {0}, saved by {1} on {2}. Apply it to put it back.").format(
+		script, history[1]["author"], history[1]["creation"][:16]
+	)
+	return _reply(conversation, say, original=current, fixed=previous, diff=diff)
+
+
 def _ask(adapter, system: str, user: str, schema: dict) -> dict:
 	step = run_sync(
 		adapter.step(
@@ -114,9 +141,16 @@ def _review_prompt(shape_kind: str, diff: str) -> str:
 	)
 
 
-def _reply(conversation: str, response: str, original: str = "", fixed: str = "", diff: str = "") -> dict:
+def _reply(
+	conversation: str,
+	response: str,
+	original: str = "",
+	fixed: str = "",
+	diff: str = "",
+	intent: str = "DEBUG_EXISTING",
+) -> dict:
 	output = {
-		"intent": "MODIFY" if diff else "DEBUG_EXISTING",
+		"intent": "MODIFY" if diff else intent,
 		"response": response,
 		"diff": diff or None,
 		"original_script": original or None,

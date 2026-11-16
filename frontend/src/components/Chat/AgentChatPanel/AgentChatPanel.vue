@@ -222,6 +222,7 @@ import { Dialog, FileUploadHandler, frappeRequest } from "frappe-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "@/utils/aguiClient";
+import { chatDraftKey, useChatDraft } from "@/composables/useChatDraft";
 import ProposedFieldsTray from "../ProposedFieldsTray/ProposedFieldsTray.vue";
 import ResponseFeedback from "../ResponseFeedback/ResponseFeedback.vue";
 import "./AgentChatPanel.css";
@@ -263,7 +264,7 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 
 const surface = ref({});
 const items = ref([]);
-const draft = ref("");
+const draft = useChatDraft(() => chatDraftKey(props.agentId, conversationName.value));
 const busy = ref(false);
 const status = ref("idle");
 const streamingText = ref("");

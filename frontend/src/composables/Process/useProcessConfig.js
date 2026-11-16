@@ -1,6 +1,16 @@
 import { frappeRequest } from "frappe-ui";
 import { downloadBpmn, sanitiseFilename } from "@/utils/downloadBpmn";
 
+// The record sets a config export can carry, as the backend names them.
+const CONFIG_RECORD_KEYS = [
+	"server_scripts",
+	"workflow_states",
+	"workflow_action_masters",
+	"agent_configurations",
+	"ai_skills",
+	"agent_tools",
+];
+
 export function useProcessConfig(pc) {
 	const {
 		props,
@@ -46,10 +56,7 @@ export function useProcessConfig(pc) {
 				});
 				const data = resp.message || resp;
 				const counts = data.counts || {};
-				const total =
-					(counts.server_scripts || 0) +
-					(counts.workflow_states || 0) +
-					(counts.workflow_action_masters || 0);
+				const total = Object.values(counts).reduce((sum, n) => sum + (n || 0), 0);
 
 				if (total > 0) {
 					// Has config records → show popup
@@ -99,14 +106,10 @@ export function useProcessConfig(pc) {
 			const data = resp.message || resp;
 
 			// Filter by user selection
-			const filteredData = {
-				export_metadata: data.export_metadata,
-				server_scripts: selected.server_scripts ? data.server_scripts : [],
-				workflow_states: selected.workflow_states ? data.workflow_states : [],
-				workflow_action_masters: selected.workflow_action_masters
-					? data.workflow_action_masters
-					: [],
-			};
+			const filteredData = { export_metadata: data.export_metadata };
+			for (const key of CONFIG_RECORD_KEYS) {
+				filteredData[key] = selected[key] ? data[key] || [] : [];
+			}
 
 			const jsonStr = JSON.stringify(filteredData, null, 2);
 			const jsonFilename = sanitiseFilename(pc.pendingExportTitle) + "-config.json";
@@ -159,7 +162,12 @@ export function useProcessConfig(pc) {
 
 		configImporting.value = true;
 		showConfigImportResults.value = true;
-		configImportResults.value = { created: [], skipped: [], needs_confirmation: [] };
+		configImportResults.value = {
+			created: [],
+			skipped: [],
+			needs_confirmation: [],
+			failed: [],
+		};
 
 		try {
 			const jsonText = await new Promise((resolve, reject) => {

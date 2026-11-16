@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from xml.etree import ElementTree as ET
 
+import frappe
 from frappe import _
 
 from processa.ai_agent_memory.text_clean import strip_html
@@ -250,3 +251,18 @@ def _flow_references(root: ET.Element) -> dict:
 
 def _element_label(kind: str, name: str) -> str:
 	return _ELEMENT_WORDS.get(kind, "the element") + (" " + quoted(name) if name else "")
+
+
+CROSSING_NOTE = "One crossing line is unavoidable"
+
+
+def crossing_line_note(nodes: list, topology: dict, conversation: str | None) -> str:
+	"""The note that one crossing stays, naming the steps on it, said once per conversation."""
+	if topology.get("planar") is not False:
+		return ""
+	said = {"conversation": conversation, "message_type": "Bot", "text": ["like", f"%{CROSSING_NOTE}%"]}
+	if conversation and frappe.db.exists("Chat Message", said):
+		return ""
+	names = {n.get("id"): n.get("name") or n.get("id") for n in nodes}
+	who = ", ".join(names.get(x, x) for x in (topology.get("obstruction") or [])[:5])
+	return " " + _("{0}: the paths through {1} cannot all be laid flat.").format(_(CROSSING_NOTE), who)
