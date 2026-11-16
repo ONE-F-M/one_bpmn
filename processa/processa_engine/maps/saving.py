@@ -306,26 +306,29 @@ def rename_model(name: str, new_title: str) -> dict:
 			frappe.ValidationError,
 		)
 
-	# Sets the title without save() to skip the validate hooks.
-	frappe.db.set_value("BPMN Process Model", name, "title", new_title, update_modified=True)
-
 	new_name = name
-	if new_title != name:
-		try:
-			actual_new_name = frappe.rename_doc(
-				"BPMN Process Model",
-				name,
-				new_title,
-				force=True,
-				merge=False,
-			)
-			new_name = actual_new_name or new_title
-		except frappe.ValidationError:
-			frappe.log_error(
-				title="BPMN Process Model rename failed",
-				message=f"Could not rename '{name}' to '{new_title}'",
-			)
-			frappe.throw(_("A process model with the name '{0}' already exists").format(new_title))
+	try:
+		# Sets the title without save() to skip the validate hooks.
+		frappe.db.set_value("BPMN Process Model", name, "title", new_title, update_modified=True)
+
+		if new_title != name:
+			try:
+				actual_new_name = frappe.rename_doc(
+					"BPMN Process Model",
+					name,
+					new_title,
+					force=True,
+					merge=False,
+				)
+				new_name = actual_new_name or new_title
+			except frappe.ValidationError:
+				frappe.log_error(
+					title="BPMN Process Model rename failed",
+					message=f"Could not rename '{name}' to '{new_title}'",
+				)
+				frappe.throw(_("A process model with the name '{0}' already exists").format(new_title))
+	except frappe.QueryDeadlockError:
+		frappe.throw(_("This process map is already being renamed. Wait for that to finish, then try again."))
 
 	return {
 		"name": new_name,
