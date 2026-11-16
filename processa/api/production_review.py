@@ -1,4 +1,4 @@
-# Copyright (c) 2026, ONE BPMN and contributors
+# Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 #
 # On-demand comparison of a process map's referenced objects between the current

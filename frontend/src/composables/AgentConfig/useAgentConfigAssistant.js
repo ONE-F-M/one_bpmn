@@ -26,7 +26,7 @@ export function useAgentConfigAssistant(ac) {
 			// The EXACT open BPMN Process Model record name — the assistant needs it
 			// verbatim for proposed_config.process_model (the human-facing process
 			// title is a different string and fails the creation gate).
-			process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
+			process_model: window.__PROCESSA_CURRENT_MODEL__ || "",
 			current_config: JSON.stringify(
 				props.mode === "selector"
 					? {

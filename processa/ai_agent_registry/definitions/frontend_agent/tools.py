@@ -42,6 +42,8 @@ import tempfile
 
 import frappe
 
+from processa.ai_agent_registry.definitions.shared.helpers import find_node
+
 # Bounds, not policy: these stop a single call exhausting memory or wedging the
 # worker. What the agent is ALLOWED to touch is decided in the tool scripts.
 MAX_READ_BYTES = 400_000
@@ -181,16 +183,6 @@ def app_repo(app: str) -> str:
 
 
 # ── child processes ──────────────────────────────────────────────────────────
-def _node() -> str:
-	found = shutil.which("node")
-	if found:
-		return found
-	for candidate in ("/usr/bin/node", "/usr/local/bin/node"):
-		if os.path.isfile(candidate):
-			return candidate
-	return ""
-
-
 def run_prettier(path: str, content: str) -> dict:
 	"""Format content the way the pre-commit hook will."""
 	prettier = os.path.join(spa_root(), "node_modules", ".bin", "prettier")
@@ -284,7 +276,7 @@ def run_build(files: dict | None = None) -> dict:
 	Returns ``{ok, applied, errors, warnings, duration_s, output}`` and never
 	raises: a failing build is a result the agent is expected to read and act on.
 	"""
-	node = _node()
+	node = find_node()
 	if not node:
 		return {"ok": False, "errors": ["node was not found on PATH."], "warnings": [],
 		        "duration_s": 0, "output": "", "applied": []}

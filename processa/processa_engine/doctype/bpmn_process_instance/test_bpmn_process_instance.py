@@ -654,6 +654,8 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		)
 
 		fake_todo = Mock()
+		# A Mock name gives frappe.db.set_value no filter, so it would update every ToDo.
+		fake_todo.name = "TEST-TODO-OFF"
 		fake_todo.insert = Mock(return_value=fake_todo)
 		fake_ctx = Mock(doctype="ToDo", name="DOC-1")
 

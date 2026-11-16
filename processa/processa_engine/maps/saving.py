@@ -57,16 +57,17 @@ def save_model(
 
 
 def _remove_orphaned_decision_rows(doc, xml_content: str):
-	"""Remove child rows in decision_tables whose element is not in the XML."""
+	"""Remove child rows in decision_tables that neither an element id nor a calledDecisionId in the XML names."""
 	if not doc.decision_tables:
 		return
 
 	import re
 
 	id_matches = re.findall(r"""\bid=(?:\"([^\"]+)\"|'([^']+)')""", xml_content)
-	element_ids = {m[0] or m[1] for m in id_matches}
+	called = re.findall(r"""calledDecisionId(?:=\"([^\"]+)\"|>\s*([^<\s]+)\s*<)""", xml_content)
+	kept_ids = {m[0] or m[1] for m in id_matches} | {m[0] or m[1] for m in called}
 
-	doc.decision_tables = [row for row in doc.decision_tables if row.decision_id in element_ids]
+	doc.decision_tables = [row for row in doc.decision_tables if row.decision_id in kept_ids]
 
 
 def _sync_decision_names(doc, xml_content: str):

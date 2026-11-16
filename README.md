@@ -1,6 +1,6 @@
 ![Coverage](https://img.shields.io/badge/coverage-30%25%2B-brightgreen)
 
-# ONE BPMN (Processa)
+# Processa
 
 A BPMN process **modeling and execution** platform for the Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/). It provides:
 

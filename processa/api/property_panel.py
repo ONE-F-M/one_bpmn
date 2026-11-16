@@ -1,4 +1,4 @@
-# Copyright (c) 2026, ONE BPMN and contributors
+# Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 #
 # "Release Property Panel" — available from the Processa canvas Actions menu

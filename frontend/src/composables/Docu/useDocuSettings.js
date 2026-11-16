@@ -9,7 +9,7 @@ import {
 
 export function useDocuSettings({ doctype, onChange }) {
 	const dtName = ref(doctype || "");
-	const dtModule = ref("ONE BPMN");
+	const dtModule = ref("Processa Engine");
 	const dtAutoname = ref("");
 	const isChild = ref(false);
 	const modules = ref([]); // Module Def names for the module picker
@@ -40,7 +40,7 @@ export function useDocuSettings({ doctype, onChange }) {
 	// Always include the current module (e.g. an agent-supplied one) so it stays selectable.
 	const moduleOptions = computed(() => {
 		const list = modules.value.slice();
-		for (const m of [dtModule.value, "ONE BPMN"]) {
+		for (const m of [dtModule.value, "Processa Engine"]) {
 			if (m && !list.includes(m)) list.unshift(m);
 		}
 		return list;
@@ -51,7 +51,7 @@ export function useDocuSettings({ doctype, onChange }) {
 	// An IR module is accepted only when it names a real Module Def. The match is
 	// case-insensitive and is normalised to the Module Def's own spelling.
 	function sanitizeModule(m) {
-		if (!m) return dtModule.value || "ONE BPMN";
+		if (!m) return dtModule.value || "Processa Engine";
 		if (!modules.value.length) return m;
 		const match = modules.value.find(
 			(known) => String(known).toLowerCase() === String(m).toLowerCase(),
@@ -60,9 +60,9 @@ export function useDocuSettings({ doctype, onChange }) {
 		// Genuinely not a module. Falling back is right, but say so - a silent
 		// substitution is how this went unnoticed for so long.
 		console.warn(
-			`Docu: "${m}" is not a Frappe module; keeping ${dtModule.value || "ONE BPMN"}.`,
+			`Docu: "${m}" is not a Frappe module; keeping ${dtModule.value || "Processa Engine"}.`,
 		);
-		return dtModule.value || "ONE BPMN";
+		return dtModule.value || "Processa Engine";
 	}
 
 	async function loadRoles() {

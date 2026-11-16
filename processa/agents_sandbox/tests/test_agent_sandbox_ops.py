@@ -675,7 +675,7 @@ class TestDispatchError(FrappeTestCase):
 		with patch.object(ops, "_missing_branch_error", return_value=None):
 			self.assertIsNone(ops.dispatch_error("processa", "staging"))
 
-	def _repo(self, html_url="https://github.com/ONE-F-M/one_bpmn", token="t"):
+	def _repo(self, html_url="https://github.com/ONE-F-M/processa", token="t"):
 		settings = SimpleNamespace(get_password=lambda *a, **k: token)
 		return (
 			patch.object(frappe.db, "exists", return_value=True),
@@ -684,14 +684,14 @@ class TestDispatchError(FrappeTestCase):
 		)
 
 	def _ask(self, status_code, branch="develop"):
-		frappe.cache.delete_value(f"agent_sandbox_branch:ONE-F-M/one_bpmn:{branch}")
+		frappe.cache.delete_value(f"agent_sandbox_branch:ONE-F-M/processa:{branch}")
 		first, second, third = self._repo()
 		with first, second, third, patch("requests.get", return_value=SimpleNamespace(status_code=status_code)) as get:
 			return ops._missing_branch_error("processa", branch), get
 
 	def test_a_branch_github_does_not_have_is_refused(self):
 		message, get = self._ask(404)
-		self.assertIn("'develop' does not exist in ONE-F-M/one_bpmn", message)
+		self.assertIn("'develop' does not exist in ONE-F-M/processa", message)
 		self.assertIn("/branches/develop", get.call_args.args[0])
 
 	def test_a_branch_github_has_is_allowed_and_the_answer_is_remembered(self):
@@ -811,7 +811,7 @@ class TestSlowActionCommandKind(FrappeTestCase):
 	def _kind(self, action):
 		run = SimpleNamespace(name="RUN-1", caller_instance=None)
 		payload = {
-			"work_item_id": "WI-1", "target_app": "one_bpmn", "git_branch": "staging",
+			"work_item_id": "WI-1", "target_app": "processa", "git_branch": "staging",
 			"agent_name": "Testing Agent", "work_item_description": "Test it.",
 		}
 		with patch.object(ops.sessions, "ensure_session", return_value=SimpleNamespace(name="S-1")), \
