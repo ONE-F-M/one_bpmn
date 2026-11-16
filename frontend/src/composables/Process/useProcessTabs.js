@@ -1,4 +1,6 @@
+import { ref } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage";
 
 export function useProcessTabs(pc) {
 	const {
@@ -118,22 +120,28 @@ export function useProcessTabs(pc) {
 		if (tabEntry) Object.assign(tabEntry, fields);
 	}
 
+	const renaming = ref(false);
+
 	async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 		if (!isEditable.value) return; // Guard: process is locked
+		if (renaming.value) return;
+		renaming.value = true;
 		// Cancel the debounce timer so autosave can't fire with a stale model_name.
 		clearTimeout(pc.saveTimeout);
 		pc.hasPendingSave = false;
 
-		// If there are unsaved diagram changes, flush them under the OLD name first.
-		if (hasUnsavedChanges.value && activeDiagramName.value === tabName && editorRef.value) {
-			await pc.saveCurrentDiagram();
-		}
-
-		// Optimistic: show new name + notification immediately
-		applyTabDiagramFields(tabName, { model_name: newModelName, title: newModelName });
-		pc.showNotification("Renamed", `Diagram renamed to "${newModelName}"`, "green");
-
 		try {
+			// If there are unsaved diagram changes, flush them under the OLD name first.
+			if (
+				hasUnsavedChanges.value &&
+				activeDiagramName.value === tabName &&
+				editorRef.value
+			) {
+				await pc.saveCurrentDiagram();
+			}
+
+			pc.showNotification("Renaming", `Renaming to "${newModelName}"`, "blue", true);
+
 			const response = await frappeRequest({
 				url: "/api/method/processa.api.process_maps.rename_process_model",
 				params: {
@@ -160,6 +168,7 @@ export function useProcessTabs(pc) {
 				model_name: actualModelName,
 				title: actualModelName,
 			});
+			pc.showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
 
 			// Update active diagram ref and URL if the renamed tab is active
 			if (activeDiagramName.value === tabName) {
@@ -173,11 +182,9 @@ export function useProcessTabs(pc) {
 			// Rollback on failure
 			console.error("Failed to rename process model:", error);
 			applyTabDiagramFields(tabName, { model_name: oldModelName, title: oldModelName });
-			pc.showNotification(
-				"Rename Failed",
-				error.message || error._server_messages || "An error occurred while renaming.",
-				"red",
-			);
+			pc.showNotification("Rename Failed", serverMessage(error), "red");
+		} finally {
+			renaming.value = false;
 		}
 	}
 
