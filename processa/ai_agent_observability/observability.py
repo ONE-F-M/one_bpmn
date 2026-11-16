@@ -27,7 +27,6 @@ from rq import get_current_job
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from processa.ai_agent_observability.pricing import compute_token_cost
-from processa.ai_agent_observability.terminal_tool import terminal_tool_failure
 
 # Max size for final_output stored on the Run (64 KB)
 _MAX_OUTPUT_CHARS = 64 * 1024
@@ -898,6 +897,23 @@ def finalize_ai_run(
 	model_health.note_run_outcome(
 		getattr(run, "model", None), update.get("error_code") or "SUCCESS", update.get("error_message")
 	)
+
+
+def terminal_tool_failure(trace) -> dict:
+	"""The status, error_code and error_message for finalize_ai_run when the last tool call failed with a code, else {}."""
+	calls = [call for turn in trace or [] for call in (turn.get("tool_calls") or [])]
+	if not calls:
+		return {}
+	text = str(calls[-1].get("result") or "")
+	if not text.lstrip().startswith("{"):
+		return {}
+	try:
+		body = json.loads(text)
+	except ValueError:
+		return {}
+	if body.get("error") and body.get("error_code"):
+		return {"status": "Error", "error_code": str(body["error_code"]), "error_message": str(body["error"])}
+	return {}
 
 
 def finalize_ai_run_on_exception(run, exception: Exception) -> None:
