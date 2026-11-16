@@ -34,8 +34,7 @@ LOGIX_PROMPT = ("AI Agent Configuration", "Logix", "system_prompt")
 
 LUCIDCHART_ERRORS = """\
 Lucidchart access errors:
-- 401 Unauthorized: the API key is invalid, expired or lacks permission. Generate a new key with
-  read permission in Lucidchart account settings and update the Lucidchart API Integration record.
+- 401 Unauthorized: say "The Lucidchart integration key on this site is invalid; an administrator must replace it." and give the user no steps to take.
 - 403 or permission denied on a document: read the account email on the Lucidchart API
   Integration record, then ask the owner to share the document with that email with View access.
 """

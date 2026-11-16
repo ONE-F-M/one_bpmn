@@ -43,6 +43,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import re
 import time
 from urllib.parse import quote
@@ -774,6 +775,12 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	if work_item_id and sessions.uses_job(payload["agent_name"]):
 		return _tool_call_in_session(run, payload)
 
+	if action in SPEC_TOOL_ACTIONS:
+		error = f"{action} is only available in a sandbox Job session: turn on the agent's sandbox Job setting and run it for a Work Item."
+		if run:
+			run.db_set(finished({"state": "failed", "failure_class": "policy", "error_message": error}), update_modified=False)
+		return {"ok": False, "error": error}
+
 	began = time.monotonic()
 	try:
 		token = mint_identity_token(sandbox_url)
@@ -826,7 +833,10 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 			work_item=payload["work_item_id"], target_app=payload["target_app"], git_branch=payload["git_branch"],
 			agent_name=payload["agent_name"], caller_instance=getattr(run, "caller_instance", None),
 		)
-		answer = sessions.wait_for(sessions.enqueue(session, "tool", payload["action"], {"args": payload["args"]}))
+		answer = sessions.wait_for(
+			sessions.enqueue(session, "tool", payload["action"], {"args": payload["args"]}),
+			timeout=SPEC_WAIT_SECONDS.get(payload["action"]),
+		)
 		error = "The sandbox session gave no answer in time." if answer is None else None
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {payload['action']} session call failed", message=frappe.get_traceback())
@@ -847,7 +857,26 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 
 # Args that must never reach the audit record. The test password is one, so an action that carries it is never
 # re-dispatched from the stored payload either: a failure goes back to the agent instead of being retried.
-SECRET_ARGS = frozenset({"password"})
+SECRET_ARGS = frozenset({"password", "token"})
+
+
+UPLOAD_CONNECTOR = "github_video_upload"
+
+
+def video_upload_token() -> str:
+	"""The machine user's token, read from the github_video_upload connector's Bearer secret.
+
+	The token is only ever read here, at dispatch, and handed to the sandbox inside the upload_videos command. It is never a
+	parameter the map or the model supplies, and the run record shows it as REDACTED."""
+	row = frappe.db.get_value("BPMN Connector", UPLOAD_CONNECTOR, ["enabled", "auth_type"], as_dict=True)
+	if not row:
+		raise AgentSandboxError(f"upload_videos needs the {UPLOAD_CONNECTOR} connector: create it with the machine user's token (WI-004219).")
+	if not row.enabled or row.auth_type != "Bearer Token":
+		raise AgentSandboxError(f"The {UPLOAD_CONNECTOR} connector must be enabled and use the Bearer Token auth type.")
+	token = (frappe.get_doc("BPMN Connector", UPLOAD_CONNECTOR).get_password("auth_secret", raise_exception=False) or "").strip()
+	if not token:
+		raise AgentSandboxError(f"The {UPLOAD_CONNECTOR} connector has no token in its Auth Secret.")
+	return token
 
 
 def test_password_for(run_id: str) -> str:
@@ -860,7 +889,11 @@ def test_password_for(run_id: str) -> str:
 		raise AgentSandboxError("The site has no encryption_key to derive the test password from.")
 	digest = hmac.new(secret, f"testing-agent-test-password:{run_id}".encode(), hashlib.sha256).digest()
 	return base64.urlsafe_b64encode(digest).decode().rstrip("=")[:24]
-NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head"})
+NO_AUTO_RETRY_ACTIONS = frozenset({"prepare_site", "checkout_pr_head", "run_specs", "run_specs_on_base", "upload_videos"})
+# Fast spec tools exist only in a sandbox Job session (the HTTP /tool_call path does not know them). A page capture can take
+# up to 60 seconds in the sandbox, so its answer is waited for longer than the 60 seconds every other fast tool gets.
+SPEC_TOOL_ACTIONS = frozenset({"write_spec", "browser_snapshot", "trigger_job", "seed_docs", "seed_context"})
+SPEC_WAIT_SECONDS = {"browser_snapshot": 90}
 
 
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
@@ -874,6 +907,59 @@ def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None
 	sessions.enqueue(
 		session, kind, action, {"args": args, "work_item_description": payload["work_item_description"]}, run=run.name
 	)
+
+
+# The fast Testing Agent actions a map can call as a connector operation: what each takes besides the shared fields. A list or
+# object may arrive as JSON text, since a map field is text.
+FAST_ACTION_ARGS = {
+	"write_spec": ("file", "content"),
+	"browser_snapshot": ("url", "role"),
+	"trigger_job": ("method",),
+	"seed_docs": ("docs",),
+	"seed_context": ("doctypes",),
+}
+_NEEDS_RUN_ID = frozenset(FAST_ACTION_ARGS) - {"trigger_job"}
+_JSON_ARGS = frozenset({"docs", "doctypes"})
+
+
+def _dispatch_fast_action(params: dict, ctx: dict, action: str) -> dict | None:
+	"""A fast action called from a map: one round trip to the Job session, answered within the fast wait, and returned as the
+	step's output (nothing parks). An eval gets dry-run text, like the slow operations. The run id comes from the map."""
+	instance, task = ctx.get("instance"), ctx.get("task")
+	target_app, git_branch = (params.get("target_app") or "").strip(), (params.get("git_branch") or "").strip()
+	work_item_description = (params.get("work_item_description") or "").strip()
+	if not (target_app and git_branch and work_item_description):
+		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+	if refused := dispatch_error(target_app, git_branch):
+		raise AgentSandboxError(refused)
+	args = {}
+	for name in FAST_ACTION_ARGS[action]:
+		value = params.get(name)
+		if name in _JSON_ARGS and isinstance(value, str):
+			try:
+				value = json.loads(value)
+			except ValueError:
+				raise AgentSandboxError(f"{name} must be a JSON list.") from None
+		if value in (None, "", []):
+			raise AgentSandboxError(f"{action} needs {name}.")
+		args[name] = value
+	if action in _NEEDS_RUN_ID:
+		run_id = (params.get("run_id") or "").strip()
+		if not run_id:
+			raise AgentSandboxError(f"{action} needs run_id.")
+		args["run_id"] = run_id
+	if (frappe.flags.eval_origin or {}).get("eval_run"):
+		task.data[EVAL_DRY_RUN_KEY] = f"Eval dry run: {action} was not sent to the sandbox."
+		return None
+	answer = sandbox_dispatch(
+		action, target_app, git_branch, work_item_description, args, a2a_task_of(instance), bpmn_id=ctx.get("bpmn_id"), instance=instance
+	)
+	if not answer.get("ok"):
+		raise AgentSandboxError(answer.get("error") or f"{action} failed.")
+	response = dict(answer["response"])
+	if response.pop("screenshot_base64", None):  # megabytes of base64 do not belong in task data
+		response["screenshot_omitted"] = True
+	return response
 
 
 def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
@@ -918,6 +1004,12 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	if progress_error:
 		raise AgentSandboxError(progress_error)
 
+	upload_token = None
+	if action == "upload_videos":  # checked before any run record exists, so a missing token leaves nothing half-created
+		if missing := [k for k in ("run_id", "repository", "pr_number") if not str(params.get(k) or "").strip()]:
+			raise AgentSandboxError(f"upload_videos needs {', '.join(missing)}.")
+		upload_token = video_upload_token()
+
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
@@ -950,6 +1042,8 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		if not run_id:
 			raise AgentSandboxError("prepare_site needs a run_id.")
 		params = {**params, "password": test_password_for(run_id)}  # a password a caller passed is replaced, never forwarded
+	if upload_token:
+		params = {**params, "token": upload_token}  # likewise: the connector's token replaces anything a caller passed
 	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
 	payload = {
 		"correlation_id": run.name,
@@ -1037,6 +1131,8 @@ def dispatch_action(params: dict, ctx: dict) -> dict | None:
 	action = (ctx.get("operation") or "").strip()
 	if not action:
 		raise AgentSandboxError("dispatch_action was not called through a configured connector operation.")
+	if action in FAST_ACTION_ARGS:
+		return _dispatch_fast_action(params, ctx, action)
 	return _dispatch_single_action(params, ctx, action)
 
 
