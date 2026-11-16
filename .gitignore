@@ -43,3 +43,4 @@ processa/www/processa/index.html
 frontend/components.d.ts
 frontend/auto-imports.d.ts
 frontend/stats.html
+.coverage
