@@ -15,6 +15,8 @@
   "process_owner",
   "business_analyst",
   "column_break_cccw",
+  "start_from_existing_version",
+  "existing_process_model",
   "goal_description",
   "more_information_tab",
   "section_break_qrox",
@@ -71,7 +73,8 @@
    "in_list_view": 1,
    "label": "Process Owner",
    "options": "User",
-   "reqd": 1
+   "reqd": 1,
+   "in_standard_filter": 1
   },
   {
    "default": "User",
@@ -87,12 +90,29 @@
    "fieldtype": "Column Break"
   },
   {
+   "default": "0",
+   "description": "Mark to start the new version with an existing model instead of a blank canvas.",
+   "fieldname": "start_from_existing_version",
+   "fieldtype": "Check",
+   "label": "Start from Existing Version"
+  },
+  {
+   "depends_on": "eval: doc.start_from_existing_version",
+   "description": "Select the existing process model to start with.",
+   "fieldname": "existing_process_model",
+   "fieldtype": "Link",
+   "label": "Existing Process Model",
+   "link_filters": "[[\"BPMN Process Model\", \"process_name\", \"=\", \"eval:doc.process_name\"]]",
+   "options": "BPMN Process Model"
+  },
+  {
    "description": "A brief description of what this update is meant to achieve.",
    "fieldname": "goal_description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
    "label": "Goal Description",
-   "reqd": 1
+   "reqd": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "more_information_tab",
