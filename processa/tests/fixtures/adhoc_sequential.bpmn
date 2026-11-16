@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_AdhocSeq" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_AdhocSequential" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_In</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_In" sourceRef="StartEvent_1" targetRef="AdhocSub_1" />
+    <bpmn:adHocSubProcess id="AdhocSub_1" name="Sequential Ad-hoc Work">
+      <bpmn:incoming>Flow_In</bpmn:incoming>
+      <bpmn:outgoing>Flow_Out</bpmn:outgoing>
+      <bpmn:task id="task_a" name="Task A" />
+      <bpmn:task id="task_b" name="Task B" />
+      <bpmn:task id="task_c" name="Task C" />
+      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">done</bpmn:completionCondition>
+    </bpmn:adHocSubProcess>
+    <bpmn:sequenceFlow id="Flow_Out" sourceRef="AdhocSub_1" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1">
+      <bpmn:incoming>Flow_Out</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

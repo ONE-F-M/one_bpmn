@@ -1,0 +1,9 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.bpmn_preview",
+ "value": {
+  "mode": "modified",
+  "bpmn_xml": "<bpmn:definitions>\u2026</bpmn:definitions>",
+  "summary": "Adds Manager Approval and removes the auto-approve path"
+ }
+}

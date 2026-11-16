@@ -1,5 +1,5 @@
 [project]
-name = "one_bpmn"
+name = "processa"
 authors = [
     { name = "kartiksharma9319@gmail.com", email = "kartiksharma9319@gmail.com"}
 ]
@@ -11,9 +11,23 @@ dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "spiffworkflow",
     "google-auth~=2.48.0",  # Pinned to align with frappe v16 (frappe requires ~=2.48.0)
+    "google-api-python-client>=2.0.0",
     "anthropic",
     "openai>=1.0.0",
     "google-genai",
+    "bleach>=6.0",
+    "python-pptx>=0.6.23",
+    "python-docx>=1.0.0",
+    # AG-UI events and SSE encoder; same pin as onefm_mcp so both apps share one version.
+    "ag-ui-protocol==0.1.10",
+    # A2A envelope validation imports jsonschema directly, so it is declared here.
+    "jsonschema>=4.20",
+    # Local ONNX sentence embeddings for AI Memory semantic search. No PyTorch;
+    # the model files are fetched once per bench into sites/.fastembed.
+    "fastembed>=0.8",
+    "deep-translator>=1.11",
+    # Pinned: 0.1.8 and later load protobuf 7 code, which google-api-core and the other Google libraries refuse. No Intel Mac wheel exists.
+    "google-antigravity==0.1.7; platform_system != 'Darwin' or platform_machine == 'arm64'",
 ]
 
 
@@ -26,6 +40,9 @@ build-backend = "flit_core.buildapi"
 pytest-cov = "~=5.0.0"
 basedmypy = "~=2.0.0"
 types-requests = "~=2.31.0"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
 
 [tool.ruff]
 line-length = 110
@@ -64,10 +81,10 @@ indent-style = "tab"
 docstring-code-format = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=one_bpmn --cov-report=term-missing --cov-fail-under=30"
+addopts = "--cov=processa --cov-report=term-missing --cov-fail-under=30"
 
 [tool.coverage.run]
-source = ["one_bpmn"]
+source = ["processa"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
@@ -86,11 +103,11 @@ pretty = true
 incremental = true
 sqlite_cache = true
 files = [
-    "one_bpmn/__init__.py",
-    "one_bpmn/api.py",
-    "one_bpmn/tasks.py",
+    "processa/__init__.py",
+    "processa/api/__init__.py",
+    "processa/tasks.py",
 ]
-exclude = '^one_bpmn/one_bpmn/patches|/test_.*\.py$'
+exclude = '^processa/patches|/test_.*\.py$'
 
 [[tool.mypy.overrides]]
 module = [

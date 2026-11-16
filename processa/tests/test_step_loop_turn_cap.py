@@ -1,0 +1,120 @@
+# Copyright (c) 2026, one-fm and contributors
+# What run_agent_loop returns when it runs out of turns.
+#
+# The loop used to return text="" on the turn cap. For an agent declaring
+# response_format="json" that arrives at validation as "invalid JSON: Expecting
+# value: line 1 column 1 (char 0)" — a message that blames the model for a
+# malformed reply when in fact the loop simply ran out of turns, and which is
+# indistinguishable from the model genuinely answering in prose. Carrying the
+# last narration out instead makes the two cases tellable apart, and keeps the
+# partial progress visible to whoever reads the run.
+
+from __future__ import annotations
+
+import asyncio
+
+from frappe.tests.utils import FrappeTestCase
+
+from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
+from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
+
+
+def _tool(name="noop"):
+	return ToolSpec(fn=lambda **kw: "done", name=name, description="d", parameters={}, required=[])
+
+
+class _AlwaysCallsTools:
+	"""Never produces a final answer, so the loop always hits the cap."""
+
+	def __init__(self, narration):
+		self.narration = narration
+		self.calls = 0
+
+	async def step(self, system, transcript, tools=None, max_tokens=16384):
+		self.calls += 1
+		return StepResult(
+			content=self.narration,
+			tool_calls=[StepToolCall(id=f"c{self.calls}", name="noop", arguments={})],
+		)
+
+
+class TestStepLoopTurnCap(FrappeTestCase):
+	def test_turn_cap_carries_the_last_narration_out(self):
+		adapter = _AlwaysCallsTools("Now I'll add the test cases:")
+		completion, suspension = asyncio.run(
+			run_agent_loop(adapter, system="s", user="u", tools=[_tool()], max_turns=3)
+		)
+		self.assertIsNone(suspension)
+		self.assertTrue(completion.hit_turn_cap)
+		self.assertEqual(completion.text, "Now I'll add the test cases:")
+
+	def test_turn_cap_respects_the_limit(self):
+		adapter = _AlwaysCallsTools("working")
+		completion, _ = asyncio.run(
+			run_agent_loop(adapter, system="s", user="u", tools=[_tool()], max_turns=3)
+		)
+		self.assertEqual(adapter.calls, 3)
+		self.assertEqual(len(completion.trace), 3)
+
+	def test_turn_cap_with_no_narration_is_still_empty(self):
+		"""Nothing is invented: a silent model still yields empty text, and
+		hit_turn_cap is what tells the caller why."""
+		adapter = _AlwaysCallsTools("")
+		completion, _ = asyncio.run(
+			run_agent_loop(adapter, system="s", user="u", tools=[_tool()], max_turns=2)
+		)
+		self.assertTrue(completion.hit_turn_cap)
+		self.assertEqual(completion.text, "")
+
+	def test_a_real_final_answer_is_not_treated_as_a_cap(self):
+		class Answers:
+			async def step(self, system, transcript, tools=None, max_tokens=16384):
+				return StepResult(content="all done", tool_calls=[])
+
+		completion, _ = asyncio.run(
+			run_agent_loop(Answers(), system="s", user="u", tools=[_tool()], max_turns=3)
+		)
+		self.assertFalse(completion.hit_turn_cap)
+		self.assertEqual(completion.text, "all done")
+
+	def test_resumed_trace_is_not_dropped_on_a_second_turn_cap(self):
+		"""Confirmed live (2026-09-07): a run that suspended after 7 turns, was
+		resumed, and hit the cap one turn later reported "(1 turns recorded)"
+		— the resumed segment's own fresh trace, with the 7 turns already spent
+		silently gone. turns_used carried forward correctly (the cap fired at
+		the right turn); only the reported trace was wrong."""
+		prior_trace = [
+			{
+				"role": "tool", "content": "", "tool_calls": [],
+				"prompt_tokens": 100, "completion_tokens": 10,
+				"cache_read_tokens": 0, "cache_write_tokens": 0, "latency_ms": 5,
+			}
+			for _ in range(7)
+		]
+		adapter = _AlwaysCallsTools("still working")
+		completion, _ = asyncio.run(
+			run_agent_loop(
+				adapter, system="s", tools=[_tool()], max_turns=8,
+				resume={
+					"transcript": [{"role": "user", "content": "u"}],
+					"turns_used": 7,
+					"trace": prior_trace,
+				},
+			)
+		)
+		self.assertTrue(completion.hit_turn_cap)
+		# The prior 7 turns plus this segment's own 1 — not just the 1.
+		self.assertEqual(len(completion.trace), 8)
+
+	def test_resume_without_a_trace_key_still_works(self):
+		"""Older checkpoints (before this field existed) have no "trace" key —
+		must degrade to an empty prior trace, not KeyError."""
+		adapter = _AlwaysCallsTools("working")
+		completion, _ = asyncio.run(
+			run_agent_loop(
+				adapter, system="s", tools=[_tool()], max_turns=1,
+				resume={"transcript": [{"role": "user", "content": "u"}], "turns_used": 0},
+			)
+		)
+		self.assertTrue(completion.hit_turn_cap)
+		self.assertEqual(len(completion.trace), 1)

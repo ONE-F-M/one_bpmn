@@ -1,0 +1,12 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.choice",
+ "value": {
+  "prompt": "Which script do you mean?",
+  "options": [
+   "Onboarding Validate",
+   "Dept Rollup"
+  ],
+  "action_intent": "DISAMBIGUATE"
+ }
+}

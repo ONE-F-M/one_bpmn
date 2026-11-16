@@ -1,0 +1,29 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.test_cases",
+ "value": {
+  "summary": "Quick checks to confirm the leave validation works",
+  "cases": [
+   {
+    "scenario": "Approves a normal request",
+    "when": "An employee with enough remaining days asks for 5 days of leave",
+    "expected": "The request goes through without complaints",
+    "inputs": {
+     "context_doctype": "Leave Application",
+     "context_docname": "LA-0001",
+     "days_requested": 5
+    }
+   },
+   {
+    "scenario": "Stops an over-limit request",
+    "when": "An employee asks for more days than they have left",
+    "expected": "The script stops and explains the balance is too low",
+    "inputs": {
+     "context_doctype": "Leave Application",
+     "context_docname": "LA-0002",
+     "days_requested": 30
+    }
+   }
+  ]
+ }
+}

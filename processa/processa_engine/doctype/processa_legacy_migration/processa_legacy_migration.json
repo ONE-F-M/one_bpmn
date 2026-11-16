@@ -1,0 +1,214 @@
+{
+ "actions": [],
+ "autoname": "PLM-.####",
+ "creation": "2026-06-13 20:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_config",
+  "from_model",
+  "to_model",
+  "column_break_cfg",
+  "target_doctype",
+  "section_state_map",
+  "state_map",
+  "section_progress",
+  "workflow_state",
+  "status",
+  "total_records",
+  "total_batches",
+  "column_break_prog",
+  "migrated_count",
+  "failed_count",
+  "batches_done",
+  "section_timing",
+  "started_at",
+  "run_by",
+  "column_break_time",
+  "completed_at",
+  "section_errors",
+  "error_logs"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_config",
+   "fieldtype": "Section Break",
+   "label": "Migration Configuration"
+  },
+  {
+   "fieldname": "from_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Old Process Map",
+   "options": "BPMN Process Model",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "New Process Map",
+   "options": "BPMN Process Model",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_cfg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_state_map",
+   "fieldtype": "Section Break",
+   "label": "State Mapping"
+  },
+  {
+   "fieldname": "state_map",
+   "fieldtype": "Table",
+   "label": "State Mapping",
+   "options": "Legacy Migration State Map",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_progress",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "description": "BPMN process state, set by the 'Processa Legacy Migration - v2' process (apply_workflow service tasks).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nQueued\nRunning\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "total_records",
+   "fieldtype": "Int",
+   "label": "Total Records",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "total_batches",
+   "fieldtype": "Int",
+   "label": "Total Batches",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_prog",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "migrated_count",
+   "fieldtype": "Int",
+   "label": "Migrated",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "failed_count",
+   "fieldtype": "Int",
+   "label": "Failed",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "batches_done",
+   "fieldtype": "Int",
+   "label": "Batches Done",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Execution"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "run_by",
+   "fieldtype": "Link",
+   "label": "Run By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_time",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_errors",
+   "fieldtype": "Section Break",
+   "label": "Error Logs"
+  },
+  {
+   "fieldname": "error_logs",
+   "fieldtype": "Table",
+   "label": "Error Logs",
+   "options": "Legacy Migration Error Log",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-11-10 16:27:15.591507",
+ "modified_by": "Administrator",
+ "module": "Processa Engine",
+ "name": "Processa Legacy Migration",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "Process Owner",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

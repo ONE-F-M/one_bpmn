@@ -1,0 +1,17 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.script_diff",
+ "value": {
+  "mode": "MODIFY",
+  "apply_target": "Dept Rollup",
+  "modified_script": "def get_department(employee):\n    if not employee:\n        return None\n    return employee.department",
+  "diff": [
+   {
+    "type": "changed",
+    "left": "dept = employee.department",
+    "right": "if not employee: return None"
+   }
+  ],
+  "summary": "Add a null check before reading employee.department"
+ }
+}

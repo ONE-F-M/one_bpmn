@@ -1,0 +1,34 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.lucrusher_result",
+ "value": {
+  "intent": "TOPOLOGY_PROPOSAL",
+  "matches": [],
+  "topology": {
+   "recommendation": "Split into two processes",
+   "summary": "The chart mixes onboarding and access provisioning; they have different owners and SLAs.",
+   "processes": [
+    {
+     "name": "Employee Onboarding",
+     "type": "Core",
+     "reason": "Owned by HR end to end.",
+     "shapes": [
+      "Offer accepted",
+      "Collect documents",
+      "Create employee record"
+     ]
+    },
+    {
+     "name": "System Access Provisioning",
+     "type": "Supporting",
+     "reason": "Runs on IT's SLA and can start before day one.",
+     "shapes": [
+      "Raise access request",
+      "Approve",
+      "Grant access"
+     ]
+    }
+   ]
+  }
+ }
+}
