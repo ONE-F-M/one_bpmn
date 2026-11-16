@@ -53,7 +53,9 @@ def rename_app():
 	for name, patch in rows:
 		frappe.qb.update(patch_log).set(patch_log.patch, patch_line(patch)).where(patch_log.name == name).run()
 	frappe.cache.hdel("defaults", "__global")
-	frappe.cache.delete_value("app_hooks")
+	# Frappe v16 keeps the global defaults, installed_apps included, under this key instead.
+	frappe.cache.delete_value("defaults::__global")
+	frappe.cache.delete_value(["app_hooks", "app_modules", "installed_app_modules"])
 
 
 def patch_line(old: str) -> str:

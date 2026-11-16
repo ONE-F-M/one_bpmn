@@ -41,6 +41,19 @@ class TestCutover(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Patch Log", patch_log.name, "patch"), OLD_LINES[old])
 		self.assertEqual(frappe.db.count("Patch Log", {"patch": OLD_LINES[old]}), 1)
 
+	def test_rename_app_drops_the_cached_app_list_and_module_map(self):
+		cached = ["defaults::__global", "app_modules", "installed_app_modules"]
+		for key in cached:
+			frappe.cache.set_value(key, {"one_bpmn": ["one_bpmn"]})
+			self.addCleanup(frappe.cache.delete_value, key)
+		self.addCleanup(frappe.cache.delete_value, "app_hooks")
+
+		with patch.dict(sys.modules, {"one_bpmn": None}):
+			rename_app()
+
+		for key in cached:
+			self.assertIsNone(frappe.cache.get_value(key), key)
+
 
 class TestRenameStoredPathsBeforeApprovalFields(FrappeTestCase):
 	def test_script_is_renamed_on_a_site_without_the_approval_columns(self):
