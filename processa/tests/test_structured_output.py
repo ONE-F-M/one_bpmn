@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
@@ -59,7 +59,7 @@ def _openai_body(text, finish_reason="stop"):
 	}
 
 
-class TestSchemaFromTheAuthorsFormat(FrappeTestCase):
+class TestSchemaFromTheAuthorsFormat(UnitTestCase):
 	def test_an_example_object_becomes_a_closed_schema(self):
 		schema = structured_output.normalize_response_schema(
 			{"bible_verse": "", "count": 0, "ok": False, "tags": [""], "note": None, "meta": {"a": ""}}
@@ -105,7 +105,7 @@ class TestSchemaFromTheAuthorsFormat(FrappeTestCase):
 			structured_output.read_json_reply('{"title": ""}', schema)
 
 
-class TestTheSaveRefusesAnUnsupportedRule(FrappeTestCase):
+class TestTheSaveRefusesAnUnsupportedRule(IntegrationTestCase):
 	def _model_doc(self, schema: str):
 		attr = frappe.utils.escape_html(schema)
 		doc = frappe.new_doc("BPMN Process Model")
@@ -148,7 +148,7 @@ class _Response:
 		return None
 
 
-class TestTheRequestCarriesTheSchema(FrappeTestCase):
+class TestTheRequestCarriesTheSchema(IntegrationTestCase):
 	def _run(self, provider, json_mode, bodies, **config):
 		model = _model(f"_json-{provider.lower()}-{int(json_mode)}", provider, json_mode)
 		sent = []
@@ -260,7 +260,7 @@ class _FakeAdapter:
 		return StepResult(content=self.replies.pop(0))
 
 
-class TestAgentsWithTools(FrappeTestCase):
+class TestAgentsWithTools(IntegrationTestCase):
 	def _run(self, provider, replies):
 		model = _model(f"_json-tools-{provider.lower()}", provider, True)
 		cfg = ExecutorConfig(
@@ -294,7 +294,7 @@ class TestAgentsWithTools(FrappeTestCase):
 		self.assertIn("Reply with only one JSON object", fake.calls[0]["system"])
 
 
-class TestTheAdaptersSendTheProviderFormat(FrappeTestCase):
+class TestTheAdaptersSendTheProviderFormat(UnitTestCase):
 	SCHEMA = structured_output.normalize_response_schema(EXAMPLE)
 
 	def test_anthropic_step_sends_output_config(self):

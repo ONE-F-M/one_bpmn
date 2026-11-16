@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.patches.v1_0 import release_stale_engine_gates
@@ -10,7 +10,7 @@ from processa.patches.v1_0 import release_stale_engine_gates
 PATCH_PATH = "processa.patches.v1_0.release_stale_engine_gates"
 
 
-class TestReleaseStaleEngineGates(FrappeTestCase):
+class TestReleaseStaleEngineGates(IntegrationTestCase):
 	def _instance(self, minutes_ago):
 		doc = frappe.get_doc(
 			{

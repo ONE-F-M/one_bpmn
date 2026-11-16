@@ -73,9 +73,9 @@ def fan_out_eval_suite(run, case_names: list) -> None:
 
     # The lane jobs read through their own connections; anything this
     # transaction has not committed does not exist as far as they are
-    # concerned. Skipped under test, where FrappeTestCase's rollback is what
+    # concerned. Skipped under test, where IntegrationTestCase's rollback is what
     # cleans up the fixtures afterwards.
-    if not frappe.flags.in_test:
+    if not frappe.in_test:
         frappe.db.commit()  # nosemgrep
 
     for lane_index in range(concurrency):
@@ -302,7 +302,7 @@ def execute_lanes(case_names: List[str], run_name: str, backend: str,
     # "not found". A background job has nothing pending worth protecting here,
     # and the runner commits at the end anyway; skipped under test so the
     # framework's rollback still cleans up fixtures.
-    if not frappe.flags.in_test:
+    if not frappe.in_test:
         frappe.db.commit()  # nosemgrep
 
     pending: "queue.Queue" = queue.Queue()

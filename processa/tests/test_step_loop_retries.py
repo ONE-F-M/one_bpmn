@@ -7,7 +7,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime import step_loop
 
@@ -43,7 +43,7 @@ def _run(adapter, **kwargs):
 	return result, waits
 
 
-class TestStepRetries(FrappeTestCase):
+class TestStepRetries(UnitTestCase):
 	def test_an_overload_is_retried_up_to_the_configured_limit_with_growing_waits(self):
 		adapter = Adapter(*[ProviderError(529)] * 4, "ok")
 		result, waits = _run(adapter, max_retries=4, retry_backoff_ms=1000)

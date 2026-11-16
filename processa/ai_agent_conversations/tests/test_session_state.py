@@ -6,7 +6,7 @@ import threading
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.chat_persistence import create_conversation
 from processa.ai_agent_conversations.session_state import (
@@ -20,7 +20,7 @@ from processa.ai_agent_conversations.session_state import (
 )
 
 
-class SessionStateCase(FrappeTestCase):
+class SessionStateCase(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 		self.conversation = self._conversation()

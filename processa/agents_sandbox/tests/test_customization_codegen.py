@@ -22,7 +22,7 @@ import json
 import os
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.customization import customization_codegen as gen
 
@@ -35,7 +35,7 @@ def _source(rel_path: str) -> str:
     return open(os.path.join(repo_root, rel_path)).read()
 
 
-class TestCustomFieldModule(FrappeTestCase):
+class TestCustomFieldModule(IntegrationTestCase):
     RECORDS = [
         {
             "name": "abc123",  # per-site row name - must not reach the output
@@ -103,7 +103,7 @@ class TestCustomFieldModule(FrappeTestCase):
         self.assertEqual(gen.getter_name("Interview", "custom_field"), "get_interview_custom_fields")
 
 
-class TestPropertySetterModule(FrappeTestCase):
+class TestPropertySetterModule(IntegrationTestCase):
     RECORDS = [
         {
             "name": "ps1",
@@ -166,7 +166,7 @@ class TestPropertySetterModule(FrappeTestCase):
             self.assertTrue(set(rec).issubset(set(mine[0])), f"real module key not emitted: {set(rec)}")
 
 
-class TestAggregatorSplicing(FrappeTestCase):
+class TestAggregatorSplicing(IntegrationTestCase):
     """Spliced against one_fm's real setup/ files, so a reshape there fails here."""
 
     def test_custom_field_aggregator_gains_import_and_call(self):
@@ -222,7 +222,7 @@ class TestAggregatorSplicing(FrappeTestCase):
             gen.splice_aggregator("def build():\n\tpass\n", APP, "Employee", "custom_field")
 
 
-class TestPatchGeneration(FrappeTestCase):
+class TestPatchGeneration(IntegrationTestCase):
     def test_one_patch_per_sync_run_covers_every_doctype(self):
         src = gen.render_patch(APP, "My Map", ["Employee", "Interview"], "abc123")
         self.assertEqual(src.count("def execute():"), 1)
@@ -272,7 +272,7 @@ class TestPatchGeneration(FrappeTestCase):
         self.assertTrue(out.rstrip().endswith("processa_sync_my_map_abc123 #2026-08-17"))
 
 
-class TestPathsResolveAgainstTheRealRepo(FrappeTestCase):
+class TestPathsResolveAgainstTheRealRepo(IntegrationTestCase):
     """Every path the PR names must be a real path in the target repository.
 
     Both of the bugs this class exists to prevent shipped past unit tests that
@@ -355,7 +355,7 @@ class TestPathsResolveAgainstTheRealRepo(FrappeTestCase):
         self.assertEqual(parts[3], "interview.json")
 
 
-class TestCustomizationJsonMerge(FrappeTestCase):
+class TestCustomizationJsonMerge(IntegrationTestCase):
     EXISTING = json.dumps(
         {
             "doctype": "Employee",

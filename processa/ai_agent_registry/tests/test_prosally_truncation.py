@@ -17,7 +17,7 @@ patched so no real LLM call or BPMN compile happens.
 from unittest.mock import AsyncMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_skills.tools import shape_tools
 from processa.processa_engine.agent_runtime.llm_types import LLMTruncatedError
@@ -29,7 +29,7 @@ from processa.patches.v1_0.inline_prosally_tool_scripts import (
 from processa.tests.site_scripts import as_deployed
 
 
-class TestProsAllyTruncationHandling(FrappeTestCase):
+class TestProsAllyTruncationHandling(UnitTestCase):
 	def _run_script(self, body: str, context_docname="turn-1", extra_globals=None):
 		ns = {"frappe": frappe, "context_docname": context_docname, "result": {}}
 		if extra_globals:
@@ -196,7 +196,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		self.assertEqual(captured_turns.get("output", {}).get("intent"), "BPMN_MODIFIED")
 
 
-class TestShapeToolGenericFailureCarriesException(FrappeTestCase):
+class TestShapeToolGenericFailureCarriesException(IntegrationTestCase):
 	def test_generic_failure_includes_exception_class_and_message(self):
 		"""The catch-all branch has to name the exception it caught.
 

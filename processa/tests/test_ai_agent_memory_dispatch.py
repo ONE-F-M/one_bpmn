@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_memory import budget as B
 from processa.processa_engine.agent_runtime.executor import (
@@ -47,12 +47,12 @@ def _task(bpmn="Act_1"):
 	return SimpleNamespace(data={}, task_spec=SimpleNamespace(bpmn_id=bpmn, name=bpmn))
 
 
-class TestDispatcherMemory(FrappeTestCase):
+class TestDispatcherMemory(IntegrationTestCase):
 	def setUp(self):
 		_CAPTURED.clear()
 		# Isolate the dispatcher from observability DB writes; return a non-stub
 		# run so source_run is set. Neutralise the label lookup and the commit
-		# the observability block performs (keeps FrappeTestCase rollback intact).
+		# the observability block performs (keeps IntegrationTestCase rollback intact).
 		patches = [
 			patch(
 				"processa.ai_agent_observability.observability.create_ai_run",
@@ -336,7 +336,7 @@ def _chat_task(bpmn="Act_R", user_text="q"):
 	)
 
 
-class TestRememberDirectiveWrite(FrappeTestCase):
+class TestRememberDirectiveWrite(IntegrationTestCase):
 	"""An explicit "remember that..." must be stored verbatim, tagged
 	user_directed, bypassing the raw/distilled branches entirely — and only
 	when memory writes aren't disabled outright (no separate bypass for a
@@ -487,7 +487,7 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		dw.assert_called_once()
 
 
-class TestExecutorMessagesSlot(FrappeTestCase):
+class TestExecutorMessagesSlot(UnitTestCase):
 	def test_openai_empty_is_system_then_user(self):
 		_, payload, _ = DirectApiExecutor()._build_openai_request(
 			"http://x", "k", "m", ExecutorConfig(system_prompt="S", user_prompt="U"), "Other"
@@ -532,7 +532,7 @@ def _chat_instance(conversation="CONV-1"):
 	)
 
 
-class TestTheUserMessageReachesTheModel(FrappeTestCase):
+class TestTheUserMessageReachesTheModel(IntegrationTestCase):
 	"""The person's own words belong in the prompt, and therefore in the step.
 
 	A chat map used to keep them in the turn store for its tools to read, so
@@ -791,7 +791,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		self.assertEqual(ms.call_args[0][2], "add a status field")
 
 
-class TestIsSmallTalk(FrappeTestCase):
+class TestIsSmallTalk(UnitTestCase):
 	"""_is_small_talk directly — the gate other tests exercise through dispatch."""
 
 	def test_greetings_and_acknowledgements(self):
@@ -817,7 +817,7 @@ class TestIsSmallTalk(FrappeTestCase):
 			self.assertFalse(D._is_small_talk(message), f"{message!r} should not be small talk")
 
 
-class TestBoundMemoriesToBudget(FrappeTestCase):
+class TestBoundMemoriesToBudget(UnitTestCase):
 	"""bound_memories_to_budget on whatever memory_search returns, before format_memory_block renders it."""
 
 	def test_under_budget_is_unchanged(self):
@@ -911,7 +911,7 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 		self.assertLessEqual(estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN), 100)
 
 
-class TestRecallObservability(FrappeTestCase):
+class TestRecallObservability(IntegrationTestCase):
 	"""AC3/AC5: the recall query and injected size are recorded per run, not
 	only visible baked into the rendered prompt."""
 
@@ -984,7 +984,7 @@ class TestRecallObservability(FrappeTestCase):
 		self.assertEqual(kwargs["memory_injected_tokens"], 0)
 
 
-class TestMemoryTargetUserScope(FrappeTestCase):
+class TestMemoryTargetUserScope(IntegrationTestCase):
 	"""_resolve_memory_target: User scopes carry the requesting user, the blank
 	default follows the agent type, and Agent-only never carries a user."""
 
@@ -1014,7 +1014,7 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 		self.assertEqual(self._target("User and Agent", user="Guest"), ("Agent", "Act_1"))
 
 
-class TestMemoryBlockProvenance(FrappeTestCase):
+class TestMemoryBlockProvenance(UnitTestCase):
 	def test_the_notes_are_offered_as_possibly_relevant(self):
 		block = B.format_memory_block([{"content": "invoices are approved by the finance lead"}])
 		self.assertEqual(

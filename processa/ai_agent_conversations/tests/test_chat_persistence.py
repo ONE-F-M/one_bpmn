@@ -1,5 +1,5 @@
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from processa.ai_agent_conversations.chat_persistence import (
     create_conversation,
     close_conversation,
@@ -10,7 +10,7 @@ from processa.ai_agent_conversations.chat_persistence import (
     update_state
 )
 
-class TestChatPersistence(FrappeTestCase):
+class TestChatPersistence(IntegrationTestCase):
     def test_cache_chat_lifecycle(self):
         # 1. Create conversation
         conv_name = create_conversation(

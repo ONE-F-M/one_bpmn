@@ -14,7 +14,7 @@ that the rubric carries the reference rather than merely mentioning it.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration, make_eval_suite
@@ -26,7 +26,7 @@ from processa.ai_agent_evals.eval_case_factory import (
 )
 
 
-class TestStarterAssertion(FrappeTestCase):
+class TestStarterAssertion(IntegrationTestCase):
     def setUp(self):
         self.credentials = self._make_credentials()
 

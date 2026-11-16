@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api import agent_callback as callback
 from processa.agents_sandbox.sandbox import ops
@@ -20,7 +20,7 @@ TOKEN = "ghp_" + "y" * 36  # built at run time: not a real credential, and no cr
 CALLER = "caller-" + "z" * 20
 
 
-class TestOperationRecord(FrappeTestCase):
+class TestOperationRecord(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Connector", "agent_sandbox"):
 			self.skipTest("no agent_sandbox connector on this site")
@@ -94,7 +94,7 @@ class TestTokenFromTheConnector(AgentSandboxCase):
 			self.assertFalse(ops.retry_eligible(SimpleNamespace(action="upload_videos", failure_class="env")))
 
 
-class TestSettlingUploads(FrappeTestCase):
+class TestSettlingUploads(UnitTestCase):
 	def _run(self, state="completed", result=None, error=""):
 		return SimpleNamespace(state=state, retry_of=None, error_message=error, request_payload='{"action": "upload_videos"}', result=json.dumps(result or {}))
 

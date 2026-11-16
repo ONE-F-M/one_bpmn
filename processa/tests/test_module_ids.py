@@ -9,7 +9,7 @@ alone on purpose.
 import json
 import os
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.tests.test_patch_file_ids import ROOT, comment_hits, cs, docstring_hits, read, relative
 
@@ -31,7 +31,7 @@ def module_files():
 	return sorted(found)
 
 
-class TestModuleIds(FrappeTestCase):
+class TestModuleIds(UnitTestCase):
 	def test_the_module_folders_have_python_files(self):
 		for module in MODULES:
 			prefix = os.path.join(ROOT, "processa", module) + os.sep

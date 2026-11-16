@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model.document import Document
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from rq.timeouts import JobTimeoutException
 
 from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration, legacy_migration_move
@@ -34,7 +34,7 @@ from processa.processa_engine.doctype.processa_legacy_migration.test_processa_le
 from processa.processa_engine.engine import TaskState
 
 
-class TestLegacyMigrationReplay(FrappeTestCase):
+class TestLegacyMigrationReplay(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -61,7 +61,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 		trigger = patch("processa.processa_engine.triggers.on_doc_event")
 		trigger.start()
 		self.addCleanup(trigger.stop)
-		# FrappeTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
+		# IntegrationTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
 		frappe.db.savepoint("plm_replay_test")
 		self.addCleanup(frappe.db.rollback, save_point="plm_replay_test")
 

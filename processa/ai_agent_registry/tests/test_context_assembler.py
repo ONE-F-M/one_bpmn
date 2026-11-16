@@ -6,7 +6,7 @@
 # time. These tests pin that contract, plus the rule that an agent with no
 # examples and no guard rails produces exactly the prompt it produced before
 # this story — so adding the fields changes nothing until they are filled in.
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import (
 	EXAMPLES_HEADER,
@@ -30,7 +30,7 @@ GUARDRAILS = [
 ]
 
 
-class TestStaticContextComposition(FrappeTestCase):
+class TestStaticContextComposition(UnitTestCase):
 	def test_sections_appear_in_fixed_order(self):
 		out = build_static_context(INSTRUCTIONS, EXAMPLES, GUARDRAILS)
 
@@ -57,7 +57,7 @@ class TestStaticContextComposition(FrappeTestCase):
 		self.assertEqual(out.count("Note:"), 1)
 
 
-class TestStaticContextDeterminism(FrappeTestCase):
+class TestStaticContextDeterminism(UnitTestCase):
 	def test_repeated_calls_are_byte_identical(self):
 		"""The property the whole story rests on: the same configuration must
 		produce the same string on every iteration of an execution loop."""
@@ -73,7 +73,7 @@ class TestStaticContextDeterminism(FrappeTestCase):
 		self.assertIn("3. Keep every file under 300 lines.", out)
 
 
-class TestStaticContextOmission(FrappeTestCase):
+class TestStaticContextOmission(UnitTestCase):
 	def test_no_rows_reproduces_the_bare_prompt_exactly(self):
 		self.assertEqual(build_static_context(INSTRUCTIONS, [], []), INSTRUCTIONS)
 		self.assertEqual(build_static_context(INSTRUCTIONS, None, None), INSTRUCTIONS)
@@ -106,7 +106,7 @@ class TestStaticContextOmission(FrappeTestCase):
 		self.assertEqual(out, "")
 
 
-class TestBuildFromConfig(FrappeTestCase):
+class TestBuildFromConfig(UnitTestCase):
 	def test_reads_examples_and_guardrails_from_the_config_dict(self):
 		config = {
 			"system_prompt": INSTRUCTIONS,
@@ -132,7 +132,7 @@ class TestBuildFromConfig(FrappeTestCase):
 		self.assertEqual(build_static_context_from_config(None), "")
 
 
-class TestDynamicPreamble(FrappeTestCase):
+class TestDynamicPreamble(UnitTestCase):
 	def test_memory_precedes_the_user_message(self):
 		out = build_dynamic_preamble("Relevant memory:\n- likes brevity", "write a script")
 

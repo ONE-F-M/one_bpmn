@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from processa.ai_agent_evals.runner.suite import execute_eval_suite
@@ -59,7 +59,7 @@ def _results(statuses):
 	return fake
 
 
-class TestPassK(FrappeTestCase):
+class TestPassK(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test pass_k " + frappe.generate_hash(length=6))

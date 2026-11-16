@@ -9,7 +9,7 @@ the script's logic ran: three "Something went wrong" verdicts on a correct
 script, observed live 2026-08-10."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.server_scripts import run_logix_test_case
 
@@ -27,7 +27,7 @@ result["employee"] = doc.employee
 """
 
 
-class TestLogixTestRunner(FrappeTestCase):
+class TestLogixTestRunner(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("Server Script", SCRIPT_NAME):
 			script = frappe.new_doc("Server Script")

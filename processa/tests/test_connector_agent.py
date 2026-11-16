@@ -25,7 +25,7 @@ import json
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.manifest import clear_manifest_cache
 from processa.processa_connectors.seed import export_manifest, import_manifest
@@ -144,7 +144,7 @@ def _cleanup(connector_id):
     clear_manifest_cache()
 
 
-class TestSpecSummary(FrappeTestCase):
+class TestSpecSummary(IntegrationTestCase):
     def test_summarizes_servers_auth_and_operations(self):
         s = A.summarize_openapi(SPEC)
         self.assertEqual(s["title"], "Helpdesk API")
@@ -192,7 +192,7 @@ class TestSpecSummary(FrappeTestCase):
         self.assertIn("GET /rates & more", text)
 
 
-class TestDeterministicDraft(FrappeTestCase):
+class TestDeterministicDraft(IntegrationTestCase):
     def test_path_parameter_becomes_a_required_field_the_url_references(self):
         m = draft_from(SPEC, "helpdesk", operations=["getTicket"])
         op = m["operations"][0]
@@ -239,7 +239,7 @@ class TestDeterministicDraft(FrappeTestCase):
             draft_from(spec, "helpdesk", operations=["getTicket"])
 
 
-class TestDraftReview(FrappeTestCase):
+class TestDraftReview(IntegrationTestCase):
     def test_a_generated_draft_reviews_clean(self):
         m = draft_from(
             SPEC, "helpdesk", operations=["createTicket", "getTicket", "listTickets"]
@@ -328,7 +328,7 @@ class TestDraftReview(FrappeTestCase):
         self.assertTrue(R.validate_manifest([1, 2]))
 
 
-class TestReviewerImporterAgreement(FrappeTestCase):
+class TestReviewerImporterAgreement(IntegrationTestCase):
     """A draft the reviewer approves MUST import, and survive a round trip.
 
     This is the invariant the agent's loop rests on. See the module docstring.
@@ -373,7 +373,7 @@ class TestReviewerImporterAgreement(FrappeTestCase):
             self.assertEqual(row.url_template, op["http"]["url"])
 
 
-class TestWriteDisabled(FrappeTestCase):
+class TestWriteDisabled(IntegrationTestCase):
     def tearDown(self):
         _cleanup("helpdesk_write")
 
@@ -425,7 +425,7 @@ class TestWriteDisabled(FrappeTestCase):
         self.assertTrue(W.write_draft_connector(draft, overwrite=True)["written"])
 
 
-class TestTryOperation(FrappeTestCase):
+class TestTryOperation(IntegrationTestCase):
     """Note the exception class comes from T, not D: each tool script defines its
     own ConnectorAuthoringError now that the code is inlined per script. The tool
     bodies catch bare Exception, so this only ever matters to a test."""
@@ -500,7 +500,7 @@ GOOD = '''def fetch_rate(params, ctx):
 '''
 
 
-class TestHandlerNaming(FrappeTestCase):
+class TestHandlerNaming(IntegrationTestCase):
 	def test_paths_agree_with_the_dispatcher_and_the_repository(self):
 		"""The dotted path must resolve and the file path must be repo-relative.
 
@@ -555,7 +555,7 @@ class TestHandlerNaming(FrappeTestCase):
 			frappe.clear_cache(doctype="Processa Settings")
 
 
-class TestHandlerValidation(FrappeTestCase):
+class TestHandlerValidation(IntegrationTestCase):
 	def test_a_usable_handler_passes(self):
 		self.assertEqual(H.validate_handler(GOOD, "fetch_rate"),
 		                 {"ok": True, "errors": [], "warnings": []})
@@ -599,7 +599,7 @@ class TestHandlerValidation(FrappeTestCase):
 		self.assertIn("does not parse", result["errors"][0])
 
 
-class TestMaliciousConstructScreen(FrappeTestCase):
+class TestMaliciousConstructScreen(IntegrationTestCase):
 	"""Each of these must be refused. The screen is narrow on purpose, so the
 	list it does cover has to actually hold."""
 
@@ -642,7 +642,7 @@ class TestMaliciousConstructScreen(FrappeTestCase):
 		)
 
 
-class TestModuleMerging(FrappeTestCase):
+class TestModuleMerging(IntegrationTestCase):
 	def test_a_first_handler_produces_a_documented_module(self):
 		module = H.merge_module(None, "acme", "Acme", "fetch_rate", GOOD)
 		tree = ast.parse(module)
@@ -684,7 +684,7 @@ class TestModuleMerging(FrappeTestCase):
 		ast.parse(module)  # raises if a merge ever produced broken source
 
 
-class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
+class TestProposalRefusesBeforeTouchingAnything(IntegrationTestCase):
 	"""The refusals that must happen before a branch is created.
 
 	A proposal that cannot succeed must leave no branch, no pull request and no
@@ -765,7 +765,7 @@ class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
 		self.assertNotIn("pull_request", result)
 
 
-class TestBaseBranchResolution(FrappeTestCase):
+class TestBaseBranchResolution(IntegrationTestCase):
 	"""Which branch a generated handler's pull request targets.
 
 	Left to itself ``github_sync`` targets the repository's default branch, which on
@@ -835,7 +835,7 @@ class TestBaseBranchResolution(FrappeTestCase):
 
 
 # ── the tool bodies themselves ───────────────────────────────────────────────
-class TestToolBodiesRun(FrappeTestCase):
+class TestToolBodiesRun(IntegrationTestCase):
     """Execute each tool script the way a shape tool does.
 
     The unit tests above call the relocated helpers directly, which is where the

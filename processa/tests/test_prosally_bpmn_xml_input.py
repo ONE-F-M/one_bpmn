@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers_xml_input as bx
 from processa.ai_agent_registry.definitions.prosally import helpers_xml_replies as replies
@@ -81,7 +81,7 @@ def _issues_for(analysis: dict, element_id: str) -> list[str]:
 	return [i["message"] + " | " + i["suggestion"] for i in analysis["issues"] if i["element_id"] == element_id]
 
 
-class TestDetection(FrappeTestCase):
+class TestDetection(UnitTestCase):
 	"""AC1: the message is recognised as BPMN XML, not conversational text."""
 
 	def test_full_document_is_detected(self):
@@ -118,7 +118,7 @@ class TestDetection(FrappeTestCase):
 		self.assertTrue(bx.analyze_bpmn_xml(xml)["ok"])
 
 
-class TestStructuralParsing(FrappeTestCase):
+class TestStructuralParsing(UnitTestCase):
 	"""AC1: tasks, sequence flows, catch/throw events and gateways are read directly."""
 
 	def test_valid_document_is_parsed_without_findings(self):
@@ -164,7 +164,7 @@ class TestStructuralParsing(FrappeTestCase):
 		self.assertIsNone(bx.prepare_turn("add an approval step after review"))
 
 
-class TestActionableFindings(FrappeTestCase):
+class TestActionableFindings(UnitTestCase):
 	"""AC2: findings name the element id, tag and sequence flow, and say how to fix them."""
 
 	def setUp(self):
@@ -220,7 +220,7 @@ class TestActionableFindings(FrappeTestCase):
 		self.assertTrue(any("signalRef='Nope'" in t for t in _issues_for(analysis, "C")))
 
 
-class TestMalformedXml(FrappeTestCase):
+class TestMalformedXml(UnitTestCase):
 	"""AC3: a parse failure is reported with its line and tag, not turned into a request for a list."""
 
 	def test_error_carries_line_column_and_tag(self):
@@ -254,7 +254,7 @@ class TestMalformedXml(FrappeTestCase):
 		self.assertIn("Do NOT fall back to asking for a plain-text list", block)
 
 
-class TestLargePaste(FrappeTestCase):
+class TestLargePaste(UnitTestCase):
 	"""Notes (b) and (c): large pastes keep the semantic model and drop layout."""
 
 	def test_small_paste_is_left_as_typed(self):
@@ -288,7 +288,7 @@ class TestLargePaste(FrappeTestCase):
 		self.assertLess(len(turn["message_override"]), bx.MAX_RAW_XML_CHARS)
 
 
-class TestProsAllyWiring(FrappeTestCase):
+class TestProsAllyWiring(UnitTestCase):
 	"""The chat turn context and the AG-UI stream hand pasted XML to the parser."""
 
 	def test_context_for_a_valid_paste_carries_analysis_and_rules(self):

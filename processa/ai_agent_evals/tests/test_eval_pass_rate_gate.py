@@ -14,7 +14,7 @@ history says whether it agrees with itself.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.api.evals import case_consistency
@@ -33,7 +33,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestEvalPassRateGate(FrappeTestCase):
+class TestEvalPassRateGate(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		suffix = frappe.generate_hash(length=6)
@@ -121,7 +121,7 @@ class TestEvalPassRateGate(FrappeTestCase):
 		self.assertTrue(result["success"])
 
 
-class TestConsistencyReport(FrappeTestCase):
+class TestConsistencyReport(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		suffix = frappe.generate_hash(length=6)

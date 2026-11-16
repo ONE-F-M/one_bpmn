@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
@@ -45,7 +45,7 @@ def _assertions(case_name: str) -> set:
 	return {(a.assertion_type, a.value) for a in case.assertions}
 
 
-class TestPromotionSeedsAssertions(FrappeTestCase):
+class TestPromotionSeedsAssertions(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test promoted " + frappe.generate_hash(length=6)).name
@@ -86,7 +86,7 @@ class TestPromotionSeedsAssertions(FrappeTestCase):
 		self.assertEqual(_assertions(kept), {("llm_judge", "a reviewer's own rubric")})
 
 
-class TestACaseWithNoAssertionsIsInvalid(FrappeTestCase):
+class TestACaseWithNoAssertionsIsInvalid(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(title="_Test invalid " + frappe.generate_hash(length=6)).name

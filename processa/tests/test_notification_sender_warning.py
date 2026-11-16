@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.deploy_warnings import check_notification_senders
 from processa.api.process_maps import validate_bpmn_readiness
@@ -32,7 +32,7 @@ def _send_email(account: str) -> dict:
 	return {"serviceType": "send_email", "emailAccount": account}
 
 
-class TestNotificationSenderWarning(FrappeTestCase):
+class TestNotificationSenderWarning(IntegrationTestCase):
 	def setUp(self):
 		for name, address in ((NOTIFICATIONS, NOTIFY_ADDRESS), (STAGING, STAGING_ADDRESS)):
 			if not frappe.db.exists("Email Account", name):

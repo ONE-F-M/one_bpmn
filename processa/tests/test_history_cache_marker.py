@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
 from processa.processa_engine.agent_runtime.llm_types import ToolSpec
@@ -78,7 +78,7 @@ def _marker_count(request: dict) -> int:
 	)
 
 
-class TestTheHistoryMarker(FrappeTestCase):
+class TestTheHistoryMarker(UnitTestCase):
 	def test_the_first_call_of_a_turn_marks_the_last_earlier_turn(self):
 		request = _request([*HISTORY, TURN[0]])
 		self.assertEqual(_marked(request), [(1, "text")])

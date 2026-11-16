@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_memory.doctype.ai_memory.ai_memory import AIMemory
@@ -44,7 +44,7 @@ def _make_user_with_role(role):
 	return user.name
 
 
-class TestAIMemoryDoctype(FrappeTestCase):
+class TestAIMemoryDoctype(IntegrationTestCase):
 	# ── creation for each scope ──
 	def test_create_agent_scope(self):
 		m = _memory(memory_scope="Agent", agent_element="Activity_1", content="a")

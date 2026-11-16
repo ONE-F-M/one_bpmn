@@ -13,7 +13,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
@@ -21,8 +21,6 @@ from processa.processa_engine import engine as bpmn_engine
 from processa.processa_engine.runtime.active_tasks import sync_active_tasks
 from processa.processa_engine.runtime.common import AI_HUMAN_PREFIX
 from processa.processa_engine.runtime.engine_loop import run_engine
-
-test_ignore = ["BPMN Process Model"]
 
 _LINEAR_AGENT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_HITL" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -96,7 +94,7 @@ def _final_result(output="approved and done"):
 	)
 
 
-class HitlHarness(FrappeTestCase):
+class HitlHarness(IntegrationTestCase):
 	def setUp(self):
 		self.instance = frappe.get_doc({
 			"doctype": "BPMN Process Instance",

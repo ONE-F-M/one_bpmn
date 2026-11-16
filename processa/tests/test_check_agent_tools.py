@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 import frappe
 from click.testing import CliRunner
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.commands.agent_tools import _is_real_failure, check_agent_tools, run_check
 
@@ -91,7 +91,7 @@ def _make_model(title, process_id, tool_shapes, is_active=1, shape_configs=None)
 	return doc
 
 
-class TestCheckAgentToolsDetection(FrappeTestCase):
+class TestCheckAgentToolsDetection(IntegrationTestCase):
 	"""Unit-level: the failure classifier itself."""
 
 	def test_import_error_is_a_real_failure(self):
@@ -109,7 +109,7 @@ class TestCheckAgentToolsDetection(FrappeTestCase):
 		self.assertTrue(_is_real_failure(exc))
 
 
-class TestCheckAgentToolsCommand(FrappeTestCase):
+class TestCheckAgentToolsCommand(IntegrationTestCase):
 	"""End-to-end: run_check() against real fixtures."""
 
 	@classmethod

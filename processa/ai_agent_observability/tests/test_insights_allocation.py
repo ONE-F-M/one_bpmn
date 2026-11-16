@@ -18,7 +18,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import flt
 
 from processa.api.insights import export_cost_allocation, get_cost_allocation
@@ -95,7 +95,7 @@ def _chat_run(name: str, instance: str, started_at: str, cost: float, **kwargs) 
 	return _run(name, started_at, cost, instance=instance, process_model="", **kwargs)
 
 
-class TestInsightsAllocation(FrappeTestCase):
+class TestInsightsAllocation(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		# Nothing is committed, so the class rollback removes every fixture even after a crash.

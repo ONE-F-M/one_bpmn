@@ -7,7 +7,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorConfig
 from processa.ai_agent_observability.observability import (
@@ -16,8 +16,6 @@ from processa.ai_agent_observability.observability import (
 	record_ai_step,
 	record_selector_turns,
 )
-
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
 _instances = {}
 
@@ -66,7 +64,7 @@ TRACE = [
 SOURCE_MAP = {"task_b": "diagram_task", "lookup_tool": "registry_tool"}
 
 
-class TestSelectorObservability(FrappeTestCase):
+class TestSelectorObservability(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -247,7 +245,7 @@ class TestSelectorObservability(FrappeTestCase):
 		self.assertIsNone(record_ai_step(stub, 0, "assistant", "x"))
 
 
-class TestSelectorRunRollups(FrappeTestCase):
+class TestSelectorRunRollups(IntegrationTestCase):
 	"""record_selector_turns must keep the Run's token/cost/duration rollups
 	live while the subprocess is still Running — previously they stayed at
 	zero until finalize, so the instance page showed no usage data."""
@@ -282,7 +280,7 @@ class TestSelectorRunRollups(FrappeTestCase):
 		self.assertEqual(run.total_tokens, 600)
 
 
-class TestTurnLatency(FrappeTestCase):
+class TestTurnLatency(IntegrationTestCase):
 	"""Per-turn decision latency (adapter API round-trip + inline tool
 	execution) flows from the executor trace onto AI Agent Step.latency_ms."""
 
@@ -324,7 +322,7 @@ class TestTurnLatency(FrappeTestCase):
 		self.assertEqual(turn["latency_ms"], 875)
 
 
-class TestActivationOutcome(FrappeTestCase):
+class TestActivationOutcome(IntegrationTestCase):
 	"""record_activation_outcome attaches the real-world result to the
 	diagram-task tool call that activated it, without touching tool_result
 	(the transcript of what the model was told)."""

@@ -17,15 +17,12 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine import engine as bpmn_engine
 from processa.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 from processa.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from processa.tests.test_ai_job_executor import JobHarness, _executor_with_tools
-
-test_ignore = ["BPMN Process Model"]
 
 # UAT-shaped: start → route gateway → [plain script | AI agent] → end
 _UAT_SHAPE_XML = """<?xml version="1.0" encoding="UTF-8"?>

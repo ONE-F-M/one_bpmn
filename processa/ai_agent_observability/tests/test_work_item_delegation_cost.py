@@ -15,7 +15,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability.reports.work_item_cost import _delegation_chain_instances
 
@@ -37,7 +37,7 @@ def _chain(edges: dict):
 	return patch.object(frappe, "get_all", fake)
 
 
-class TestWorkItemDelegationCost(FrappeTestCase):
+class TestWorkItemDelegationCost(IntegrationTestCase):
 	def test_a_specialist_that_delegates_again_is_counted(self):
 		with _chain({"root": ["a"], "a": ["b"]}):
 			instances, truncated = _delegation_chain_instances(["root"])

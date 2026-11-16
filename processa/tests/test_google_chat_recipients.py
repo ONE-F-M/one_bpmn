@@ -13,7 +13,7 @@ silent: a DM nobody receives looks exactly like a DM that was sent.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.dispatch.google_chat import chat_user_id, dispatch_google_chat, google_chat_recipients
 
@@ -22,7 +22,7 @@ def _instance(doctype="", docname=""):
 	return frappe._dict(context_doctype=doctype, context_docname=docname, name="_test-instance")
 
 
-class TestUserBasis(FrappeTestCase):
+class TestUserBasis(IntegrationTestCase):
 	"""The original behaviour, which has to keep working untouched."""
 
 	def test_a_single_address_is_the_recipient(self):
@@ -58,7 +58,7 @@ class TestUserBasis(FrappeTestCase):
 		self.assertIn("not User, DocField or Table Field", problem)
 
 
-class TestDocFieldBasis(FrappeTestCase):
+class TestDocFieldBasis(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.user = frappe.db.get_value("User", {"enabled": 1, "user_type": "System User"}, "name")
@@ -109,7 +109,7 @@ class TestDocFieldBasis(FrappeTestCase):
 		self.assertIn("Could not read", problem)
 
 
-class TestTableFieldBasis(FrappeTestCase):
+class TestTableFieldBasis(IntegrationTestCase):
 	"""Rows of a child table, which is where a list of people actually lives."""
 
 	def setUp(self):
@@ -177,7 +177,7 @@ class TestTableFieldBasis(FrappeTestCase):
 		self.assertIn("gchatTableField is empty", problem)
 
 
-class TestCredentialSource(FrappeTestCase):
+class TestCredentialSource(IntegrationTestCase):
 	"""The key moved off site_config.json, where it could not be seen or rotated."""
 
 	def test_an_empty_setting_sends_nothing(self):
@@ -197,7 +197,7 @@ class TestCredentialSource(FrappeTestCase):
 		post.assert_not_called()
 
 
-class TestChatUserId(FrappeTestCase):
+class TestChatUserId(IntegrationTestCase):
 	"""Turning an address into the id Chat will actually accept."""
 
 	MOD = "processa.processa_engine.dispatch.google_chat"

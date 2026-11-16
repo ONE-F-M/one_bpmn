@@ -6,7 +6,7 @@ import threading
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_conversations.chat_persistence import (
@@ -34,7 +34,7 @@ def settings(ttl, action="Archive"):
 	return patch("frappe.db.get_single_value", side_effect=_get)
 
 
-class RetentionCase(FrappeTestCase):
+class RetentionCase(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 

@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.api.instances import send_message
 
@@ -25,7 +25,7 @@ def _fake_instance(caught):
 	return instance
 
 
-class TestSendMessageCaught(FrappeTestCase):
+class TestSendMessageCaught(UnitTestCase):
 	def _send(self, caught):
 		instance = _fake_instance(caught)
 		with patch.object(frappe, "get_doc", return_value=instance), patch.object(

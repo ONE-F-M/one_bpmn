@@ -31,11 +31,10 @@ the fake document is shaped like the real Policy template (verified against it â
 see test_branded_templates.py for the operation-level tests).
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_connectors.google import docs as gdocs
 
@@ -171,7 +170,7 @@ def _pattern(document):
 	               for row in gdocs._rows(layout["table"])[layout["start_row"]:])
 
 
-class _FillCase(unittest.TestCase):
+class _FillCase(IntegrationTestCase):
 	"""Captures the batches a fill would send, without sending them."""
 
 	def fill(self, content, document=None):
@@ -547,7 +546,7 @@ class TestNothingIsSwallowed(_FillCase):
 		self.assertEqual(report["rows_added"], 0)
 
 
-class TestTheConnectorOperation(unittest.TestCase):
+class TestTheConnectorOperation(UnitTestCase):
 	"""The BPMN-facing wrapper â€” the parts that need no database."""
 
 	def _call(self, params, result):
@@ -587,7 +586,7 @@ class TestTheConnectorOperation(unittest.TestCase):
 			self._call({"document": DOC_ID, "content": "{}", "failIfUnmatched": "true"},
 			           {"filled": {}, "unmatched": ["section:Laws"]})
 
-class TestTheOperationIsDeclared(FrappeTestCase):
+class TestTheOperationIsDeclared(IntegrationTestCase):
 	"""That the modeler can actually offer it. Needs the site database."""
 
 	def test_the_operation_is_registered_against_a_real_handler(self):

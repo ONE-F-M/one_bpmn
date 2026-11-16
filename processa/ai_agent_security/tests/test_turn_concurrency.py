@@ -14,7 +14,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime import turn_idempotency as idem
 from processa.api import a2a as a2a_api
@@ -22,7 +22,7 @@ from processa.api import server_scripts
 from processa.ai_agent_security import turn_lock
 
 
-class TestTurnLock(FrappeTestCase):
+class TestTurnLock(UnitTestCase):
 	def setUp(self):
 		self.conv = f"conv-{frappe.generate_hash(length=8)}"
 
@@ -99,7 +99,7 @@ class TestTurnLock(FrappeTestCase):
 			self.assertIsNone(turn_lock.acquire(self.conv))
 
 
-class TestPolicyFor(FrappeTestCase):
+class TestPolicyFor(IntegrationTestCase):
 	def test_an_unreadable_agent_queues(self):
 		self.assertEqual(turn_lock.policy_for(None), turn_lock.QUEUE)
 
@@ -114,7 +114,7 @@ class TestPolicyFor(FrappeTestCase):
 				self.assertEqual(turn_lock.policy_for("Some Agent"), turn_lock.REFUSE)
 
 
-class TestIdempotency(FrappeTestCase):
+class TestIdempotency(IntegrationTestCase):
 	def setUp(self):
 		self.conv = frappe.get_doc(
 			{"doctype": "Chat Conversation", "title": "idempotency test"}
@@ -175,7 +175,7 @@ class TestIdempotency(FrappeTestCase):
 		self.assertIsNone(idem.find_existing(other.name, "shared-id"))
 
 
-class TestTheControlIsChatOnly(FrappeTestCase):
+class TestTheControlIsChatOnly(UnitTestCase):
 	"""A Background agent has no conversation and no second message to order, so
 	offering it the setting would be a control that decides nothing."""
 
@@ -225,7 +225,7 @@ class TestTheControlIsChatOnly(FrappeTestCase):
 		)
 
 
-class TestStreamingTurnHoldsTheLock(FrappeTestCase):
+class TestStreamingTurnHoldsTheLock(UnitTestCase):
 	"""A map-driven chat turn streams, and the lock has to last as long as it does.
 
 	_run_bpmn_map hands back {"streaming": True, "stream": <generator>} rather
@@ -250,7 +250,7 @@ class TestStreamingTurnHoldsTheLock(FrappeTestCase):
 		self.assertFalse(a2a_api._is_stream(None))
 
 
-class TestRedeliveryWhileTheMapReArms(FrappeTestCase):
+class TestRedeliveryWhileTheMapReArms(IntegrationTestCase):
 	"""A message nobody catches must not become a five-minute wait.
 
 	receive_message is quiet about a message no task was waiting for, and the

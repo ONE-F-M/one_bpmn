@@ -4,12 +4,12 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
 
-class TestDeleteContextDocument(FrappeTestCase):
+class TestDeleteContextDocument(IntegrationTestCase):
 	def test_a_document_deletes_when_its_kept_instance_has_task_rows_naming_it(self):
 		todo = frappe.get_doc(
 			{"doctype": "ToDo", "description": "context document", "allocated_to": "Administrator"}

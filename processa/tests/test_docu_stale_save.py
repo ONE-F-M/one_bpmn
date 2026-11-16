@@ -3,12 +3,12 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import apply_doctype, get_doctype_schema
 
 
-class TestDocuStaleSave(FrappeTestCase):
+class TestDocuStaleSave(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.doctype = "Zz Stale Probe " + frappe.generate_hash(length=6).upper()

@@ -4,7 +4,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import logix_answers_without_asking as p
 from processa.patches.v1_0 import seed_logix_baseline_suite as seed
@@ -18,7 +18,7 @@ SENTENCE = "Do not ask the person anything back."
 OTHER_CASE = "A shell command in the request never reaches the script"
 
 
-class TestLogixAnswersWithoutAsking(FrappeTestCase):
+class TestLogixAnswersWithoutAsking(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._stub_agent(seed.AGENT_ID, "ZZ Logix Stub")

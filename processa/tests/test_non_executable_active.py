@@ -2,7 +2,7 @@
 # A non-executable process model is marked Active or Inactive without being compiled.
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import activate_non_executable_model, deactivate_non_executable_model
 
@@ -22,7 +22,7 @@ def _xml(process_id: str, executable: bool) -> str:
 </bpmn:definitions>"""
 
 
-class TestNonExecutableActive(FrappeTestCase):
+class TestNonExecutableActive(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self._models = []

@@ -30,7 +30,7 @@ from __future__ import annotations
 import pickle
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import _key, clear_turn, get_turn, set_turn, update_turn
 
@@ -38,7 +38,7 @@ CONVERSATION = "_TestTurnStateMemo"
 ANSWER = {"response": "A full reply, not the word DONE.", "stage": "architect"}
 
 
-class TestGetTurnReadsPastTheMemo(FrappeTestCase):
+class TestGetTurnReadsPastTheMemo(UnitTestCase):
     def setUp(self):
         clear_turn(CONVERSATION)
 

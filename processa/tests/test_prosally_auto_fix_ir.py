@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import auto_fix_ir, compile_ir
@@ -41,7 +41,7 @@ BROKEN_IR = {
 }
 
 
-class TestAutoFixIr(FrappeTestCase):
+class TestAutoFixIr(IntegrationTestCase):
 	def test_each_exact_problem_is_fixed_and_reported(self):
 		ir = copy.deepcopy(BROKEN_IR)
 		fixes = auto_fix_ir(ir)
@@ -65,7 +65,7 @@ class TestAutoFixIr(FrappeTestCase):
 		self.assertNotIn("lane", next(n for n in ir["nodes"] if n["id"] == "record"))
 
 
-class TestGenerateSpendsNoRepairPass(FrappeTestCase):
+class TestGenerateSpendsNoRepairPass(IntegrationTestCase):
 	"""Runs the live Generate Process Server Script; the script reaches a site with the ProsAlly map by export."""
 
 	def setUp(self):
@@ -98,7 +98,7 @@ class TestGenerateSpendsNoRepairPass(FrappeTestCase):
 		self.assertEqual(len(result["auto_fixes"]), 3)
 
 
-class TestPatchTransform(FrappeTestCase):
+class TestPatchTransform(IntegrationTestCase):
 	SCRIPT = (
 		"from processa.agents.bpmn_ir_pipeline import compile_ir, translate_problems\n"
 		"repair_hints = []\nfor attempt in range(_MAX_FIX_PASSES + 1):\n"
@@ -116,7 +116,7 @@ class TestPatchTransform(FrappeTestCase):
 		self.assertIsNone(with_auto_fix(self.SCRIPT.replace("    _res = compile_ir(ir_dict)\n", "")))
 
 
-class TestStagesReadTheLatestMessage(FrappeTestCase):
+class TestStagesReadTheLatestMessage(IntegrationTestCase):
 	def _run(self, script):
 		doc = frappe._dict(script=script)
 		doc.save = lambda **kwargs: None

@@ -11,7 +11,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.processa_engine.timers import process_timer_start_events, timer_start_is_due
@@ -40,7 +40,7 @@ TIMER_START_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestTimerStartSweep(FrappeTestCase):
+class TestTimerStartSweep(IntegrationTestCase):
 	def setUp(self):
 		self.deployed = []
 

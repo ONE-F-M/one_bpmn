@@ -2,7 +2,7 @@
 """The stored ProsAlly scripts and classifier prompt know how to keep None tasks and replace tasks with them."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_draws_none_tasks as patch
 from processa.patches.v1_0.prosally_turns_a_step_into_a_subprocess import AGENT_ID
@@ -13,7 +13,7 @@ def _script(pattern):
 	return frappe.db.get_value("Server Script", name, "script") if name else ""
 
 
-class TestProsallyDrawsNoneTasks(FrappeTestCase):
+class TestProsallyDrawsNoneTasks(IntegrationTestCase):
 	def setUp(self):
 		self.config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
 		if not self.config:

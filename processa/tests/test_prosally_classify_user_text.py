@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.patches.v1_0 import (
 	prosally_classify_recovers_user_text_and_pasted_specs as classify_patch,
@@ -33,7 +33,7 @@ def _patched_script():
 	return code
 
 
-class TestClassifyScriptPatch(FrappeTestCase):
+class TestClassifyScriptPatch(IntegrationTestCase):
 	def _run(self, code):
 		store = {classify_patch.SCRIPT: code}
 
@@ -63,7 +63,7 @@ class TestClassifyScriptPatch(FrappeTestCase):
 		self.assertEqual(log_error.call_count, 2 * len(classify_patch.EDITS))
 
 
-class TestClassifyScriptBehaviour(FrappeTestCase):
+class TestClassifyScriptBehaviour(UnitTestCase):
 	def _run(self, turn, chat_texts, confirmed=""):
 		result = {}
 		update_turn = MagicMock()
@@ -108,7 +108,7 @@ class TestClassifyScriptBehaviour(FrappeTestCase):
 		self.assertEqual(result["user_text_len"], 12)
 
 
-class TestClassifierPromptPatch(FrappeTestCase):
+class TestClassifierPromptPatch(IntegrationTestCase):
 	def _run(self, prompt_text):
 		row = frappe._dict(sub_agent_id="intent_classifier", prompt_text=prompt_text)
 		doc = MagicMock(sub_prompts=[row])

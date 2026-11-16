@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_replies import describe_flow_references, describe_links
 from processa.ai_agent_registry.definitions.prosally.tools_lint import lint_findings, lint_fix_requested, lint_leftovers, lint_prompt, no_lint_fix_reply
@@ -47,7 +47,7 @@ class RecordingAdapter:
 		return SimpleNamespace(text=json.dumps(self.reply))
 
 
-class TestLintFixRequested(FrappeTestCase):
+class TestLintFixRequested(UnitTestCase):
 	def test_a_request_to_fix_lint_findings_is_detected(self):
 		for text in (
 			"Fix the linting issues",
@@ -74,7 +74,7 @@ class TestLintFixRequested(FrappeTestCase):
 		self.assertFalse(lint_fix_requested(["Yes, proceed"]))
 
 
-class TestLintFindings(FrappeTestCase):
+class TestLintFindings(UnitTestCase):
 	def test_findings_in_the_main_process_are_fixed_there_and_the_sub_process_ones_are_counted(self):
 		found = lint_findings(XML, [MAIN_ISSUE, SUB_ISSUE])
 		self.assertIsNone(found["scope"])
@@ -130,7 +130,7 @@ REFERENCED = LINKED.replace(
 )
 
 
-class TestDescribeFlowReferences(FrappeTestCase):
+class TestDescribeFlowReferences(UnitTestCase):
 	def test_references_added_to_existing_steps_are_counted(self):
 		text = describe_flow_references(LINKED, REFERENCED)
 		self.assertIn("Rebuilt the flow references on 2 steps", text)
@@ -152,7 +152,7 @@ class TestDescribeFlowReferences(FrappeTestCase):
 		self.assertEqual(describe_flow_references(LINKED, ""), "")
 
 
-class TestDescribeLinks(FrappeTestCase):
+class TestDescribeLinks(UnitTestCase):
 	def test_a_path_added_between_existing_steps_is_listed(self):
 		text = describe_links(XML, LINKED)
 		self.assertIn('Connected "Check Salary" to "Salary OK?".', text)
@@ -179,7 +179,7 @@ class TestDescribeLinks(FrappeTestCase):
 		self.assertEqual(describe_links(XML, ""), "")
 
 
-class TestLintText(FrappeTestCase):
+class TestLintText(UnitTestCase):
 	def test_the_prompt_lists_each_finding_with_its_element_id_under_where_it_sits(self):
 		text = lint_prompt(lint_findings(XML, [SUB_ISSUE, SUB_GATEWAY_ISSUE], scope_id="sub"))
 		self.assertTrue(text.startswith("In Payroll Clearance:"))
@@ -203,7 +203,7 @@ class TestLintText(FrappeTestCase):
 		self.assertIn('"Review": Elements overlap', text)
 
 
-class LintScriptCase(FrappeTestCase):
+class LintScriptCase(IntegrationTestCase):
 	def setUp(self):
 		lint_patch.execute()
 		references_patch.execute()
@@ -360,7 +360,7 @@ class TestContextCarriesTheFindings(LintScriptCase):
 		self.assertEqual(get_turn(CONVERSATION)["lint_issues"], [MAIN_ISSUE])
 
 
-class TestLintPatch(FrappeTestCase):
+class TestLintPatch(IntegrationTestCase):
 	def test_running_it_again_changes_no_script(self):
 		lint_patch.execute()
 		before = {
@@ -371,7 +371,7 @@ class TestLintPatch(FrappeTestCase):
 			self.assertEqual(frappe.db.get_value("Server Script", {"name": ["like", name]}, "script"), script)
 
 
-class TestReferencesPatch(FrappeTestCase):
+class TestReferencesPatch(IntegrationTestCase):
 	def test_running_it_again_changes_no_script(self):
 		lint_patch.execute()
 		references_patch.execute()

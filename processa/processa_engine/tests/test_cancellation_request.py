@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.desk.doctype.bulk_update.bulk_update import submit_cancel_or_update_docs
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import instances
 from processa.api.deploy import compile_process_model
@@ -96,7 +96,7 @@ def _docstatus(journal_entry):
 	return frappe.db.get_value("Journal Entry", journal_entry.name, "docstatus")
 
 
-class CancellationRequestTestCase(FrappeTestCase):
+class CancellationRequestTestCase(IntegrationTestCase):
 	def setUp(self):
 		# A failed engine pass commits; keep the fixtures inside the test transaction.
 		commit = patch.object(frappe.db, "commit")
@@ -105,7 +105,7 @@ class CancellationRequestTestCase(FrappeTestCase):
 		clear_processa_doctype_cache()
 		# The cached map list must not outlive the rolled-back test map.
 		self.addCleanup(clear_processa_doctype_cache)
-		# FrappeTestCase rolls back once per class; each test here needs its own clean slate.
+		# IntegrationTestCase rolls back once per class; each test here needs its own clean slate.
 		frappe.db.savepoint("cancellation_request")
 		self.addCleanup(frappe.db.rollback, save_point="cancellation_request")
 		self.journal_entry = _journal_entry()

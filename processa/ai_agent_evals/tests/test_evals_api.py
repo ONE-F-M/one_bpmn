@@ -5,7 +5,7 @@ import inspect
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import evals
 
@@ -55,7 +55,7 @@ def _make_user(email, role):
 	user.insert(ignore_permissions=True)  # perms: test fixture user
 
 
-class TestEvalsApi(FrappeTestCase):
+class TestEvalsApi(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

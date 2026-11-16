@@ -15,14 +15,14 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_observability import goal_completion as gc
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
 from processa.ai_agent_observability.observability import finalize_ai_run
 
 
-class TestWhatTheExecutorKnows(FrappeTestCase):
+class TestWhatTheExecutorKnows(UnitTestCase):
 	"""determine() is pure — no database, no model, no guessing."""
 
 	def test_a_clean_run_with_an_answer_achieved(self):
@@ -110,7 +110,7 @@ class TestWhatTheExecutorKnows(FrappeTestCase):
 		self.assertNotIn("structured", basis)
 
 
-class TestAMapDeclaringItsOwnDefinitionOfDone(FrappeTestCase):
+class TestAMapDeclaringItsOwnDefinitionOfDone(UnitTestCase):
 	"""Agents differ in what finishing means, so a map may name the reply key
 	that proves it — declaratively, never as an expression to evaluate."""
 
@@ -143,7 +143,7 @@ class TestAMapDeclaringItsOwnDefinitionOfDone(FrappeTestCase):
 		self.assertIn("error", basis.lower())
 
 
-class RunFixture(FrappeTestCase):
+class RunFixture(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.instance = None
@@ -306,7 +306,7 @@ def _turn(role, tool_calls=None):
 	return {"role": role, "content": "", "tool_calls": tool_calls or []}
 
 
-class TestAToolFailureNeverRetried(FrappeTestCase):
+class TestAToolFailureNeverRetried(UnitTestCase):
 	"""Calling finalize is not achievement when a tool failed and was never called again successfully."""
 
 	def test_a_failed_tool_with_no_retry_is_not_achieved_and_names_the_tool(self):
@@ -434,7 +434,7 @@ def _stage_trace(stage_name, stage_result):
 	]
 
 
-class TestAFailedStageIsNotAchieved(FrappeTestCase):
+class TestAFailedStageIsNotAchieved(UnitTestCase):
 	"""A stage tool reports failure in a JSON body its call status calls Success."""
 
 	def test_the_too_large_run_is_not_achieved_and_says_why(self):

@@ -1,6 +1,6 @@
 import frappe
 from frappe.client import get_list
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.install import grant_process_owner_doctype_access
 
@@ -52,7 +52,7 @@ def remove_fixtures() -> None:
 	frappe.db.commit()
 
 
-class TestDocTypePermissions(FrappeTestCase):
+class TestDocTypePermissions(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

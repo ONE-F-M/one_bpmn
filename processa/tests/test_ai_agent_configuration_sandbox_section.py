@@ -7,7 +7,7 @@ import json
 import os
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 SETTINGS = ("sandbox_use_job", "sandbox_retry_on_test_failure", "require_reproduction")
 
@@ -24,7 +24,7 @@ def _doctype() -> dict:
 		return json.load(handle)
 
 
-class TestSandboxSection(FrappeTestCase):
+class TestSandboxSection(IntegrationTestCase):
 	def test_the_section_is_open_and_holds_the_three_settings(self):
 		doctype = _doctype()
 		fields = {f["fieldname"]: f for f in doctype["fields"]}

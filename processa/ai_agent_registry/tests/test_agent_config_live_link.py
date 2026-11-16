@@ -3,7 +3,7 @@
 """Live-link: config authoritative at dispatch + write-back."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	_refuse_roles_the_editor_does_not_hold,
@@ -16,7 +16,7 @@ from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 TEST_CONFIG = "ZZ Live Link Test Agent"
 
 
-class TestAgentConfigLiveLink(FrappeTestCase):
+class TestAgentConfigLiveLink(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		if not frappe.db.exists("AI Agent Configuration", TEST_CONFIG):
@@ -132,7 +132,7 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 			self.set_user("Administrator")
 
 
-class TestTheModalCanEditWhatTheAgentMayDo(FrappeTestCase):
+class TestTheModalCanEditWhatTheAgentMayDo(IntegrationTestCase):
 	"""The roles an agent holds are editable from the editor modal.
 
 	They were only on the desk form, which is not where anyone configures an

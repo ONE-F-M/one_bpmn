@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble
 from processa.ai_agent_conversations.session_state import LAST_TURN_KEY, get_state, record, record_turn_result
@@ -28,7 +28,7 @@ from processa.tests.conversation_fixtures import drop_conversations
 from processa.ai_agent_conversations.chat_persistence import create_conversation, save_bot_message, save_user_message
 
 
-class TurnContextCase(FrappeTestCase):
+class TurnContextCase(IntegrationTestCase):
 	def setUp(self):
 		self.made = []
 
@@ -243,7 +243,7 @@ class TestPlatformHistoryStep(TurnContextCase):
 		self.assertEqual(_platform_history(instance, {}, ""), ([], ""))
 
 
-class TestCurrentMessageMarkup(FrappeTestCase):
+class TestCurrentMessageMarkup(UnitTestCase):
 	def test_the_persons_words_reach_the_model_without_markup(self):
 		from processa.processa_engine.dispatch.ai_agent import _turn_user_message
 
@@ -252,7 +252,7 @@ class TestCurrentMessageMarkup(FrappeTestCase):
 		self.assertEqual(_turn_user_message(instance, task), "crush https://lucid.app/x now")
 
 
-class TestPreamblePlacement(FrappeTestCase):
+class TestPreamblePlacement(UnitTestCase):
 	def test_the_established_block_sits_in_the_cacheable_prefix(self):
 		"""Before the marker, with memory and instructions, it changes only when
 		a turn establishes something, unlike the person's words."""
@@ -275,7 +275,7 @@ class TestPreamblePlacement(FrappeTestCase):
 		self.assertIn("hello", out)
 
 
-class TestNoMapAlsoSendsHistory(FrappeTestCase):
+class TestNoMapAlsoSendsHistory(IntegrationTestCase):
 	"""The platform sends the transcript as real messages, so a map that also
 	flattens it into its prompt sends every prior turn twice, which is worse
 	than the duplication this work set out to remove.
@@ -330,7 +330,7 @@ class TestNoMapAlsoSendsHistory(FrappeTestCase):
 		self.assertEqual(offenders, [], "still building a transcript block: " + ", ".join(offenders))
 
 
-class TestToolCallingTurnSendsHistory(FrappeTestCase):
+class TestToolCallingTurnSendsHistory(IntegrationTestCase):
 	"""Every chat agent calls tools, so the tool loop is where history has to reach the model."""
 
 	def test_prior_turns_precede_the_message_in_the_first_model_call(self):

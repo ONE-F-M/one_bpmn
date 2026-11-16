@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 from processa.ai_agent_memory import tools as T
@@ -12,7 +12,7 @@ from processa.ai_agent_memory.permissions import ai_memory_has_permission
 from processa.api import memory as API
 
 
-# set_user on FrappeTestCase is a context manager, not a setter: calling it
+# set_user on IntegrationTestCase is a context manager, not a setter: calling it
 # bare builds a generator that is never entered and the session user never
 # changes, so a permission test would pass while testing nothing.
 def _user(prefix: str) -> str:
@@ -21,7 +21,7 @@ def _user(prefix: str) -> str:
 	return email
 
 
-class TestMemoryBrowser(FrappeTestCase):
+class TestMemoryBrowser(IntegrationTestCase):
 	def setUp(self):
 		self.agent = f"BR_{frappe.generate_hash(length=8)}"
 		self.alice = _user("alice")
@@ -154,7 +154,7 @@ class TestMemoryBrowser(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Access Log", {"export_from": "AI Memory"}), before)
 
 
-class TestMemoryPurge(FrappeTestCase):
+class TestMemoryPurge(IntegrationTestCase):
 	def setUp(self):
 		self.agent = f"PG_{frappe.generate_hash(length=8)}"
 		self.alice = _user("alice")

@@ -10,7 +10,7 @@ allowed_agents child table is the positive list the A2A door checks.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.a2a.principal import (
@@ -40,7 +40,7 @@ def approve(client):
 	return client
 
 
-class TestA2AClientRegistry(FrappeTestCase):
+class TestA2AClientRegistry(IntegrationTestCase):
 	def test_approval_provisions_badge_user(self):
 		client = approve(make_client())
 		self.assertTrue(client.user)

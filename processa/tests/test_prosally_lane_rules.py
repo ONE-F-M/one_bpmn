@@ -19,7 +19,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 CONFIG = "prosally"
 GENERATOR_TOOL = "ProsAlly – Tool Generate Process"
@@ -33,7 +33,7 @@ def _sub_prompt(sub_agent_id: str) -> str:
     return ""
 
 
-class TestProsAllyLaneRules(FrappeTestCase):
+class TestProsAllyLaneRules(IntegrationTestCase):
     def setUp(self):
         if not frappe.db.exists("AI Agent Configuration", CONFIG):
             self.skipTest(f"{CONFIG} is not configured on this site")

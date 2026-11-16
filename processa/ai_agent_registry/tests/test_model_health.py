@@ -19,7 +19,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils.password import remove_encrypted_password
 
 from processa.ai_agent_registry import model_health
@@ -52,7 +52,7 @@ def _unreachable():
 	return {"ok": False, "code": "UNREACHABLE", "detail": "Anthropic did not answer within 15 seconds"}
 
 
-class HealthCase(FrappeTestCase):
+class HealthCase(IntegrationTestCase):
 	"""Fixtures are committed (the engine commits observability writes), so
 	they are removed by name rather than trusted to the rollback."""
 
@@ -271,7 +271,7 @@ class TestSaveValidation(HealthCase):
 # ---------------------------------------------------------------------------
 
 
-class TestProbe(FrappeTestCase):
+class TestProbe(UnitTestCase):
 	def _resp(self, status, body=None, text=""):
 		resp = MagicMock()
 		resp.status_code = status
@@ -325,7 +325,7 @@ class TestProbe(FrappeTestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestClassification(FrappeTestCase):
+class TestClassification(UnitTestCase):
 	def test_provider_codes_always_count(self):
 		self.assertTrue(is_credential_failure("PROVIDER_DISABLED", "AI Model 'x' has no API key set."))
 		self.assertTrue(is_credential_failure("PROVIDER_NOT_FOUND", "AI Provider '' not found."))

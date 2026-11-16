@@ -11,7 +11,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 from processa.processa_engine.dispatch import ai_agent as D
@@ -24,7 +24,7 @@ MODEL_RECONCILE = "ZZ-wi1793-reconcile"
 MODEL_GLOBAL = "ZZ-wi1793-global"
 
 
-class TestMemoryModelConfig(FrappeTestCase):
+class TestMemoryModelConfig(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -337,7 +337,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 		self.assertEqual(captured["ctx"]["model"], MODEL_DISTILL)
 
 
-class TestMemoryConfigValidation(FrappeTestCase):
+class TestMemoryConfigValidation(IntegrationTestCase):
 	"""An Enabled config must be able to actually run.
 
 	Reuses TestMemoryModelConfig's fixtures (models, Processa Settings globals)
@@ -482,7 +482,7 @@ class TestMemoryConfigValidation(FrappeTestCase):
 		self.assertIsNone(result["reconcile_model"])
 
 
-class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
+class TestTheMemoryModelBringsItsOwnProvider(IntegrationTestCase):
 	"""An agent said "I'll remember that" and nothing was ever written.
 
 	The dispatcher sent the AGENT's provider with whatever memory model was

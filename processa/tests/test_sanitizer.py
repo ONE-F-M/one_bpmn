@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.notifications.sanitizer import sanitize_for_amp, sanitize_for_amp_with_css
 
 
-class TestSanitizeForAmp(FrappeTestCase):
+class TestSanitizeForAmp(UnitTestCase):
 	"""Tests for the AMP HTML sanitizer.
 
 	Run with: bench --site SITE run-tests --app processa --module processa.tests.test_sanitizer

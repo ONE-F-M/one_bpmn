@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_observability import goal_completion
 from processa.ai_agent_skills.tools import shape_tools
@@ -72,7 +72,7 @@ def _read_file(fn=None):
 	)
 
 
-class TestTheLoopStopsAtTheBudget(FrappeTestCase):
+class TestTheLoopStopsAtTheBudget(IntegrationTestCase):
 	def _run(self, tool=None, **budgets):
 		config = ExecutorConfig(
 			provider_name=_provider("Anthropic"),
@@ -124,7 +124,7 @@ class TestTheLoopStopsAtTheBudget(FrappeTestCase):
 		self.assertIn("kept reading after it was told to stop (in read_file)", result.error_message)
 
 
-class TestBudgetExceededReachesTheLoop(FrappeTestCase):
+class TestBudgetExceededReachesTheLoop(UnitTestCase):
 	def test_execute_shape_lets_it_through(self):
 		instance = SimpleNamespace(name="_budget-instance", context_doctype="", context_docname="")
 		with (
@@ -135,7 +135,7 @@ class TestBudgetExceededReachesTheLoop(FrappeTestCase):
 			shape_tools.execute_shape(instance, "read_file", {}, {})
 
 
-class TestTheRunRecordsWhy(FrappeTestCase):
+class TestTheRunRecordsWhy(UnitTestCase):
 	def test_the_basis_quotes_the_budget_and_the_last_tool(self):
 		result = SimpleNamespace(
 			error_code=ErrorCode.BUDGET_EXCEEDED,
@@ -150,7 +150,7 @@ class TestTheRunRecordsWhy(FrappeTestCase):
 		self.assertIn("read_file", basis)
 
 
-class TestTheBudgetsReachTheShape(FrappeTestCase):
+class TestTheBudgetsReachTheShape(IntegrationTestCase):
 	def test_set_budgets_map_and_blank_ones_do_not(self):
 		cfg = frappe._dict(run_token_budget=1_500_000, run_cost_budget=1.5)
 		with patch("frappe.db.exists", return_value=True), patch("frappe.get_doc", return_value=cfg):

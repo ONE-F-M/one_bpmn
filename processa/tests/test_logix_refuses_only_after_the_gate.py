@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.logix import tools
 from processa.patches.v1_0 import seed_logix_refusal_regression_cases as seed
@@ -17,7 +17,7 @@ FIRST = 'result["count"] = 1'
 SECOND = 'result["count"] = 2'
 
 
-class TestRevertOutput(FrappeTestCase):
+class TestRevertOutput(IntegrationTestCase):
 	def setUp(self):
 		self.addCleanup(clear_turn, CONV)
 		frappe.set_user("Administrator")
@@ -82,7 +82,7 @@ class TestRevertOutput(FrappeTestCase):
 		self.assertIn("nothing to revert", get_turn(CONV)["output"]["response"])
 
 
-class TestFinalizeRefusesOnlyAfterTheGate(FrappeTestCase):
+class TestFinalizeRefusesOnlyAfterTheGate(IntegrationTestCase):
 	"""Runs the site's Finalize script on a prepared turn, the way the Logix map does."""
 
 	def setUp(self):
@@ -161,7 +161,7 @@ class TestFinalizeRefusesOnlyAfterTheGate(FrappeTestCase):
 		self.assertEqual(output["response"], "reverted")
 
 
-class TestRegressionCases(FrappeTestCase):
+class TestRegressionCases(IntegrationTestCase):
 	def test_the_four_messages_are_seeded_once(self):
 		if not frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "process_model"):
 			self.skipTest("Logix is not on this site")

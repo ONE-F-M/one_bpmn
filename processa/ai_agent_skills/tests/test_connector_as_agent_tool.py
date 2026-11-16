@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import compile_shape_tools
 from processa.processa_engine.compiler.agent_tools import _extract_tool_shapes
@@ -123,7 +123,7 @@ def _ensure_spike_connector():
 	clear_manifest_cache()
 
 
-class TestConnectorAsAgentTool(FrappeTestCase):
+class TestConnectorAsAgentTool(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

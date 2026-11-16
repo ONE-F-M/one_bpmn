@@ -8,14 +8,14 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.server_scripts import build_logix_turn_context
 
 CONTRACT_MARKER = "LOGIX REPLY CONTRACT"
 
 
-class TestLogixTurnContext(FrappeTestCase):
+class TestLogixTurnContext(IntegrationTestCase):
 	def test_contract_present_without_linked_script(self):
 		out = build_logix_turn_context({})
 		self.assertIn(CONTRACT_MARKER, out.get("dialog_context", ""))

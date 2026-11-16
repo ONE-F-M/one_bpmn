@@ -18,7 +18,7 @@ import os
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import execute_shape
 from processa.ai_agent_conversations import session_state
@@ -69,7 +69,7 @@ FULL_DOC = {
 }
 
 
-class TestFetchOncePerConversation(FrappeTestCase):
+class TestFetchOncePerConversation(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -169,7 +169,7 @@ class TestFetchOncePerConversation(FrappeTestCase):
 		self.assertEqual(session_state.get_state(self.conversation.name), {})
 
 
-class TestThePatch(FrappeTestCase):
+class TestThePatch(IntegrationTestCase):
 	def test_the_live_script_carries_the_cache(self):
 		if not frappe.db.exists("Server Script", SCRIPT):
 			self.skipTest(f"{SCRIPT} is not installed")

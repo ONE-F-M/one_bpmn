@@ -28,7 +28,7 @@ Notes on this bench:
     triggers an onefm_mcp doc-event hook that imports a broken google.adk
     chain, which would crash any test whose dispatch logs an error.
 
-Uses FrappeTestCase (auto-rollback).
+Uses IntegrationTestCase (auto-rollback).
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ import textwrap
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from SpiffWorkflow.util.task import TaskState
 
@@ -228,7 +228,7 @@ def _error_executor(code: ErrorCode = ErrorCode.FAILED_MODEL_CALL) -> MagicMock:
 # Integration test cases
 # ---------------------------------------------------------------------------
 
-class TestAIAgentTaskIntegration(FrappeTestCase):
+class TestAIAgentTaskIntegration(IntegrationTestCase):
 
     def setUp(self):
         super().setUp()

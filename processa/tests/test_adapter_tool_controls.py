@@ -8,7 +8,7 @@ import asyncio
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import CONFIG_TO_SHAPE
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
@@ -53,7 +53,7 @@ def _loop(adapter, **kwargs):
 	return asyncio.run(run_agent_loop(adapter, system="s", user="u", tools=[_tool()], **kwargs))
 
 
-class TestToolChoiceInTheLoop(FrappeTestCase):
+class TestToolChoiceInTheLoop(UnitTestCase):
 	def setUp(self):
 		RAN.clear()
 
@@ -97,7 +97,7 @@ class TestToolChoiceInTheLoop(FrappeTestCase):
 		self.assertEqual(adapter.calls[1]["transcript"][-2]["thinking"], [block])
 
 
-class TestLeakedDelimiters(FrappeTestCase):
+class TestLeakedDelimiters(UnitTestCase):
 	def setUp(self):
 		RAN.clear()
 
@@ -121,7 +121,7 @@ class TestLeakedDelimiters(FrappeTestCase):
 		self.assertEqual(salvage_leaked_delimiters("finalize", {"summary": {}}, arguments), arguments)
 
 
-class TestCompleteRunsTheStepLoop(FrappeTestCase):
+class TestCompleteRunsTheStepLoop(UnitTestCase):
 	def setUp(self):
 		RAN.clear()
 
@@ -187,7 +187,7 @@ def _anthropic_step(model, **controls):
 	return sent[0]
 
 
-class TestAnthropicControls(FrappeTestCase):
+class TestAnthropicControls(UnitTestCase):
 	def test_required_and_a_name_are_forced_on_a_model_that_accepts_it(self):
 		self.assertEqual(
 			_anthropic_step("claude-sonnet-4-5", tool_choice="required")["tool_choice"], {"type": "any"}
@@ -277,7 +277,7 @@ def _openai_step(message=None, finish_reason="stop", **controls):
 	return step, sent[0]
 
 
-class TestOpenAIControls(FrappeTestCase):
+class TestOpenAIControls(UnitTestCase):
 	def test_required_a_name_and_parallel_off_reach_the_request(self):
 		self.assertEqual(_openai_step(tool_choice="required")[1]["tool_choice"], "required")
 		self.assertEqual(
@@ -297,7 +297,7 @@ class TestOpenAIControls(FrappeTestCase):
 		)
 
 
-class TestGeminiControls(FrappeTestCase):
+class TestGeminiControls(UnitTestCase):
 	def _config(self, **controls):
 		adapter = GeminiAdapter(api_key="test-key-not-real", model="gemini-2.5-flash")
 		sent = []
@@ -327,7 +327,7 @@ class TestGeminiControls(FrappeTestCase):
 		self.assertIsNone(config.thinking_config)
 
 
-class TestTheAgentConfiguration(FrappeTestCase):
+class TestTheAgentConfiguration(IntegrationTestCase):
 	def test_the_controls_reach_the_task_config(self):
 		for field, attribute in (
 			("tool_choice", "aiToolChoice"),

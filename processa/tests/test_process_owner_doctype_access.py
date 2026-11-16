@@ -1,12 +1,12 @@
 """A user holding only the Process Owner role can create and modify DocTypes."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.install import grant_process_owner_doctype_access as grant
 
 
-class TestProcessOwnerDoctypeAccess(FrappeTestCase):
+class TestProcessOwnerDoctypeAccess(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		tag = frappe.generate_hash(length=6)

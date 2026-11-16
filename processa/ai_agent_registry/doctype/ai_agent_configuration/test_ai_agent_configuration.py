@@ -2,7 +2,7 @@
 # See license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 	_cast_constant,
@@ -34,7 +34,7 @@ CONFIG_KEYS = {
 }
 
 
-class TestAIAgentConfiguration(FrappeTestCase):
+class TestAIAgentConfiguration(IntegrationTestCase):
 	"""Tests for AI Agent Configuration DocType and get_agent_config utility."""
 
 	def _cleanup_test_record(self):
@@ -264,7 +264,7 @@ class TestAIAgentConfiguration(FrappeTestCase):
 		self.assertEqual(config["sub_prompts"]["analyzer"]["prompt"], "Written directly.")
 
 
-class TestCastConstant(FrappeTestCase):
+class TestCastConstant(IntegrationTestCase):
 	"""Tests for the _cast_constant helper function."""
 
 	def test_cast_integer(self):
@@ -293,7 +293,7 @@ class TestCastConstant(FrappeTestCase):
 		self.assertEqual(_cast_constant("anything", "JSON"), "anything")
 
 
-class TestLoadJsonConstant(FrappeTestCase):
+class TestLoadJsonConstant(IntegrationTestCase):
 	"""Tests for the _load_json_constant helper used by all ported agent files."""
 
 	def test_returns_default_when_config_is_none(self):
@@ -326,7 +326,7 @@ class TestLoadJsonConstant(FrappeTestCase):
 		self.assertEqual(result, default)
 
 
-class TestRequiredVariablesValidation(FrappeTestCase):
+class TestRequiredVariablesValidation(IntegrationTestCase):
 	"""Tests for validate_required_variables() on AI Agent Configuration."""
 
 	def _make_config(self, system_prompt, required_variables, sub_prompts=None):

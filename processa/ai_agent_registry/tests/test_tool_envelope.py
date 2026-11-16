@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.docu import tools as docu_tools
 from processa.ai_agent_registry.definitions.logix import tools as logix_tools
@@ -51,7 +51,7 @@ CASES = (
 )
 
 
-class TestToolEnvelope(FrappeTestCase):
+class TestToolEnvelope(IntegrationTestCase):
 	def test_a_raising_tool_returns_its_error_value_and_logs_it(self):
 		for tool, (owner, call), kwargs, expected in CASES:
 			with self.subTest(tool=tool.__name__):

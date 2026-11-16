@@ -20,7 +20,7 @@ Four things the first pass left open, each seen on staging on 2026-09-08:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability import observability as obs
 from processa.ai_agent_observability.reports.runs import _step_rows
@@ -36,7 +36,7 @@ class _Result:
 		self.cache_write_tokens = 0
 
 
-class RunTreeFixture(FrappeTestCase):
+class RunTreeFixture(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		frappe.flags[obs.CURRENT_RUN_FLAG] = None

@@ -6,7 +6,7 @@ prompt after its map arrived with the change-request rule."""
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import align_agent_prompts_with_their_maps as patch
 
@@ -31,7 +31,7 @@ def _xml(prompt, agent=AGENT, attrs_first=False):
 	)
 
 
-class TestPromptAlignment(FrappeTestCase):
+class TestPromptAlignment(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", AGENT):
 			self.skipTest(f"{AGENT} is not on this site")

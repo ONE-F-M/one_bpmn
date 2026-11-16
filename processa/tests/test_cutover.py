@@ -3,7 +3,7 @@ import sys
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.cutover import patch_line, rename_app
 
@@ -14,7 +14,7 @@ OLD_LINES = {
 }
 
 
-class TestCutover(FrappeTestCase):
+class TestCutover(IntegrationTestCase):
 	def test_patch_line_gives_the_current_patches_txt_line(self):
 		lines = set(open(frappe.get_app_path("processa", "patches.txt")).read().splitlines())
 		for old, new in OLD_LINES.items():
@@ -55,7 +55,7 @@ class TestCutover(FrappeTestCase):
 			self.assertIsNone(frappe.cache.get_value(key), key)
 
 
-class TestRenameStoredPathsBeforeApprovalFields(FrappeTestCase):
+class TestRenameStoredPathsBeforeApprovalFields(IntegrationTestCase):
 	def test_script_is_renamed_on_a_site_without_the_approval_columns(self):
 		from processa.patches.v1_0 import rename_stored_one_bpmn_paths as rename_patch
 

@@ -5,7 +5,7 @@ import json
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.logix import tools
 from processa.patches.v1_0 import seed_logix_pagination_case as seed
@@ -18,7 +18,7 @@ SHOWN = 'employees = frappe.get_all("Employee")\nresult["employees"] = employees
 APPLIED = 'employees = frappe.get_all("Employee", limit_page_length=5)\nresult["employees"] = employees'
 
 
-class TestReplyWithCode(FrappeTestCase):
+class TestReplyWithCode(IntegrationTestCase):
 	def test_the_code_block_is_replaced_by_the_applied_script(self):
 		text = f"Done.\n\n```python\n{SHOWN}\n```\n\nIt lists employees."
 
@@ -36,7 +36,7 @@ class TestReplyWithCode(FrappeTestCase):
 		self.assertEqual(tools.reply_with_code("Just words.", ""), "Just words.")
 
 
-class TestFinalizeShowsTheAppliedScript(FrappeTestCase):
+class TestFinalizeShowsTheAppliedScript(IntegrationTestCase):
 	"""Runs the site's Finalize script on a turn whose reply text and reviewed code differ."""
 
 	def setUp(self):
@@ -72,7 +72,7 @@ class TestFinalizeShowsTheAppliedScript(FrappeTestCase):
 		self.assertIn("limit_page_length=5", output["diff"])
 
 
-class TestPaginationCase(FrappeTestCase):
+class TestPaginationCase(IntegrationTestCase):
 	def test_the_case_is_seeded_once_and_forbids_loops(self):
 		if not frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "process_model"):
 			self.skipTest("Logix is not on this site")

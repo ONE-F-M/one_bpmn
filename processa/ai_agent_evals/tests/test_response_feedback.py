@@ -16,7 +16,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import feedback
 
@@ -32,7 +32,7 @@ def _sse_events(chunks) -> list[dict]:
 	return out
 
 
-class FeedbackFixture(FrappeTestCase):
+class FeedbackFixture(IntegrationTestCase):
 	"""A conversation owned by the current user, with one agent reply in it."""
 
 	def setUp(self):
@@ -336,7 +336,7 @@ class TestReplicationIntoTests(FeedbackFixture):
 		self.assertEqual(frappe.db.get_value("AI Response Feedback", name, "status"), "Converted")
 
 
-class TestTheReplyCarriesItsOwnId(FrappeTestCase):
+class TestTheReplyCarriesItsOwnId(IntegrationTestCase):
 	"""Part 1. The client cannot rate a reply it cannot name."""
 
 	def test_the_stream_uses_the_persisted_message_name_as_the_message_id(self):

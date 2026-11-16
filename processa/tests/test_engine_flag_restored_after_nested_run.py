@@ -9,7 +9,7 @@ submit of a document under an active process.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -25,7 +25,7 @@ MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestEngineFlagRestoredAfterNestedRun(FrappeTestCase):
+class TestEngineFlagRestoredAfterNestedRun(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.addCleanup(setattr, frappe.flags, "bpmn_engine_action", frappe.flags.bpmn_engine_action)

@@ -518,7 +518,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			)
 
 		# Observability survives an aiStopOnError rollback; never inside tests, where it would defeat the rollback.
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 	except Exception:
 		frappe.log_error(
@@ -591,7 +591,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			waiting_marker["agent_sandbox_run"] = deferred_wait["run"]
 			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
 		task.data["_bpmn_ai_waiting_human"] = waiting_marker
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 		return
 
@@ -708,7 +708,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						frappe.enqueue(
 							"processa.ai_agent_memory.writeback.distill_and_write",
 							queue="short",
-							now=frappe.flags.in_test,
+							now=frappe.in_test,
 							agent_output=memory_src,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,

@@ -10,7 +10,7 @@ and it simply queued the same ten-minute run again.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.api import agent_callback as cb
 
@@ -25,7 +25,7 @@ def _run(action, state, result=None, error_message=None, pr_url=None):
 	)
 
 
-class TestSettledFields(FrappeTestCase):
+class TestSettledFields(UnitTestCase):
 	def test_run_tests_passing_is_completion_without_a_pr(self):
 		self.assertEqual(cb._settled_fields("run_tests", "tests_passed", "", {}), {"state": "completed"})
 
@@ -48,7 +48,7 @@ class TestSettledFields(FrappeTestCase):
 		self.assertEqual(fields["pr_url"], "https://x/pull/2")
 
 
-class TestSandboxRunAnswer(FrappeTestCase):
+class TestSandboxRunAnswer(UnitTestCase):
 	def test_failed_tests_carry_the_sandbox_output(self):
 		run = _run("run_tests", "failed", {"stderr_tail": "x" * 3000 + "\nLinkValidationError: Warehouse Type"}, "tests_failed")
 		answer = cb._sandbox_run_answer(run)
@@ -77,7 +77,7 @@ class TestSandboxRunAnswer(FrappeTestCase):
 		self.assertEqual(cb._sandbox_run_answer(_run("run_tests", "failed", {}, "tests_failed")), "Tests failed (tests_failed).")
 
 
-class TestPullRequestNotOpenedIsSaidOutLoud(FrappeTestCase):
+class TestPullRequestNotOpenedIsSaidOutLoud(UnitTestCase):
 	def test_pr_error_reaches_the_run_error_message(self):
 		fields = cb._settled_fields(
 			"open_pull_request", "tests_failed", "", {"pr_error": "no changes to commit yet — nothing to open a pull request for"}

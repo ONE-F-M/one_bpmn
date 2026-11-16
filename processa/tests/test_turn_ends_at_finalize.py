@@ -18,7 +18,7 @@ final_output) was empty.
 import asyncio
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
@@ -72,7 +72,7 @@ def _run(adapter, tools, **kwargs):
 	)
 
 
-class TestTurnEndsAtFinalize(FrappeTestCase):
+class TestTurnEndsAtFinalize(UnitTestCase):
 	def setUp(self):
 		frappe.flags[TURN_ANSWERED_FLAG] = False
 

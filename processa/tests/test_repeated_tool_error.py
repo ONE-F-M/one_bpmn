@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
@@ -73,7 +73,7 @@ def _run(results):
 	return result, adapter
 
 
-class TestTheLoopStopsOnARepeatedError(FrappeTestCase):
+class TestTheLoopStopsOnARepeatedError(IntegrationTestCase):
 	def test_two_identical_errors_end_the_run(self):
 		result, adapter = _run([MISS, MISS, MISS, MISS])
 

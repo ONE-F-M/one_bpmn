@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_memory import writeback as W
 
@@ -27,7 +27,7 @@ def _fake_reconcile_boom(content, candidates, **kw):
 	raise RuntimeError("reconciler exploded")
 
 
-class TestReconcileBatch(FrappeTestCase):
+class TestReconcileBatch(IntegrationTestCase):
 	def test_single_fact_is_a_noop(self):
 		facts = [{"content": "c", "topic": "t", "dedup_key": "a:t"}]
 		self.assertEqual(W._reconcile_batch(facts, _CTX), facts)
@@ -68,7 +68,7 @@ class TestReconcileBatch(FrappeTestCase):
 		self.assertEqual(kept, facts)
 
 
-class TestDistillAndWrite(FrappeTestCase):
+class TestDistillAndWrite(UnitTestCase):
 	def test_batch_duplicate_produces_one_write(self):
 		facts = [
 			{"content": "cannot see conversation v1", "topic": "convo-a", "dedup_key": "agentx:convo-a"},

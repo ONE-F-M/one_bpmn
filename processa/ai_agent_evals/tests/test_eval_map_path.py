@@ -20,7 +20,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.tests.factories import (
@@ -85,7 +85,7 @@ def make_process_model(xml: str, **kwargs):
     return doc.insert(ignore_permissions=True)
 
 
-class TestMapStartability(FrappeTestCase):
+class TestMapStartability(IntegrationTestCase):
     def test_chat_conversation_trigger_is_chat_startable(self):
         model = make_process_model(CHAT_START_XML)
         self.assertTrue(_map_is_chat_startable(model.name))
@@ -99,7 +99,7 @@ class TestMapStartability(FrappeTestCase):
         self.assertFalse(_map_is_chat_startable(None))
 
 
-class TestNeedsMapEval(FrappeTestCase):
+class TestNeedsMapEval(IntegrationTestCase):
     def test_background_agent_needs_map_path(self):
         cfg = make_agent_configuration(agent_type="Background", chat_mode_label=None)
         self.assertTrue(_needs_map_eval(cfg))
@@ -121,7 +121,7 @@ class TestNeedsMapEval(FrappeTestCase):
         self.assertFalse(_needs_map_eval(cfg))
 
 
-class TestMapResolution(FrappeTestCase):
+class TestMapResolution(IntegrationTestCase):
     def test_case_map_wins_over_suite_and_agent(self):
         agent_map = make_process_model(RECORD_START_XML)
         suite_map = make_process_model(RECORD_START_XML)
@@ -151,7 +151,7 @@ class TestMapResolution(FrappeTestCase):
         self.assertEqual(_eval_map_for_case(cfg, case), "")
 
 
-class TestContextDocument(FrappeTestCase):
+class TestContextDocument(IntegrationTestCase):
     def test_reads_explicit_context_keys(self):
         case = make_eval_case(
             input_context=json.dumps(
@@ -211,7 +211,7 @@ class TestContextDocument(FrappeTestCase):
         self.assertEqual(_eval_context_document(case), ("ToDo", "chosen-by-hand"))
 
 
-class TestRunMapEval(FrappeTestCase):
+class TestRunMapEval(IntegrationTestCase):
     def _agent_and_case(self, **case_kwargs):
         model = make_process_model(RECORD_START_XML)
         cfg = make_agent_configuration(agent_type="Background", chat_mode_label=None)
@@ -404,7 +404,7 @@ class TestRunMapEval(FrappeTestCase):
         self.assertEqual(output, "2 net days.")
 
 
-class TestAgentEvalRouting(FrappeTestCase):
+class TestAgentEvalRouting(IntegrationTestCase):
     def test_background_agent_routes_to_map_path(self):
         cfg = make_agent_configuration(agent_type="Background", chat_mode_label=None)
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=None)
@@ -442,7 +442,7 @@ class TestAgentEvalRouting(FrappeTestCase):
         self.assertIsNone(getattr(frappe.flags, "eval_origin", None))
 
 
-class TestEvaluatableGate(FrappeTestCase):
+class TestEvaluatableGate(IntegrationTestCase):
     def test_suite_named_map_bypasses_adk_guard(self):
         """A mapless Google ADK agent is evaluatable once the suite names the map
         to run — the map path does not need the agent to own one."""
@@ -481,7 +481,7 @@ def _insert_agent_run(cfg, tokens: int, cost: float, **tags):
     return run
 
 
-class TestChatEvalRunAttribution(FrappeTestCase):
+class TestChatEvalRunAttribution(IntegrationTestCase):
     """A chat eval case counts only the AI Agent Runs tagged to it, not other runs of the agent."""
 
     def setUp(self):

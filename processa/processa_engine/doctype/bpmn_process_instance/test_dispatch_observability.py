@@ -6,13 +6,13 @@ via the instrumentation layer when the executor is mocked.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from unittest.mock import patch
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
-class TestDispatchObservability(FrappeTestCase):
+class TestDispatchObservability(IntegrationTestCase):
 
 	def setUp(self):
 		# Create a minimal BPMN Process Instance as context

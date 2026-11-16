@@ -15,7 +15,7 @@ seeded data or fixed names.
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import (
 	apply_doctype,
@@ -27,7 +27,7 @@ from processa.api.docu import (
 REQUEST = "Doctype Change Request"
 
 
-class TestDocuChangeGovernance(FrappeTestCase):
+class TestDocuChangeGovernance(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		tag = frappe.generate_hash(length=6)

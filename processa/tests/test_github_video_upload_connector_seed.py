@@ -1,12 +1,12 @@
 """The seeded github_video_upload connector is the one upload_videos reads, as a Bearer Token connector with no token in the seed."""
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.agents_sandbox.sandbox import ops
 from processa.patches.v1_0 import seed_github_video_upload_connector as seed
 
 
-class TestVideoUploadConnectorSeed(FrappeTestCase):
+class TestVideoUploadConnectorSeed(UnitTestCase):
 	def test_it_is_the_connector_upload_videos_reads_and_it_uses_bearer_token_auth(self):
 		manifest = seed.VIDEO_UPLOAD_CONNECTOR
 		self.assertEqual(manifest["connectorId"], ops.UPLOAD_CONNECTOR)

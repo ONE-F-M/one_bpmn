@@ -6,14 +6,14 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning import agent_config_resolver as resolver
 
 ATTRS = ("aiSandboxUseJob", "aiSandboxRetryOnTestFailure", "aiRequireReproduction")
 
 
-class TestSandboxSettingsInTheEditor(FrappeTestCase):
+class TestSandboxSettingsInTheEditor(IntegrationTestCase):
 	def setUp(self):
 		self.agent = next(
 			(

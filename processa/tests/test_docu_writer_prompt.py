@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_writer_reads_its_own_prompt as fix
 
@@ -26,7 +26,7 @@ CONFIGS = {
 }
 
 
-class TestDocuWriterPrompt(FrappeTestCase):
+class TestDocuWriterPrompt(IntegrationTestCase):
 	def _run(self, script: str) -> str:
 		result = {}
 		with patch(

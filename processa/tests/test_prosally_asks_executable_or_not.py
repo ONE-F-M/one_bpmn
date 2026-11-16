@@ -2,14 +2,14 @@
 """ProsAlly asks whether to draw as executable or non-executable instead of deciding the kind itself."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_asks_executable_or_not as patch
 from processa.patches.v1_0 import prosally_confirms_executable_or_not as earlier
 from processa.patches.v1_0.prosally_turns_a_step_into_a_subprocess import AGENT_ID
 
 
-class TestAsksExecutableOrNot(FrappeTestCase):
+class TestAsksExecutableOrNot(IntegrationTestCase):
 	def setUp(self):
 		self.config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
 		if not self.config:

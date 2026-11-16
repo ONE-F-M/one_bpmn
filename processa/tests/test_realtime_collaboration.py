@@ -10,7 +10,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import collaboration
 from processa.api.collaboration import (
@@ -40,7 +40,7 @@ def _calls(publish, event: str) -> list:
 	return [(c.args, c.kwargs) for c in publish.call_args_list if c.args and c.args[0] == event]
 
 
-class CollaborationCase(FrappeTestCase):
+class CollaborationCase(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		suffix = frappe.generate_hash(length=8)

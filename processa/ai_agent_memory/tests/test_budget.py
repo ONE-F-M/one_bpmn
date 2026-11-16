@@ -3,14 +3,14 @@
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 from processa.ai_agent_memory import budget as B
 from processa.processa_engine.dispatch import ai_agent as D
 
 
-class TestBudget(FrappeTestCase):
+class TestBudget(UnitTestCase):
 	def test_budget_covering_one_memory_keeps_the_first_and_drops_the_second(self):
 		memories = [{"content": "first " * 40}, {"content": "second " * 40}]
 		two = estimate_tokens({"content": B.format_memory_block(memories)}, DEFAULT_CHARS_PER_TOKEN)

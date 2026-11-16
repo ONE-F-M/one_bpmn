@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.patches.v1_0.lucrusher_scan_digest_and_short_confirmations import (
 	_PROMPT_BLOCK,
@@ -127,7 +127,7 @@ def _realistic_scan():
 	}
 
 
-class TestScanDigest(FrappeTestCase):
+class TestScanDigest(UnitTestCase):
 	def test_digest_is_a_fraction_of_what_the_trimmer_sent(self):
 		scan = _realistic_scan()
 		before = len(json.dumps(_trim_function()(scan), default=str))
@@ -164,7 +164,7 @@ class TestScanDigest(FrappeTestCase):
 		self.assertEqual(out["counts"]["doctypes"], 60)
 
 
-class TestScriptEdit(FrappeTestCase):
+class TestScriptEdit(IntegrationTestCase):
 	def test_edit_is_anchored_and_applied_once(self):
 		text = "# header\n\ndef _lucrusher_trim_scan(scan):\n    return scan\n\n\n" + _SCAN_OLD + "\n"
 		updated, changed = apply_scan_digest(text)
@@ -194,7 +194,7 @@ class TestScriptEdit(FrappeTestCase):
 		compile(updated, _SCAN_SCRIPT, "exec")
 
 
-class TestConfirmationBlock(FrappeTestCase):
+class TestConfirmationBlock(UnitTestCase):
 	def test_appended_once(self):
 		first, changed = with_confirmation_block("You are LuCrusher.")
 		self.assertTrue(changed)

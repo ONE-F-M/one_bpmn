@@ -7,7 +7,7 @@ from __future__ import annotations
 import inspect
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning import context_assembler as CA
 from processa.processa_engine.agent_runtime.executor import (
@@ -27,7 +27,7 @@ CONFIG = {
 }
 
 
-class TestEveryPathComposesTheSameWay(FrappeTestCase):
+class TestEveryPathComposesTheSameWay(UnitTestCase):
 	def test_the_config_wrapper_keeps_every_section(self):
 		"""It used to drop the skills index, so a path going through it
 		advertised none of the agent's skills while the others advertised all."""
@@ -86,7 +86,7 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 			self.assertIn("build_static_context", source, f"{module.__name__} sends a prompt it did not compose")
 
 
-class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
+class TestEveryPathStartsFromTheSameDefaults(UnitTestCase):
 	"""The same agent behaved differently depending on which shape ran it:
 	temperature 0.7 on the task path against the 0.3 the form advertised, and a
 	60 second limit on the selector against 180 everywhere else."""
@@ -148,7 +148,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(float(fields["temperature"].get("default")), DEFAULT_TEMPERATURE)
 
 
-class TestSettingsMoveOntoTheRecord(FrappeTestCase):
+class TestSettingsMoveOntoTheRecord(IntegrationTestCase):
 	"""An agent setting that exists only on a diagram makes the agent's own
 	record silently incomplete, so the answer to "what temperature does this
 	agent use" depends on which diagram you open.

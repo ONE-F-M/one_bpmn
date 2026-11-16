@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
@@ -80,7 +80,7 @@ class _FakeAdapter:
 		return self._steps[0]
 
 
-class TestExecutorToolBridge(FrappeTestCase):
+class TestExecutorToolBridge(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -195,7 +195,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 		self.assertEqual(result.output, "done")
 
 
-class TestOpenAIAdapterTrace(FrappeTestCase):
+class TestOpenAIAdapterTrace(IntegrationTestCase):
 	"""Drive the real OpenAIAdapter loop against a stubbed SDK client."""
 
 	def _adapter(self, responses):

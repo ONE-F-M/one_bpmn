@@ -2,7 +2,7 @@
 """The patch that points stored Server Script imports at the observability modules in ai_agent_observability."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.code_checks.script_gate import script_hash
 from processa.patches.v1_0 import repath_observability_module_imports as P
@@ -18,7 +18,7 @@ NEW_SCRIPT = (
 )
 
 
-class TestRepathObservabilityModuleImports(FrappeTestCase):
+class TestRepathObservabilityModuleImports(IntegrationTestCase):
 	def setUp(self):
 		frappe.db.delete("Server Script", {"name": SCRIPT_NAME})
 		frappe.get_doc(

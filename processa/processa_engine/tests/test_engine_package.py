@@ -3,7 +3,7 @@
 
 from types import SimpleNamespace
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine import engine
 from processa.processa_engine.engine import spiff_patches
@@ -13,7 +13,7 @@ def _task_of(spec_class):
 	return SimpleNamespace(task_spec=spec_class.__new__(spec_class))
 
 
-class TestTaskTypeLabels(FrappeTestCase):
+class TestTaskTypeLabels(UnitTestCase):
 	def test_labels_and_order_are_pinned(self):
 		self.assertEqual(
 			[label for _cls, label in engine.TASK_TYPE_LABELS],
@@ -49,7 +49,7 @@ class TestTaskTypeLabels(FrappeTestCase):
 			engine.helpers.TASK_TYPE_LABELS = original
 
 
-class TestSpiffPatches(FrappeTestCase):
+class TestSpiffPatches(UnitTestCase):
 	def test_class_level_patches_are_applied(self):
 		self.assertIs(engine.AdHocSubprocessSpec.path_complete, spiff_patches._safe_path_complete)
 		self.assertIs(

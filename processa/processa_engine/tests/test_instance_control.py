@@ -5,7 +5,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import instances
 from processa.api.deploy import compile_process_model
@@ -111,7 +111,7 @@ def _actions(instance_name, action):
 	return frappe.db.count("BPMN Activity Log", {"instance": instance_name, "action": action})
 
 
-class InstanceControlTestCase(FrappeTestCase):
+class InstanceControlTestCase(IntegrationTestCase):
 	def setUp(self):
 		# _record_runtime_failure commits; keep the fixtures inside the test transaction.
 		commit = patch.object(frappe.db, "commit")

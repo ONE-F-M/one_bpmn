@@ -17,7 +17,7 @@ import datetime
 import decimal
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.engine import json_safe_doc_fields
 from processa.processa_engine.runtime.common import refresh_task_data_from_context
@@ -45,7 +45,7 @@ class _Doc:
 		return self._values.get(fieldname)
 
 
-class TestJSONSafeDocFields(FrappeTestCase):
+class TestJSONSafeDocFields(UnitTestCase):
 	def test_dates_are_converted_not_dropped(self):
 		"""A Date/Datetime/Time field must reach the condition, not vanish.
 
@@ -108,7 +108,7 @@ class TestJSONSafeDocFields(FrappeTestCase):
 		frappe.as_json(out)  # raises if anything non-serialisable got through
 
 
-class TestRefreshTaskDataFromContext(FrappeTestCase):
+class TestRefreshTaskDataFromContext(IntegrationTestCase):
 	"""The mid-run refresh must read the DOCUMENT, not the start-time snapshot."""
 
 	def test_refresh_picks_up_a_write_made_after_the_instance_started(self):

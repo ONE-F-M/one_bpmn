@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import (
 	ErrorCode,
@@ -47,7 +47,7 @@ _NOISE = (
 )
 
 
-class TestDistillSalienceGate(FrappeTestCase):
+class TestDistillSalienceGate(IntegrationTestCase):
 	def test_noise_yields_nothing(self):
 		# The curator returns [] for a confirmation message.
 		_FAKE["output"] = {"memories": []}
@@ -128,7 +128,7 @@ _ECHOED_CONTENT = (
 )
 
 
-class TestDistillExcludeContext(FrappeTestCase):
+class TestDistillExcludeContext(UnitTestCase):
 	def test_echo_of_driving_prompt_is_rejected(self):
 		_FAKE["output"] = {"memories": [{"content": _ECHOED_CONTENT, "topic": "pipeline order"}]}
 		_FAKE["error"] = ErrorCode.SUCCESS
@@ -162,7 +162,7 @@ class TestDistillExcludeContext(FrappeTestCase):
 		self.assertEqual(len(facts), 1)
 
 
-class TestIsEcho(FrappeTestCase):
+class TestIsEcho(UnitTestCase):
 	"""Direct coverage of the deterministic similarity check, independent of
 	the curator — see distill.py's threshold rationale for the numbers below."""
 

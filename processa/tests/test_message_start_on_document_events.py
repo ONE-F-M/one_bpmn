@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine import triggers
 
@@ -59,7 +59,7 @@ def _instance(model, status, doc):
 	).db_insert()
 
 
-class MessageStartFixtures(FrappeTestCase):
+class MessageStartFixtures(IntegrationTestCase):
 	def setUp(self):
 		frappe.cache.delete_value(triggers.MESSAGE_START_INDEX_KEY)
 		_model(MODEL, _diagram(EDIT, catch_message=DELETE))

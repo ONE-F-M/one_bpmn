@@ -10,7 +10,7 @@ passes when the score meets the threshold and fails gracefully on bad JSON.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.runner.assertions import evaluate_assertion
 from processa.ai_agent_evals.tests.factories import patch_executor, success_result
@@ -27,7 +27,7 @@ def _judge_assertion(value="Is the response polite?", pass_threshold=4):
     )
 
 
-class TestEvalJudge(FrappeTestCase):
+class TestEvalJudge(IntegrationTestCase):
 
     def test_judge_passes_above_threshold(self):
         """(a) score 5 passes when pass_threshold=4."""

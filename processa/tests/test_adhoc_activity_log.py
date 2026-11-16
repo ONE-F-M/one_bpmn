@@ -8,12 +8,10 @@ import json
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine import engine
 from processa.processa_engine.runtime.dispatch import log_adhoc_activation, log_ai_task_selected
-
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
 
 def _instance():
@@ -38,7 +36,7 @@ def _fake_sp(name="AdhocSub_1"):
 	return SimpleNamespace(spec=SimpleNamespace(name=name))
 
 
-class TestAdhocActivityLog(FrappeTestCase):
+class TestAdhocActivityLog(IntegrationTestCase):
 	# ── Scenario 4: new action values are selectable filters ──
 
 	def test_action_options_include_new_types(self):

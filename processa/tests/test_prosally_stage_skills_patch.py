@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_stage_skills as patch
 from processa.patches.v1_0 import seed_prosally_and_frontend_skills as earlier
@@ -24,7 +24,7 @@ GENERATOR = (
 )
 
 
-class TestProsAllyStageSkills(FrappeTestCase):
+class TestProsAllyStageSkills(IntegrationTestCase):
 	def test_the_generator_prompt_loses_what_the_skills_carry(self):
 		text = patch.trimmed_prompt(GENERATOR)
 		for gone in ("load_skill", "NODE TYPES", "FLOW RULES", "STEP 0"):

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model.document import Document
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.shared import tools_process_digest as process_digest
 from processa.ai_agent_registry.definitions.prosally import tools_links as process_links
@@ -63,7 +63,7 @@ def _kinds(model: str) -> list[str]:
 	return [gap["kind"] for gap in process_links.get_process_links(model)["gaps"]]
 
 
-class TestProcessLinks(FrappeTestCase):
+class TestProcessLinks(IntegrationTestCase):
 	def test_extract_reads_events_tasks_calls_and_multi_instance(self):
 		body = (
 			CATCH_SIGNAL

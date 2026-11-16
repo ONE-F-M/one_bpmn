@@ -20,7 +20,7 @@ import json
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_orchestrator_agent_eval_suite as seed
 
@@ -29,7 +29,7 @@ AGENT_PRESENT = frappe.db.exists("AI Agent Configuration", seed.AGENT) and frapp
 )
 
 
-class TestOrchestratorEvalSuiteSeed(FrappeTestCase):
+class TestOrchestratorEvalSuiteSeed(IntegrationTestCase):
 	def setUp(self):
 		if not AGENT_PRESENT:
 			self.skipTest(f"{seed.AGENT} is not on this site")

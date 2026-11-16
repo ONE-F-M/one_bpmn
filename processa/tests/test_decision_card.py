@@ -9,7 +9,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.processa_engine.notifications import actions as notification_actions
@@ -68,7 +68,7 @@ def _no_machine_translation():
 	return patch("processa.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}")
 
 
-class TestDecisionCardActions(FrappeTestCase):
+class TestDecisionCardActions(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		for state, style in ((APPROVED, "Success"), (REJECTED, "Danger")):
@@ -229,7 +229,7 @@ def _card_ctx(**extra):
 	}
 
 
-class TestDecisionCardRender(FrappeTestCase):
+class TestDecisionCardRender(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 

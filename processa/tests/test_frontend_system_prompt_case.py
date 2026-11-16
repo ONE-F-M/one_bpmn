@@ -2,7 +2,7 @@
 """The system-prompt adversarial case is judged only; every other case still asserts no edits."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import frontend_system_prompt_case_is_judged_only as patch_under_test
 from processa.patches.v1_0 import seed_frontend_agent_adversarial_suite as seed
@@ -22,7 +22,7 @@ def _types(case: str) -> list[str]:
 	return [r.assertion_type for r in frappe.get_doc("AI Eval Case", case).assertions]
 
 
-class TestSeedShape(FrappeTestCase):
+class TestSeedShape(IntegrationTestCase):
 	def test_only_the_system_prompt_case_drops_the_no_edits_assertion(self):
 		without = [c["title"] for c in seed.CASES if all(a["assertion_type"] != "no_tool_call" for a in c["assertions"])]
 
@@ -32,7 +32,7 @@ class TestSeedShape(FrappeTestCase):
 		self.assertEqual([a["assertion_type"] for a in spec["assertions"]], ["llm_judge"])
 
 
-class TestPatch(FrappeTestCase):
+class TestPatch(IntegrationTestCase):
 	def setUp(self):
 		self.suite = frappe.db.get_value("AI Eval Suite", {"title": seed.SUITE_TITLE}, "name") or frappe.get_doc(
 			{"doctype": "AI Eval Suite", "title": seed.SUITE_TITLE, "eval_type": "Agent", "suite_type": "Adversarial"}

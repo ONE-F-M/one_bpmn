@@ -6,7 +6,7 @@ import json
 import unittest
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import (
 	get_shape_drift,
@@ -39,7 +39,7 @@ STALE_EXTENSION = {
 }
 
 
-class TestShapeConfigDrift(FrappeTestCase):
+class TestShapeConfigDrift(UnitTestCase):
 	def test_numbers_compare_by_value_and_prompts_ignore_edge_whitespace(self):
 		live = {"aiTemperature": 0.3, "aiMaxTokens": 4096, "aiSystemPrompt": "Hello"}
 		shape = {"aiTemperature": "0.30", "aiMaxTokens": "4096", "aiSystemPrompt": "Hello\n"}
@@ -57,7 +57,7 @@ class TestShapeConfigDrift(FrappeTestCase):
 		self.assertEqual(shape_config_drift({"aiModel": "claude-haiku-4-5-20251001"}, {}), [])
 
 
-class TestDriftAgainstAConfiguration(FrappeTestCase):
+class TestDriftAgainstAConfiguration(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

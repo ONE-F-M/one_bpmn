@@ -16,13 +16,13 @@ because the run reports success and no email arrives.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.lookups import get_recipient_docfields
 from processa.processa_engine.dispatch.email import _emails_from_doc_field
 
 
-class TestRecipientFieldPicker(FrappeTestCase):
+class TestRecipientFieldPicker(IntegrationTestCase):
 	def _names(self, doctype, search_text=""):
 		return [r["fieldname"] for r in get_recipient_docfields(doctype, search_text)]
 
@@ -114,7 +114,7 @@ class TestRecipientFieldPicker(FrappeTestCase):
 		self.assertEqual(get_recipient_docfields("No Such DocType At All"), [])
 
 
-class TestRecipientResolution(FrappeTestCase):
+class TestRecipientResolution(IntegrationTestCase):
 	"""What the dispatcher does with the field value it was given."""
 
 	def test_an_address_is_used_as_is(self):

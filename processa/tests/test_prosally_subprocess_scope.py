@@ -5,7 +5,7 @@ import json
 import re
 from xml.etree import ElementTree as ET
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.ai_agent_registry.definitions.prosally.tools_subprocess import resolve_scope, splice_subprocess
@@ -59,7 +59,7 @@ def _inside(xml, sub_id):
 	return [e.get("id") for e in sub if e.get("id")]
 
 
-class TestResolveScope(FrappeTestCase):
+class TestResolveScope(IntegrationTestCase):
 	def test_open_sub_process_wins_over_any_name(self):
 		scope = resolve_scope(DIAGRAM, ["unrelated"], "sub")
 		self.assertEqual((scope["id"], scope["name"]), ("sub", "Test Sub Process"))
@@ -118,7 +118,7 @@ class TestResolveScope(FrappeTestCase):
 		self.assertIn('id="old_step"', resolve_scope(DIAGRAM, [], "sub")["xml"])
 
 
-class TestSpliceSubprocess(FrappeTestCase):
+class TestSpliceSubprocess(IntegrationTestCase):
 	def setUp(self):
 		compiled = compile_ir(json.loads(json.dumps(STEPS)))
 		self.assertTrue(compiled["ok"], compiled["problems"])
@@ -202,7 +202,7 @@ OTHER_PLANE = """<bpmndi:BPMNDiagram id="BPMNDiagram_other"><bpmndi:BPMNPlane id
 </bpmn:definitions>"""
 
 
-class TestSpliceKeepsIdsUnique(FrappeTestCase):
+class TestSpliceKeepsIdsUnique(IntegrationTestCase):
 	"""Two sub-processes each compiled alone both get a compiler-inferred gateway numbered from 1."""
 
 	def setUp(self):

@@ -4,7 +4,7 @@
 import inspect
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 import processa.ai_agent_evals.runner.cases as runner_cases
 import processa.ai_agent_evals.runner.comparison as runner_comparison
@@ -13,7 +13,7 @@ import processa.ai_agent_evals.runner.suite as runner_suite
 ENDPOINTS = (runner_suite.run_eval_suite, runner_cases.run_eval_cases, runner_comparison.run_eval_comparison)
 
 
-class TestEvalRunEndpoints(FrappeTestCase):
+class TestEvalRunEndpoints(UnitTestCase):
 	def test_each_endpoint_accepts_post_only(self):
 		for fn in ENDPOINTS:
 			with self.subTest(fn.__name__):

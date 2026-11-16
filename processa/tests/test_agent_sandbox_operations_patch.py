@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import (
 	add_agent_sandbox_run_tests_and_pull_request_operations as operations_patch,
@@ -21,7 +21,7 @@ def _name(operation_id: str) -> str | None:
 	)
 
 
-class TestAgentSandboxOperationsPatch(FrappeTestCase):
+class TestAgentSandboxOperationsPatch(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Connector", "agent_sandbox"):
 			self.skipTest("no agent_sandbox connector on this site")

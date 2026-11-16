@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.patches.v1_0 import move_backend_code_removal_to_process as move_patch
@@ -23,7 +23,7 @@ def _trivial_xml(process_id: str) -> str:
 </bpmn:definitions>"""
 
 
-class _ProcessAndModelFixtures(FrappeTestCase):
+class _ProcessAndModelFixtures(IntegrationTestCase):
 	def _process(self, prefix, status=None, notes=None):
 		doc = frappe.new_doc("Process")
 		doc.process_name = f"{prefix} {frappe.generate_hash(length=6)}"

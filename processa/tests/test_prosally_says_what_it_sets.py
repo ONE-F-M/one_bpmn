@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.ai_agent_registry.definitions.prosally.tools_properties import describe_task_config
@@ -48,7 +48,7 @@ def _diagram(with_close_step=False):
 	return compile_ir(ir)["xml"]
 
 
-class TestTheReplyListsWhatWasSet(FrappeTestCase):
+class TestTheReplyListsWhatWasSet(IntegrationTestCase):
 	def test_a_new_diagram_lists_its_trigger_and_assignment(self):
 		text = describe_task_config(_diagram())
 		self.assertIn("The process starts when a new Incident Report is created.", text)
@@ -73,7 +73,7 @@ class TestTheReplyListsWhatWasSet(FrappeTestCase):
 		self.assertIn("Review Incident works on the Incident Report, has no one chosen to do it yet", describe_task_config(xml))
 
 
-class TestThePatch(FrappeTestCase):
+class TestThePatch(IntegrationTestCase):
 	def test_the_stage_scripts_call_the_describer_once_each_after_a_rerun(self):
 		patch.execute()
 		patch.execute()

@@ -16,7 +16,6 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine import engine as bpmn_engine
@@ -26,8 +25,6 @@ from processa.tests.test_ai_park_enqueue import (
 	_LINEAR_AGENT_XML,
 	_executor_ok,
 )
-
-test_ignore = ["BPMN Process Model"]
 
 _SELECTOR_ADHOC_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_SelPark" targetNamespace="http://bpmn.io/schema/bpmn">

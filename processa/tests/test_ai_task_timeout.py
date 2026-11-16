@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from unittest.mock import patch
 
 from processa.processa_engine.agent_runtime.executor import (
@@ -40,7 +40,7 @@ def _ok_result():
 	)
 
 
-class TestResolvedTimeout(FrappeTestCase):
+class TestResolvedTimeout(IntegrationTestCase):
 	"""What reaches ExecutorConfig, not what the dataclass declares."""
 
 	def setUp(self):
@@ -119,7 +119,7 @@ class TestResolvedTimeout(FrappeTestCase):
 		self.assertNotRegex(line, r"aiTimeout\"?,\s*\d+")
 
 
-class TestDraftingFailureCannotPublish(FrappeTestCase):
+class TestDraftingFailureCannotPublish(IntegrationTestCase):
 	"""A failed draft must stop the process, not flow into publish.
 
 	The dispatcher has always supported this via ``aiStopOnError``; the Document

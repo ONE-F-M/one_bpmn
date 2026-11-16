@@ -12,14 +12,14 @@ Run with:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.lookups import get_doctype_fields
 
 TABLES = '["Table MultiSelect","Table"]'
 
 
-class TestDoctypeFieldPicker(FrappeTestCase):
+class TestDoctypeFieldPicker(IntegrationTestCase):
 	def _names(self, doctype, **kwargs):
 		return [f["fieldname"] for f in get_doctype_fields(doctype, **kwargs)]
 

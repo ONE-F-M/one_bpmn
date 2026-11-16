@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.api import sandbox_session as api
@@ -22,7 +22,7 @@ SESSION_ARGS = {"work_item": "WI-SESS-1", "target_app": "processa", "git_branch"
 START = "processa.agents_sandbox.sandbox.job.start_execution"
 
 
-class SessionCase(FrappeTestCase):
+class SessionCase(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		commit = patch.object(frappe.db, "commit")
@@ -320,12 +320,12 @@ class TestWaitingForAResult(SessionCase):
 		self.assertEqual(sessions._timeout_for(registered.name), sessions.FAST_WAIT_SECONDS)
 
 
-class TestHowLongACallWaitsForAStart(FrappeTestCase):
+class TestHowLongACallWaitsForAStart(UnitTestCase):
 	def test_a_call_waits_at_least_as_long_as_a_container_may_take_to_register(self):
 		self.assertGreaterEqual(sessions.START_WAIT_SECONDS, sessions.REGISTER_WINDOW_SECONDS)
 
 
-class TestTheJobCalls(FrappeTestCase):
+class TestTheJobCalls(UnitTestCase):
 	def _settings(self, **fields):
 		values = {"sandbox_job_project": "proj", "sandbox_job_region": "us-central1", "sandbox_job_name": "sbx", **fields}
 		return SimpleNamespace(get=lambda f: values.get(f), get_password=lambda *a, **k: "{}")

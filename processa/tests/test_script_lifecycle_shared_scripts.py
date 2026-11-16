@@ -14,7 +14,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler import compile_step, lifecycle
 
@@ -28,7 +28,7 @@ def _spec(*script_sets):
 	return json.dumps({"script_task_extensions": {f"t{i}": {"serverScript": n} for i, n in enumerate(sorted(names))}})
 
 
-class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
+class TestDeployKeepsSharedScriptsEnabled(IntegrationTestCase):
 	def _deploy_v3(self, other_active_specs, sibling_has_open_instances=False):
 		"""Deploy SD v3 while sibling v4 is active; both embed the Orchestrator's scripts."""
 		model = frappe._dict(name="Software Development v3", process_name="Software Development",
@@ -87,7 +87,7 @@ class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
 		self.assertEqual(enabled, OWN_V3 | SHARED)
 
 
-class TestScriptsUsedByActiveModels(FrappeTestCase):
+class TestScriptsUsedByActiveModels(IntegrationTestCase):
 	def test_excludes_the_named_models_and_unions_the_rest(self):
 		seen = {}
 
@@ -102,7 +102,7 @@ class TestScriptsUsedByActiveModels(FrappeTestCase):
 		self.assertEqual(seen["name"], ["not in", ["Software Development v3", "Software Development v4"]])
 
 
-class TestRecompileOnlyActiveCallers(FrappeTestCase):
+class TestRecompileOnlyActiveCallers(IntegrationTestCase):
 	"""Recompiling the callers of a changed map must not decide which version of
 	a process is live. Software Development v3 and v4 both call the Orchestrator;
 	recompiling the Orchestrator used to recompile both, and whichever came last

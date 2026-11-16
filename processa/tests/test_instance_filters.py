@@ -11,11 +11,9 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.instances import list_process_instances
-
-test_ignore = ["BPMN Process Model"]
 
 ROLE = "Test Pending Action Role"
 
@@ -39,7 +37,7 @@ def _user(email: str, roles: list = None) -> str:
 	return email
 
 
-class TestInstanceFilters(FrappeTestCase):
+class TestInstanceFilters(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -56,7 +54,7 @@ class TestInstanceFilters(FrappeTestCase):
 		cls.role_holder = _user("roleholder@wi1818.test", roles=[ROLE])
 
 	def _instance(self, initiated_by: str, status: str = "Active", tasks: list = None):
-		# No explicit cleanup: FrappeTestCase rolls the test's transaction back,
+		# No explicit cleanup: IntegrationTestCase rolls the test's transaction back,
 		# and an extra delete would only add lock contention on tabBPMN Active
 		# Task, which the engine workers rewrite constantly on a live bench.
 		doc = frappe.get_doc({

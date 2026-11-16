@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox import criteria
 from processa.agents_sandbox.sandbox import ops
@@ -26,7 +26,7 @@ BASE = (
 )
 
 
-class TestBranchSummary(FrappeTestCase):
+class TestBranchSummary(UnitTestCase):
 	def _summary(self, compared):
 		with patch.object(criteria, "_compare", return_value=compared):
 			return criteria.branch_summary("WI-1", "processa", "staging")
@@ -55,7 +55,7 @@ class TestBranchSummary(FrappeTestCase):
 			self.assertIsNone(criteria._branch_files("processa", "staging", "WI-1"))
 
 
-class TestTheBriefPatch(FrappeTestCase):
+class TestTheBriefPatch(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("Server Script", patch_module.SCRIPT):
 			self.skipTest("the Orchestrator brief script is not on this site")

@@ -5,7 +5,7 @@ import copy
 import json
 from xml.etree import ElementTree as ET
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.ai_agent_registry.definitions.prosally.tools_subprocess import asks_to_make_call_activity, convert_step_to_subprocess, find_missing_target, resolve_step, restore_call_activities
@@ -115,7 +115,7 @@ def _element(root, element_id):
 	return next(e for e in root.iter() if e.get("id") == element_id)
 
 
-class TestConvertStep(FrappeTestCase):
+class TestConvertStep(IntegrationTestCase):
 	def setUp(self):
 		self.before = _diagram()
 		self.after = convert_step_to_subprocess(self.before, "conv", _child_xml())
@@ -185,7 +185,7 @@ class TestConvertStep(FrappeTestCase):
 		self.assertEqual(_element(merged, "prep").get("name"), "Prepare")
 
 
-class TestConvertStepInALane(FrappeTestCase):
+class TestConvertStepInALane(IntegrationTestCase):
 	def test_the_lane_and_the_pool_grow_with_the_box(self):
 		before = _diagram(lanes=True)
 		after = convert_step_to_subprocess(before, "conv", _child_xml())
@@ -201,7 +201,7 @@ class TestConvertStepInALane(FrappeTestCase):
 		self.assertTrue(_inside(_rect(new, "below"), _rect(new, "l2")))
 
 
-class TestKeepsOldSettingsOff(FrappeTestCase):
+class TestKeepsOldSettingsOff(IntegrationTestCase):
 	def test_the_settings_of_the_converted_step_are_not_copied_back_onto_the_sub_process(self):
 		before = _diagram()
 		after = convert_step_to_subprocess(before, "conv", _child_xml())
@@ -213,7 +213,7 @@ class TestKeepsOldSettingsOff(FrappeTestCase):
 		self.assertEqual(kept.get("{http://spiffworkflow.org/bpmn/schema/1.0/core}assignmentMode"), "Session User")
 
 
-class TestRestoreCallActivities(FrappeTestCase):
+class TestRestoreCallActivities(IntegrationTestCase):
 	def _regenerated(self):
 		"""The diagram as a whole-diagram modify returns it: the call activity compiled as a script task."""
 		xml = _diagram()
@@ -245,7 +245,7 @@ class TestRestoreCallActivities(FrappeTestCase):
 		self.assertNotIn('id="call"', restore_call_activities(_diagram(), gone).split("<bpmndi:")[0])
 
 
-class TestFindMissingTarget(FrappeTestCase):
+class TestFindMissingTarget(IntegrationTestCase):
 	def test_a_misspelt_step_is_reported_with_the_closest_names_on_the_diagram(self):
 		missing = find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Clearence: checks pending salary"])
 		self.assertEqual(missing["asked"], "Complete Payroll Clearence")
@@ -304,7 +304,7 @@ class TestFindMissingTarget(FrappeTestCase):
 		self.assertEqual(find_missing_target(_diagram(), ["Yes, proceed"]), None)
 
 
-class TestAsksToMakeACallActivity(FrappeTestCase):
+class TestAsksToMakeACallActivity(IntegrationTestCase):
 	def test_asking_to_show_or_turn_something_into_a_call_activity_is_detected(self):
 		for text in (
 			"subporcess as call activity next to payroll clearance",
@@ -324,7 +324,7 @@ class TestAsksToMakeACallActivity(FrappeTestCase):
 			self.assertFalse(asks_to_make_call_activity(text), text)
 
 
-class TestResolveStep(FrappeTestCase):
+class TestResolveStep(IntegrationTestCase):
 	def test_a_message_that_asks_for_a_sub_process_for_a_step_names_that_step(self):
 		message = "Create a sub process for Complete Payroll Clearance: Payroll Operator checks pending salary"
 		step = resolve_step(_diagram(), [message])

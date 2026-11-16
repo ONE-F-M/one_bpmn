@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.processa_engine.notifications.composer import compose_and_send_info_email, sends_notice
@@ -33,7 +33,7 @@ def _notice_cfg(**extra):
 	}
 
 
-class TestNoticeLayout(FrappeTestCase):
+class TestNoticeLayout(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		self.todo = frappe.get_doc(

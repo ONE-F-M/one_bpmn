@@ -13,14 +13,14 @@ import csv
 import io
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.insights import export_error_report, get_error_report, get_issue_runs
 
 FROM, TO = "2026-09-01", "2026-09-07"
 
 
-class TestErrorReport(FrappeTestCase):
+class TestErrorReport(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -249,11 +249,11 @@ class TestErrorReport(FrappeTestCase):
 		frappe.set_user(email)
 
 		# frappe.only_for is a no-op while in_test is set, so the guard cannot fire unless it is cleared.
-		frappe.flags.in_test = False
+		frappe.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				get_error_report(from_date=FROM, to_date=TO)
 			with self.assertRaises(frappe.PermissionError):
 				get_issue_runs("a|b|c|d", FROM, TO)
 		finally:
-			frappe.flags.in_test = True
+			frappe.in_test = True

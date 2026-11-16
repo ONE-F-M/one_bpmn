@@ -17,7 +17,7 @@ The executor is mocked throughout — no real LLM call is made.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import (
     make_agent_configuration,
@@ -30,7 +30,7 @@ from processa.ai_agent_evals.tests.factories import (
 from processa.ai_agent_evals.runner.suite import execute_eval_suite
 
 
-class TestDirectEvalModel(FrappeTestCase):
+class TestDirectEvalModel(IntegrationTestCase):
     def setUp(self):
         self.credentials = self._make_credentials()
 

@@ -16,7 +16,7 @@ Administrator, who is allowed everything.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.ai_agent_security import identity
@@ -76,7 +76,7 @@ def _provision(agent):
 	return email
 
 
-class TestTheAgentHasAnIdentity(FrappeTestCase):
+class TestTheAgentHasAnIdentity(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -242,7 +242,7 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		self.assertIn("no roles at all", identity.describe_refusal(agent.name, frappe.PermissionError()))
 
 
-class TestTheIdentityIsVisibleOnEveryAgent(FrappeTestCase):
+class TestTheIdentityIsVisibleOnEveryAgent(IntegrationTestCase):
 	"""The fields have to be where somebody can find them.
 
 	They went in beside allowed_roles, which lives in the Chat Surface section —
@@ -306,7 +306,7 @@ class TestTheIdentityIsVisibleOnEveryAgent(FrappeTestCase):
 		self.assertTrue(background.agent_user)
 
 
-class TestToolsRunAsTheAgent(FrappeTestCase):
+class TestToolsRunAsTheAgent(IntegrationTestCase):
 	"""The seam. It is shared by every agent in the system, so the tests that
 	matter most here are the ones proving the old behaviour is gone."""
 
@@ -374,7 +374,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		self.assertIn("frappe.ValidationError", inspect.getsource(shape_tools.execute_shape))
 
 
-class TestTheWorkItemTools(FrappeTestCase):
+class TestTheWorkItemTools(IntegrationTestCase):
 	"""The four tools, run the way the agent runs them."""
 
 	def tearDown(self):
@@ -540,7 +540,7 @@ class TestTheWorkItemTools(FrappeTestCase):
 			          {"state": "Done", "allowed_states": "Done"}, {"allowed_states": "Open"})
 
 
-class TestEveryToolHonoursTheAgentsRoles(FrappeTestCase):
+class TestEveryToolHonoursTheAgentsRoles(IntegrationTestCase):
 	"""The gate has to be in the TOOLS, not left to what sits underneath them.
 
 	Found while writing the test instructions, which is late but not too late.
@@ -621,7 +621,7 @@ class TestEveryToolHonoursTheAgentsRoles(FrappeTestCase):
 				self.assertIn('"write"', frappe.db.get_value("Server Script", script, "script"))
 
 
-class TestWhatTheAgentMayNotDo(FrappeTestCase):
+class TestWhatTheAgentMayNotDo(IntegrationTestCase):
 	"""The denied paths, asserted on the AGENT'S roles.
 
 	A test that only checked ignore_permissions was unset would pass just as well

@@ -17,7 +17,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning import agent_provisioning
 
@@ -42,7 +42,7 @@ def _validate(cfg):
 		return agent_provisioning.validate_agent_config("stub", test_provider=False)
 
 
-class TestAgentModelMissingVsDisabled(FrappeTestCase):
+class TestAgentModelMissingVsDisabled(IntegrationTestCase):
 	def setUp(self):
 		self.provider = frappe.db.get_value("AI Provider", {}, "name")
 		if not self.provider:

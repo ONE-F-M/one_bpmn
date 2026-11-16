@@ -2,12 +2,12 @@
 """Docu's baseline suite gains the help text and child table cases once, and the child table probe exists."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_docu_help_text_and_child_table_cases as seed
 
 
-class TestSeedDocuHelpTextAndChildTableCases(FrappeTestCase):
+class TestSeedDocuHelpTextAndChildTableCases(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 		model = frappe.db.get_value("BPMN Process Model", {}, "name")

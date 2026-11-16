@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api import agent_callback as callback
 from processa.agents_sandbox.sandbox import ops
@@ -26,7 +26,7 @@ def _name(operation_id):
 	return frappe.db.get_value(OPERATION, {"connector": "agent_sandbox", "operation_id": operation_id}, "name")
 
 
-class TestSpecOperationRecords(FrappeTestCase):
+class TestSpecOperationRecords(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("BPMN Connector", "agent_sandbox"):
 			self.skipTest("no agent_sandbox connector on this site")
@@ -44,7 +44,7 @@ class TestSpecOperationRecords(FrappeTestCase):
 		self.assertEqual(frappe.db.count(OPERATION, {"connector": "agent_sandbox", "operation_id": ["in", list(SPEC_ACTIONS)]}), 2)
 
 
-class TestSettlingSpecRuns(FrappeTestCase):
+class TestSettlingSpecRuns(UnitTestCase):
 	RESULT = {
 		"status": "specs_run", "code": "head", "summary": {"passed": 1, "failed": 1, "flaky": 1},
 		"results": [
@@ -119,7 +119,7 @@ class TestSpecToolDispatch(AgentSandboxCase):
 			self.assertEqual(enqueue.call_args.args[1:3], ("tool", action))
 
 
-class TestSpecToolScripts(FrappeTestCase):
+class TestSpecToolScripts(IntegrationTestCase):
 	def setUp(self):
 		for name in (*tools_patch.SCRIPTS, *seed_patch.SCRIPTS):
 			if frappe.db.exists("Server Script", name):

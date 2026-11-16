@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, now_datetime
 
 from processa.patches.v1_0 import error_log_ticket_agent_caches_older_tickets as fix
@@ -154,7 +154,7 @@ def _run_triage(title: str) -> dict:
 	return result
 
 
-class TestTheOlderTicketsMoveToTheSystemPrompt(FrappeTestCase):
+class TestTheOlderTicketsMoveToTheSystemPrompt(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		_fixtures()

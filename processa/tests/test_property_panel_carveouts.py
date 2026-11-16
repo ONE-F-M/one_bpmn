@@ -15,7 +15,7 @@ that is the half that holds when the canvas guard is bypassed.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import property_panel as P
 
@@ -49,7 +49,7 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class CarveOutCase(FrappeTestCase):
+class CarveOutCase(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._cleanup()

@@ -13,7 +13,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 # A deterministic secret for reproducible test signatures
 _TEST_SECRET = "test-secret-key-for-unit-tests"
@@ -26,7 +26,7 @@ def _decode_payload(token: str) -> dict:
 	return json.loads(payload_json)
 
 
-class TestGenerateActionToken(FrappeTestCase):
+class TestGenerateActionToken(UnitTestCase):
 	"""Tests for :func:`generate_action_token`."""
 
 	def setUp(self):
@@ -58,7 +58,7 @@ class TestGenerateActionToken(FrappeTestCase):
 		self.assertGreater(payload["expires"], time.time())
 
 
-class TestVerifyActionToken(FrappeTestCase):
+class TestVerifyActionToken(UnitTestCase):
 	"""Tests for :func:`verify_action_token`."""
 
 	def setUp(self):
@@ -139,7 +139,7 @@ class TestVerifyActionToken(FrappeTestCase):
 			verify_action_token(token, allow_expired=True)
 
 
-class TestGenerateStatusToken(FrappeTestCase):
+class TestGenerateStatusToken(UnitTestCase):
 	"""Tests for :func:`generate_status_token`."""
 
 	def setUp(self):
@@ -188,7 +188,7 @@ OLD_TOKENS = {
 OLD_TOKENS_ISSUED_AT = 4102444800 - 72 * 3600
 
 
-class TestSealKeepsOldTokens(FrappeTestCase):
+class TestSealKeepsOldTokens(UnitTestCase):
 	"""Tokens sealed before the generators shared _seal still validate, and the generators make the same strings."""
 
 	def setUp(self):

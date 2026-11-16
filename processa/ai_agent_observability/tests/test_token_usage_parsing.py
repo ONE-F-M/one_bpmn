@@ -13,13 +13,13 @@ Either way the invariant downstream cost depends on is the same:
 ``prompt_tokens >= cache_read + cache_write``.
 """
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import TokenUsage
 from processa.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 
-class TestParseTokenUsage(FrappeTestCase):
+class TestParseTokenUsage(UnitTestCase):
 
 	def _parse(self, raw):
 		return DirectApiExecutor._parse_token_usage(raw)
@@ -71,7 +71,7 @@ class TestParseTokenUsage(FrappeTestCase):
 		self.assertEqual(usage.uncached_prompt_tokens, 0)
 
 
-class TestAdapterUsageHelpers(FrappeTestCase):
+class TestAdapterUsageHelpers(UnitTestCase):
 	"""Each adapter's _usage_tokens returns a 4-tuple in the same order."""
 
 	class _Obj:

@@ -7,13 +7,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 import processa.ai_agent_evals.runner.agent_eval as runner_agent_eval
 import processa.ai_agent_evals.runner.assertions as runner_assertions
 import processa.ai_agent_evals.runner.suite as runner_suite
-
-test_ignore = ["AI Eval Suite", "AI Eval Case"]
 
 
 def _eval_events(publish):
@@ -70,7 +68,7 @@ def _replay(suite):
 	return frappe.get_doc("AI Eval Run", run.name), publish
 
 
-class TestEvalReplay(FrappeTestCase):
+class TestEvalReplay(IntegrationTestCase):
 	# ── Scenario 1: prior result replayed, no executor call ──
 
 	def test_replay_uses_stored_output_without_executor(self):

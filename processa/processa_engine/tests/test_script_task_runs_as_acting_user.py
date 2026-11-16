@@ -11,7 +11,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.runtime import advance as runtime_advance
 from processa.processa_engine.runtime.common import acting_user
@@ -41,7 +41,7 @@ MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """.replace("{script}", SCRIPT)
 
 
-class TestScriptTaskRunsAsActingUser(FrappeTestCase):
+class TestScriptTaskRunsAsActingUser(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.addCleanup(frappe.set_user, "Administrator")
@@ -118,7 +118,7 @@ class TestScriptTaskRunsAsActingUser(FrappeTestCase):
 		self.assertEqual(self._ran_as(instance), self.approver)
 
 
-class TestRetryRunsAsTheRetrier(FrappeTestCase):
+class TestRetryRunsAsTheRetrier(IntegrationTestCase):
 	"""retry_failed_step restores the workflow for the user who asked for the retry."""
 
 	def tearDown(self):
@@ -137,7 +137,7 @@ class TestRetryRunsAsTheRetrier(FrappeTestCase):
 		restore.assert_called_once_with(instance, run_as="Administrator")
 
 
-class TestActingUser(FrappeTestCase):
+class TestActingUser(IntegrationTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		super().tearDown()

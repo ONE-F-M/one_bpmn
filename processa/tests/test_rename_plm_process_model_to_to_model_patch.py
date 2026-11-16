@@ -3,12 +3,12 @@
 
 import frappe
 from frappe.database.schema import add_column
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0.rename_plm_process_model_to_to_model import DOCTYPE, execute
 
 
-class TestRenamePlmProcessModelToToModelPatch(FrappeTestCase):
+class TestRenamePlmProcessModelToToModelPatch(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		# Adding and dropping a column commits, so the row this test adds is removed by hand.

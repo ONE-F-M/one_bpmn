@@ -8,6 +8,6 @@ def execute():
 	once and the next migrate after the upgrade queues it again."""
 	from processa.ai_agent_memory.embedding_backfill import enqueue_backfill
 
-	if frappe.flags.in_test:
+	if frappe.in_test:
 		return
 	enqueue_backfill()

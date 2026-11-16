@@ -520,7 +520,7 @@ class AIAgentConfiguration(Document):
 			or frappe.flags.in_patch
 			or frappe.flags.in_install
 			or frappe.flags.in_import
-			or (frappe.flags.in_test and not frappe.flags.get("test_agent_revalidation"))
+			or (frappe.in_test and not frappe.flags.get("test_agent_revalidation"))
 		):
 			return
 		if frappe.flags.get("_agent_revalidation_running"):

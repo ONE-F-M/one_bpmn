@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory import embedding as E
 from processa.ai_agent_memory import tools as T
@@ -19,7 +19,7 @@ def _logs(title: str) -> int:
 	return frappe.db.count("Error Log", {"method": title})
 
 
-class TestDegradationIsRecorded(FrappeTestCase):
+class TestDegradationIsRecorded(IntegrationTestCase):
 	def setUp(self):
 		E._reported.clear()
 		for title in (TITLE, "AI Memory: embedding could not be stored"):

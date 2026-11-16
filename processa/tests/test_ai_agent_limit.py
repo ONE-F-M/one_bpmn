@@ -7,13 +7,13 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from unittest.mock import patch
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
-class TestAgentMaxToolCalls(FrappeTestCase):
+class TestAgentMaxToolCalls(IntegrationTestCase):
 	def setUp(self):
 		self.instance = frappe.get_doc(
 			{"doctype": "BPMN Process Instance", "process_id": f"t-{frappe.generate_hash(length=6)}", "status": "Active"}

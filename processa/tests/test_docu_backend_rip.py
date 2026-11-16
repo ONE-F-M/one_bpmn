@@ -16,7 +16,7 @@ import importlib.util
 from pathlib import Path
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.docu import tools
 from processa.ai_agent_registry.definitions.shared import tools as shared_tools
@@ -51,7 +51,7 @@ REQUIRED_TUPLES = (
 )
 
 
-class TestDocuBackendRemoved(FrappeTestCase):
+class TestDocuBackendRemoved(IntegrationTestCase):
 	def test_agent_package_is_gone(self):
 		for mod in (
 			"processa.agents.google_adk.docu_agent",
@@ -84,7 +84,7 @@ class TestDocuBackendRemoved(FrappeTestCase):
 		self.assertNotIn("google_adk", src)
 
 
-class TestSharedSchemaTools(FrappeTestCase):
+class TestSharedSchemaTools(IntegrationTestCase):
 	"""The contract the map's Server Scripts depend on."""
 
 	def test_exports_every_name_the_map_imports(self):
@@ -167,7 +167,7 @@ class TestSharedSchemaTools(FrappeTestCase):
 		self.assertEqual(json.loads(tools.doctype_exists("No Such DocType 9x"))["exists"], False)
 
 
-class TestDocuMapScripts(FrappeTestCase):
+class TestDocuMapScripts(IntegrationTestCase):
 	"""The live Server Scripts must stay self-contained and gate-clean."""
 
 	def _bodies(self):

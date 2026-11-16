@@ -36,7 +36,7 @@ import shutil
 import subprocess
 import unittest
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 PIPELINE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "frontend", "tools", "bpmn-pipeline", "pipeline.mjs",
@@ -254,7 +254,7 @@ def metrics(diagram: Diagram) -> dict:
 
 
 @unittest.skipUnless(PIPELINE_READY, PIPELINE_SKIP_REASON)
-class TestLaneLayout(FrappeTestCase):
+class TestLaneLayout(UnitTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

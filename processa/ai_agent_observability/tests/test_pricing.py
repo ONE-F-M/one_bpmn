@@ -13,7 +13,7 @@ every assertion stays in per-1k, which is what compute_token_cost() works in.
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_observability.pricing import (
 	CACHE_READ_MULTIPLIER,
@@ -23,7 +23,7 @@ from processa.ai_agent_observability.pricing import (
 )
 
 
-class TestCacheAwarePricing(FrappeTestCase):
+class TestCacheAwarePricing(IntegrationTestCase):
 
 	def _make_pricing(self, *, input_rate=0.01, output_rate=0.03):
 		"""A priced model. Rates are given per 1k, as every assertion here reads

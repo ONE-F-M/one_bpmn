@@ -9,12 +9,10 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-
-test_ignore = ["BPMN Process Model"]
+from frappe.tests import IntegrationTestCase
 
 
-class TestInlineEngineWiring(FrappeTestCase):
+class TestInlineEngineWiring(IntegrationTestCase):
 	"""Both engine entry points run inline with no whole-pass enqueue
 	(source-level checks, same style as test_ai_agent_queue)."""
 
@@ -56,7 +54,7 @@ class TestInlineEngineWiring(FrappeTestCase):
 		):
 			body = self._func_body(module, func)
 			self.assertNotIn(
-				"frappe.flags.in_test",
+				"frappe.in_test",
 				body,
 				f"{func} still branches on in_test",
 			)

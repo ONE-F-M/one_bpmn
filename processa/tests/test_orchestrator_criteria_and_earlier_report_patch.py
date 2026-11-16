@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils.safe_exec import safe_exec
 
 from processa.patches.v1_0 import orchestrator_passes_criteria_and_earlier_report as patch
@@ -48,7 +48,7 @@ def _brief(work_item: str) -> str:
 	return scope["result"]["work_item_brief"]
 
 
-class TestCriteriaPrompt(FrappeTestCase):
+class TestCriteriaPrompt(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", patch.AGENT):
 			self.skipTest(f"{patch.AGENT} is not on this site")
@@ -85,7 +85,7 @@ class TestCriteriaPrompt(FrappeTestCase):
 		self.assertTrue(self._prompt().startswith("Do the job."))
 
 
-class TestEarlierReportInTheBrief(FrappeTestCase):
+class TestEarlierReportInTheBrief(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("Server Script", patch.SCRIPT):
 			self.skipTest("the Orchestrator brief script is not on this site")

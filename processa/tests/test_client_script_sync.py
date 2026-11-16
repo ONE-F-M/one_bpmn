@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox.customization import customization_codegen as gen
 from processa.api.production_review import _build_doctype_snapshot, _diff_doctypes
@@ -33,7 +33,7 @@ def _cs(script=SCRIPT_A, enabled=1):
 	return {"name": "Demo DT Form", "dt": "Demo DT", "view": "Form", "enabled": enabled, "script": script}
 
 
-class TestClientScriptReview(FrappeTestCase):
+class TestClientScriptReview(IntegrationTestCase):
 	def test_a_client_script_missing_on_production_is_a_create(self):
 		changes = _diff_doctypes(_snap({"Demo DT Form": _cs()}), _snap({}))
 
@@ -86,7 +86,7 @@ class TestClientScriptReview(FrappeTestCase):
 		self.assertNotIn("modified", rec)
 
 
-class TestClientScriptModule(FrappeTestCase):
+class TestClientScriptModule(UnitTestCase):
 	RECORDS = [
 		{"name": "B Script", "dt": "Employee", "view": "Form", "enabled": 1, "script": "// b",
 		 "modified": "2026-01-01", "owner": "Administrator"},
@@ -117,7 +117,7 @@ class TestClientScriptModule(FrappeTestCase):
 		self.assertEqual(result[0]["script"], '// a "q"\n')
 
 
-class TestPatchAppliesClientScripts(FrappeTestCase):
+class TestPatchAppliesClientScripts(IntegrationTestCase):
 	def test_patch_calls_the_client_script_getter(self):
 		src = gen.render_patch("one_fm", "My Map", ["Interview"], "abc123", ["Interview", "Employee"])
 		ast.parse(src)

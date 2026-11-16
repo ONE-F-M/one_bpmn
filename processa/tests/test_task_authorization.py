@@ -4,14 +4,14 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.instances import task_actions
 
 INSTANCE = frappe._dict(context_doctype="Work Item", context_docname="TEST-CONTEXT-0001")
 
 
-class TestTaskAuthorization(FrappeTestCase):
+class TestTaskAuthorization(IntegrationTestCase):
 	def test_an_assignee_may_complete_the_task(self):
 		self.assertIsNone(_refusal("mg@example.com", assigned_user="mg@example.com,ee@example.com"))
 

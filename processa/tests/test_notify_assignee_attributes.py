@@ -3,7 +3,7 @@
 """The Notification Editor's settings reach the task config, the AI configurer and the readiness check."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.bpmn_task_config import resolve_node_attrs
 from processa.processa_engine.compiler.extensions import extract_user_task_config
@@ -38,7 +38,7 @@ SETTINGS = (
 )
 
 
-class TestNotifyAssigneeAttributes(FrappeTestCase):
+class TestNotifyAssigneeAttributes(IntegrationTestCase):
 	def test_facts_details_and_reason_fields_are_referenced_on_the_trigger_doctype(self):
 		refs = extract_bpmn_references(_map('spiffworkflow:triggerDoctype="ToDo"', SETTINGS))
 

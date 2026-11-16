@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import coding_agents_delete_files_they_no_longer_need as patch
 
 
-class TestCodingAgentsDeleteFilesPatch(FrappeTestCase):
+class TestCodingAgentsDeleteFilesPatch(IntegrationTestCase):
 	def setUp(self):
 		self.present = [a for a in patch.AGENTS if frappe.db.exists("AI Agent Configuration", a)]
 		if not self.present:

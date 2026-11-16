@@ -2,7 +2,7 @@
 """A configuration cannot be saved with a model that has no provider, and the bench listing finds old ones."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.commands.agent_providers import configs_without_provider
 
@@ -10,7 +10,7 @@ ORPHAN_MODEL = "orphan-model-no-provider-test"
 LINKED_MODEL = "linked-model-with-provider-test"
 
 
-class TestAgentModelWithoutProvider(FrappeTestCase):
+class TestAgentModelWithoutProvider(IntegrationTestCase):
 	def setUp(self):
 		for name, provider in ((ORPHAN_MODEL, None), (LINKED_MODEL, "OpenAI")):
 			if not frappe.db.exists("AI Model", name):

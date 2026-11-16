@@ -4,7 +4,7 @@
 from unittest.mock import Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.lookups import get_push_recipient_fields
 from processa.processa_engine.notifications.push_notification import FcmSender, send_test_push, tokens_for, users_from, users_in
@@ -20,7 +20,7 @@ def _token_source(doctype="Contact", user_field="user", token_field="company_nam
 	frappe.clear_document_cache("Processa Settings", "Processa Settings")
 
 
-class TestPushRecipients(FrappeTestCase):
+class TestPushRecipients(IntegrationTestCase):
 	def test_value_resolves_user_id_or_email(self):
 		email = frappe.db.get_value("User", "Administrator", "email")
 		self.assertEqual(users_from(f"Administrator, {email}, nobody@example.com"), ["Administrator", "Administrator"])
@@ -36,7 +36,7 @@ class TestPushRecipients(FrappeTestCase):
 		self.assertEqual(users_in(event, "subject.user"), [])
 
 
-class TestPushTokens(FrappeTestCase):
+class TestPushTokens(IntegrationTestCase):
 	def test_tokens_come_from_the_configured_source(self):
 		frappe.get_doc(
 			{"doctype": "Contact", "first_name": "Push", "user": "Administrator", "company_name": "tok-1"}
@@ -55,7 +55,7 @@ class TestPushTokens(FrappeTestCase):
 		self.assertRaises(frappe.ValidationError, settings.validate)
 
 
-class TestFcmSender(FrappeTestCase):
+class TestFcmSender(IntegrationTestCase):
 	def test_rejection_returns_firebase_reason(self):
 		sender = FcmSender.__new__(FcmSender)
 		sender.url, sender.headers = "https://fcm.test", {}
@@ -72,7 +72,7 @@ class TestFcmSender(FrappeTestCase):
 		self.assertRaises(frappe.ValidationError, FcmSender)
 
 
-class TestPushPermissions(FrappeTestCase):
+class TestPushPermissions(IntegrationTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 

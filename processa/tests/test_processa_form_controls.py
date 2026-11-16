@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.instances.listing import (
 	PROCESSA_DOCTYPES_CACHE_KEY,
@@ -21,9 +21,9 @@ from processa.processa_engine.instances.listing import (
 	get_processa_controlled_doctypes,
 )
 
-class TestProcessaControlledDoctypes(FrappeTestCase):
+class TestProcessaControlledDoctypes(IntegrationTestCase):
 	"""Each test uses its own real-but-unrelated probe DocType and deletes the
-	model it created: FrappeTestCase rolls back per class, not per test, so
+	model it created: IntegrationTestCase rolls back per class, not per test, so
 	models would otherwise leak into the tests that follow."""
 
 	def setUp(self):
@@ -137,7 +137,7 @@ class TestProcessaControlledDoctypes(FrappeTestCase):
 		self.assertEqual(controlled, sorted(controlled))
 
 
-class TestFormActionsClientContract(FrappeTestCase):
+class TestFormActionsClientContract(IntegrationTestCase):
 	"""The suppression happens in JS; assert the contract stays in place."""
 
 	@property

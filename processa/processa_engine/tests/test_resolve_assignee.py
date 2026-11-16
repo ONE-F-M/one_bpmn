@@ -5,12 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine import assignment
 
 
-class TestResolveAssignee(FrappeTestCase):
+class TestResolveAssignee(UnitTestCase):
 	def test_the_assignee_and_relief_pairs_come_back_from_the_given_config(self):
 		def on_leave(user, pairs):
 			pairs.append((user, "reliever@example.com"))

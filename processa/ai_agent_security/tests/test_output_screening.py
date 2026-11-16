@@ -14,7 +14,7 @@ import base64
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.screening.output_screening import (
 	BLOCKED_REPLACEMENT,
@@ -36,7 +36,7 @@ SYSTEM_PROMPT = (
 )
 
 
-class TestOutputScreening(FrappeTestCase):
+class TestOutputScreening(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._cleanup()

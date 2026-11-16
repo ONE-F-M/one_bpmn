@@ -12,7 +12,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 SCRIPT = "Sandbox Tool: Read File"
 PATH = "frontend/src/components/BpmnEditor.vue"
@@ -59,7 +59,7 @@ def _earlier_read(instance_name, path, content, state="completed"):
 	return row.name
 
 
-class TestRepeatReadIsElided(FrappeTestCase):
+class TestRepeatReadIsElided(IntegrationTestCase):
 	def setUp(self):
 		self.args = {
 			"target_app": "processa",

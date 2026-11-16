@@ -2,7 +2,7 @@
 """Docu has one retry rule, and its Schema Writer is bounded, guarded, shown examples and carries the form design rules."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_settings_are_bounded as fix
 
@@ -11,7 +11,7 @@ OLD_LEAD = "You run ONE turn of the Docu DocType-builder assistant by calling to
 RULES = "\n\nPIPELINE RULES: (4) call write_schema, then review_schema; at most three times."
 
 
-class TestDocuSettingsAreBounded(FrappeTestCase):
+class TestDocuSettingsAreBounded(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": fix.AGENT}, "name")
 		self.writer = frappe.db.get_value("AI Agent Configuration", {"agent_id": fix.WRITER}, "name")

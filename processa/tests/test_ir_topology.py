@@ -6,6 +6,8 @@ exactly the one crossing the graph forces.
 """
 import unittest
 
+from frappe.tests import IntegrationTestCase
+
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import _IR_IGNORABLE_RULES, _RULE_HINTS, check_topology, compile_ir, flow_pairs_from_xml, translate_problems
 
 LANES = [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]
@@ -39,7 +41,7 @@ def k33_flows():
 	return [(u, v) for u in ("u1", "u2", "u3") for v in ("v1", "v2", "v3")]
 
 
-class TestCheckTopology(unittest.TestCase):
+class TestCheckTopology(IntegrationTestCase):
 	def test_a_chain_with_a_branch_is_planar(self):
 		topo = check_topology(planar_ir()["flows"])
 		self.assertTrue(topo["planar"])
@@ -65,7 +67,7 @@ class TestCheckTopology(unittest.TestCase):
 		self.assertTrue(check_topology([])["planar"])
 
 
-class TestFlowPairsFromXml(unittest.TestCase):
+class TestFlowPairsFromXml(IntegrationTestCase):
 	def test_reads_both_namespace_prefixes(self):
 		xml = (
 			'<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
@@ -74,7 +76,7 @@ class TestFlowPairsFromXml(unittest.TestCase):
 		self.assertEqual(flow_pairs_from_xml(xml), [("a", "b"), ("b", "c")])
 
 
-class TestHints(unittest.TestCase):
+class TestHints(IntegrationTestCase):
 	def test_non_planar_hint_tells_the_model_to_stop_regenerating(self):
 		self.assertIn("Do not regenerate", _RULE_HINTS["non-planar"])
 
@@ -90,7 +92,7 @@ class TestHints(unittest.TestCase):
 		self.assertIn("Do not regenerate", hints[0])
 
 
-class TestCompileIrEndToEnd(unittest.TestCase):
+class TestCompileIrEndToEnd(IntegrationTestCase):
 	"""Runs the real frontend/tools/bpmn-pipeline/pipeline.mjs - needs node on PATH."""
 
 	def test_planar_ir_draws_with_no_crossings(self):

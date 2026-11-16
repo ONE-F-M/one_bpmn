@@ -4,10 +4,10 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 
-class TestAiModelApiKeyLength(FrappeTestCase):
+class TestAiModelApiKeyLength(UnitTestCase):
 	def test_the_api_key_field_takes_an_openai_project_key(self):
 		path = frappe.get_app_path("processa", "ai_agent_registry", "doctype", "ai_model", "ai_model.json")
 		with open(path) as f:

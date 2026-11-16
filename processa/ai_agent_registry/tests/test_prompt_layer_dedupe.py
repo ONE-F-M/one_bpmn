@@ -9,9 +9,9 @@ fails if an assembled turn would carry the same instruction block twice.
 
 import html
 import re
-import unittest
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import (
 	_DUPLICATE_MIN_CHARS,
@@ -25,7 +25,7 @@ _LONG = (
 )
 
 
-class TestPromptLayerDedupe(unittest.TestCase):
+class TestPromptLayerDedupe(IntegrationTestCase):
 	def test_duplicated_block_is_dropped_from_the_user_role(self):
 		system = f"You are LuCrusher.\n\n## Working a turn\n{_LONG}"
 		user = f"Conversation so far:\nUser: hello\n\n{_LONG}\n\nUser message: hello"

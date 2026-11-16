@@ -2,7 +2,7 @@
 """A skill preloaded under the record's name is read back under the map's spelling of it."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.ai_agent_skills.skill_tools import _skill_names_cache_key, _skills_cache_key
@@ -10,7 +10,7 @@ from processa.ai_agent_skills.skill_tools import _skill_names_cache_key, _skills
 AGENT = "_Test Skill Key Agent"
 
 
-class TestSkillCacheKeyCase(FrappeTestCase):
+class TestSkillCacheKeyCase(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", AGENT):
 			make_agent_configuration(

@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.api import email_actions
@@ -28,7 +28,7 @@ def _reason_cfg(**settings):
 	}
 
 
-class TestReasonSaved(FrappeTestCase):
+class TestReasonSaved(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		self.todo = frappe.get_doc(
@@ -170,7 +170,7 @@ def _reason_card(**extra):
 	return ctx
 
 
-class TestReasonPanel(FrappeTestCase):
+class TestReasonPanel(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 

@@ -11,7 +11,7 @@ the model asserted rather than looked up.
 
 from unittest.mock import patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.provisioning.bpmn_task_config import (
 	normalise_task_actions,
@@ -36,7 +36,7 @@ def _user(config, node_id="task_u"):
 	return {"id": node_id, "type": "userTask", "name": "A step", "config": config}
 
 
-class ConfigCase(FrappeTestCase):
+class ConfigCase(IntegrationTestCase):
 	def setUp(self):
 		self._states = patch(
 			"processa.ai_agent_registry.provisioning.bpmn_task_config.workflow_states", return_value=VISA_STATES
@@ -176,7 +176,7 @@ class TestUserTaskAssignment(ConfigCase):
 		self.assertEqual(problems, [])
 
 
-class TestTaskActionShapes(FrappeTestCase):
+class TestTaskActionShapes(UnitTestCase):
 	def test_plain_names_become_rows(self):
 		self.assertEqual(
 			normalise_task_actions(["Approve", "Reject"]),

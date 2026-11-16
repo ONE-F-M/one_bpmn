@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.tests.conversation_fixtures import drop_conversations
 from processa.ai_agent_conversations.compaction import (
@@ -28,7 +28,7 @@ from processa.ai_agent_conversations.chat_persistence import (
 _SUMMARISE = "processa.ai_agent_conversations.compaction._summarise"
 
 
-class TestConversationCompaction(FrappeTestCase):
+class TestConversationCompaction(IntegrationTestCase):
 	def setUp(self):
 		self.conversation = create_conversation(
 			agent_mode="processa:test-compaction",
@@ -258,7 +258,7 @@ class TestConversationCompaction(FrappeTestCase):
 		self.assertFalse(needs_compaction(self.conversation, keep_tail=4))
 
 
-class TestCompactionModelResolution(FrappeTestCase):
+class TestCompactionModelResolution(IntegrationTestCase):
 	def test_an_explicit_model_wins(self):
 		self.assertEqual(resolve_compaction_model("explicit", "fallback"), "explicit")
 
@@ -275,7 +275,7 @@ class TestCompactionModelResolution(FrappeTestCase):
 			self.assertEqual(resolve_compaction_model(None, "fallback"), "fallback")
 
 
-class TestSummaryValidation(FrappeTestCase):
+class TestSummaryValidation(IntegrationTestCase):
 	def setUp(self):
 		self.conversation = create_conversation(
 			agent_mode="processa:test-compaction",

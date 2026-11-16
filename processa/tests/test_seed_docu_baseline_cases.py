@@ -2,12 +2,12 @@
 """Docu's baseline suite gains its design cases once, beside the cases it already had."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import seed_docu_baseline_cases as seed
 
 
-class TestSeedDocuBaselineCases(FrappeTestCase):
+class TestSeedDocuBaselineCases(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")
 		model = frappe.db.get_value("BPMN Process Model", {}, "name")

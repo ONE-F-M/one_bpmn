@@ -14,7 +14,7 @@ import asyncio
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import ExecutorConfig
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
@@ -67,7 +67,7 @@ def _call_then_answer(name, arguments):
 # ---------------------------------------------------------------------------
 
 
-class TestBoundToolResult(FrappeTestCase):
+class TestBoundToolResult(UnitTestCase):
 	def test_under_the_cap_is_untouched(self):
 		self.assertEqual(bound_tool_result("short", 1000), "short")
 		exact = "x" * 1000
@@ -92,7 +92,7 @@ class TestBoundToolResult(FrappeTestCase):
 		self.assertIn("truncated", out)
 
 
-class TestCapInTheLoop(FrappeTestCase):
+class TestCapInTheLoop(UnitTestCase):
 	def test_model_sees_a_bounded_copy_but_the_record_keeps_everything(self):
 		big = "z" * 5000
 		adapter = _call_then_answer("lookup", {})
@@ -137,7 +137,7 @@ class TestCapInTheLoop(FrappeTestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestValidateToolArguments(FrappeTestCase):
+class TestValidateToolArguments(UnitTestCase):
 	PARAMS = {
 		"state": {"type": "string", "enum": ["Open", "Done"]},
 		"limit": {"type": "integer"},
@@ -183,7 +183,7 @@ class TestValidateToolArguments(FrappeTestCase):
 		self.assertIn("elements", msg)
 
 
-class TestValidationInTheLoop(FrappeTestCase):
+class TestValidationInTheLoop(UnitTestCase):
 	def test_missing_argument_refuses_the_call_without_running_the_tool(self):
 		ran = []
 
@@ -249,7 +249,7 @@ class TestValidationInTheLoop(FrappeTestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestCapPlumbing(FrappeTestCase):
+class TestCapPlumbing(IntegrationTestCase):
 	def test_executor_config_carries_the_cap(self):
 		self.assertIsNone(ExecutorConfig().tool_result_max_chars)
 		self.assertEqual(ExecutorConfig(tool_result_max_chars=1234).tool_result_max_chars, 1234)

@@ -25,7 +25,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.a2a import delegation, guardrails
@@ -59,7 +59,7 @@ def _task(**kw):
 	return doc
 
 
-class TestLimitReasonSets(FrappeTestCase):
+class TestLimitReasonSets(UnitTestCase):
 	def test_door_and_in_flight_reasons_stay_separate(self):
 		"""A limit reached in flight already HAS a task row, so putting it
 		through record_limit_breach() would mint a duplicate."""
@@ -81,7 +81,7 @@ class TestLimitReasonSets(FrappeTestCase):
 			self.assertIn(reason, delegation.LIMIT_LABELS)
 
 
-class TestDelegationRecord(FrappeTestCase):
+class TestDelegationRecord(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -195,7 +195,7 @@ class TestDelegationRecord(FrappeTestCase):
 		delegation.sync_from_task(_task())  # unrecorded: must not raise
 
 
-class TestStoppedAtLimit(FrappeTestCase):
+class TestStoppedAtLimit(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -295,7 +295,7 @@ class TestStoppedAtLimit(FrappeTestCase):
 		self.assertFalse(delegation.stopped_at_limit(a2a_task="A2A-NOPE", reason="turn_cap"))
 
 
-class TestEscalationWithoutARowYet(FrappeTestCase):
+class TestEscalationWithoutARowYet(IntegrationTestCase):
 	"""A stopped delegation that has no tracking row must still be told once.
 
 	The "already told someone" stamp lives on the Agent Delegation row. With no
@@ -335,7 +335,7 @@ class TestEscalationWithoutARowYet(FrappeTestCase):
 		self.assertEqual(row.limit_value, 30)
 
 
-class TestARetryActuallyRuns(FrappeTestCase):
+class TestARetryActuallyRuns(IntegrationTestCase):
 	"""The limit was respected without anything being retried.
 
 	A delegated specialist is a Background agent: the A2A Task row IS its
@@ -384,7 +384,7 @@ class TestARetryActuallyRuns(FrappeTestCase):
 		self.assertNotIn("fresh", inspect.signature(execute.run_chat_turn).parameters)
 
 
-class TestNoOrphanFromThePreviousAttempt(FrappeTestCase):
+class TestNoOrphanFromThePreviousAttempt(IntegrationTestCase):
 	"""A retry must not leave the last attempt running beside its replacement."""
 
 	def tearDown(self):
@@ -441,7 +441,7 @@ class TestNoOrphanFromThePreviousAttempt(FrappeTestCase):
 		)
 
 
-class TestWhatIsNotWorthRetrying(FrappeTestCase):
+class TestWhatIsNotWorthRetrying(IntegrationTestCase):
 	"""A retry is for a TRANSIENT failure.
 
 	Repeating a configuration outcome only delays the escalation, and re-running
@@ -495,7 +495,7 @@ class TestWhatIsNotWorthRetrying(FrappeTestCase):
 		self.assertFalse(delegation.should_retry(task.name))
 
 
-class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
+class TestTheDeadlineCoversAllAttempts(IntegrationTestCase):
 	"""The story required this DECIDED, not left to whatever the code did.
 
 	It covers the whole delegation. Restarting it per retry would let a worker
@@ -574,7 +574,7 @@ class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
 		self.assertIn("not per attempt", note)
 
 
-class TestFinishedWorkIsNotTimedOut(FrappeTestCase):
+class TestFinishedWorkIsNotTimedOut(IntegrationTestCase):
 	"""A deadline is for work that is STILL RUNNING.
 
 	The task row lags: nothing writes "completed" onto it until something looks,
@@ -662,7 +662,7 @@ class TestFinishedWorkIsNotTimedOut(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("A2A Task", task.name, "state"), "timed-out")
 
 
-class TestHandingWorkBack(FrappeTestCase):
+class TestHandingWorkBack(IntegrationTestCase):
 	"""Raising a limit changed nothing on its own.
 
 	A delegation stops four ways — a limit, retries running out, a person
@@ -939,7 +939,7 @@ class TestHandingWorkBack(FrappeTestCase):
 		self.assertFalse(delegation.report_outcome_if_handed_back(task))
 
 
-class TestCapabilityGate(FrappeTestCase):
+class TestCapabilityGate(IntegrationTestCase):
 	"""The hybrid case. WHICH specialist gets the work is decided by the
 	orchestrator reading the brief against the tool descriptions — a tag match
 	cannot do that, because the signal is in the text (a work item asking to be
@@ -1029,7 +1029,7 @@ class TestCapabilityGate(FrappeTestCase):
 		self.assertIsNone(guardrails.check_capability(agent.name, "estimation"))
 
 
-class TestCancellingADelegation(FrappeTestCase):
+class TestCancellingADelegation(IntegrationTestCase):
 	"""Stopping a delegation is a PERSON's action.
 
 	An agent able to cancel its own hand-offs could cancel its way out of a
@@ -1231,7 +1231,7 @@ class TestCancellingADelegation(FrappeTestCase):
 		self.assertIn("cancelled", _delegation_answer(task).lower())
 
 
-class TestDeadlineBelongsToTheDelegator(FrappeTestCase):
+class TestDeadlineBelongsToTheDelegator(IntegrationTestCase):
 	"""Whose clock is it?
 
 	delegation_deadline_minutes used to be read off the TARGET agent, on the
@@ -1285,7 +1285,7 @@ class TestDeadlineBelongsToTheDelegator(FrappeTestCase):
 		self.assertNotIn("delegation_deadline_minutes", local.TARGET_FIELDS)
 
 
-class TestLimitReachesTheModel(FrappeTestCase):
+class TestLimitReachesTheModel(IntegrationTestCase):
 	"""The delegating MODEL has to be told which limit stopped its worker.
 
 	A worker that runs out of tool-calling turns still finishes its run, so the
@@ -1347,7 +1347,7 @@ class TestLimitReachesTheModel(FrappeTestCase):
 		self.assertIn("tool-calling turns", answer)
 
 
-class TestDelegationRetry(FrappeTestCase):
+class TestDelegationRetry(IntegrationTestCase):
 	"""max_delegation_retries, now that something reads it.
 
 	Four decisions are pinned here, because each was a judgement: only a FAILED

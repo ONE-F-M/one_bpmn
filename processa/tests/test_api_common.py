@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api import a2a_admin, clarifications
 from processa.api.common import distinct, parse_json_or_passthrough, shape_reply
@@ -15,7 +15,7 @@ PLAIN_USER = "zz-api-common@example.com"
 EXTRACT_JSON = "processa.ai_agent_registry.definitions.shared.helpers.extract_json"
 
 
-class TestDistinct(FrappeTestCase):
+class TestDistinct(IntegrationTestCase):
 	def test_returns_the_values_present_sorted_ascending(self):
 		values = distinct("Module Def", "app_name")
 		self.assertIn("processa", values)
@@ -29,7 +29,7 @@ class TestDistinct(FrappeTestCase):
 		self.assertEqual(len(distinct("Module Def", "app_name", limit=1)), 1)
 
 
-class TestParseJsonOrPassthrough(FrappeTestCase):
+class TestParseJsonOrPassthrough(UnitTestCase):
 	def test_empty_values_give_the_fallback(self):
 		self.assertIsNone(parse_json_or_passthrough(None))
 		self.assertEqual(parse_json_or_passthrough("", {}), {})
@@ -48,7 +48,7 @@ class TestParseJsonOrPassthrough(FrappeTestCase):
 		self.assertIsNone(parse_json_or_passthrough("{not json"))
 
 
-class TestShapeReply(FrappeTestCase):
+class TestShapeReply(UnitTestCase):
 	TRIGGERS = ("intent", "payload")
 	COPIES = ("intent", "payload", "options")
 
@@ -86,7 +86,7 @@ class TestShapeReply(FrappeTestCase):
 		extract.assert_called_once_with("")
 
 
-class TestApiPermissions(FrappeTestCase):
+class TestApiPermissions(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("User", PLAIN_USER):

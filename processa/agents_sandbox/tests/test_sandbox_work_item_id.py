@@ -10,12 +10,12 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox import ops
 
 
-class TestWorkItemIdFor(FrappeTestCase):
+class TestWorkItemIdFor(IntegrationTestCase):
 	def test_nothing_to_resolve_from_is_empty(self):
 		self.assertEqual(ops.work_item_id_for(None), "")
 		self.assertEqual(ops.work_item_id_for(""), "")
@@ -63,7 +63,7 @@ class TestWorkItemIdFor(FrappeTestCase):
 			frappe.flags.eval_origin = prev
 
 
-class TestWorkItemIdReachesTheSandbox(FrappeTestCase):
+class TestWorkItemIdReachesTheSandbox(IntegrationTestCase):
 	def _post_capture(self):
 		sent = {}
 

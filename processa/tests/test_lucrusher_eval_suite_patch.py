@@ -4,13 +4,13 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import repoint_lucrusher_judge_model as repoint
 from processa.patches.v1_0 import seed_lucrusher_eval_suite as seed
 
 
-class TestLucrusherEvalSuitePatch(FrappeTestCase):
+class TestLucrusherEvalSuitePatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		if frappe.db.exists("AI Agent Configuration", {"agent_id": seed.AGENT_ID}):
@@ -76,7 +76,7 @@ class TestLucrusherEvalSuitePatch(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("AI Eval Suite", {"title": seed.SUITE_TITLE}))
 
 
-class TestLucrusherJudgeModel(FrappeTestCase):
+class TestLucrusherJudgeModel(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.provider = "zz-judge-provider"
@@ -136,7 +136,7 @@ class TestLucrusherJudgeModel(FrappeTestCase):
 		self.assertTrue(all(not a.judge_model for a in case.assertions if a.assertion_type != "llm_judge"))
 
 
-class TestMarkEvalChatConversations(FrappeTestCase):
+class TestMarkEvalChatConversations(IntegrationTestCase):
 	def test_a_conversation_behind_an_eval_run_is_marked_and_others_are_not(self):
 		from processa.patches.v1_0 import mark_eval_chat_conversations
 

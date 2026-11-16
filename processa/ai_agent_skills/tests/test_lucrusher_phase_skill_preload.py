@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.runner.assertions import _evaluate_skill_in_prompt
 from processa.ai_agent_skills import skill_tools
@@ -27,7 +27,7 @@ def _loaded(conversation):
 	return frappe.cache().get_value(skill_tools._skill_names_cache_key(conversation, AGENT)) or []
 
 
-class TestActivateAndDeactivateSkill(FrappeTestCase):
+class TestActivateAndDeactivateSkill(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", AGENT):
 			self.skipTest("the LuCrusher agent is not on this site")
@@ -68,7 +68,7 @@ class TestActivateAndDeactivateSkill(FrappeTestCase):
 		self.assertEqual(_loaded(self.conversation), [])
 
 
-class TestSkillInPromptAssertion(FrappeTestCase):
+class TestSkillInPromptAssertion(IntegrationTestCase):
 	def setUp(self):
 		self.body = frappe.db.get_value("AI Skill", TOPOLOGY_SKILL, "body")
 		if not self.body:
@@ -90,7 +90,7 @@ class TestSkillInPromptAssertion(FrappeTestCase):
 		self.assertTrue(_evaluate_skill_in_prompt("_test no such skill", {"prompts": []})["error"])
 
 
-class TestPromptPatch(FrappeTestCase):
+class TestPromptPatch(IntegrationTestCase):
 	def setUp(self):
 		self.name = frappe.db.get_value("AI Agent Configuration", {"agent_id": prompt_patch.AGENT_ID}, "name")
 		if not self.name:
@@ -114,7 +114,7 @@ class TestPromptPatch(FrappeTestCase):
 		)
 
 
-class TestBaselineCasesPatch(FrappeTestCase):
+class TestBaselineCasesPatch(IntegrationTestCase):
 	def setUp(self):
 		suite = frappe.db.get_value("AI Eval Suite", {"title": SUITE_TITLE}, "name")
 		if not suite:

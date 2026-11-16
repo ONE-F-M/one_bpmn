@@ -2,13 +2,13 @@
 """ProsAlly names whether a process is executable in its confirmation and sets the IR flag when drawing."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_confirms_executable_or_not as patch
 from processa.patches.v1_0.prosally_turns_a_step_into_a_subprocess import AGENT_ID
 
 
-class TestExecutableOrNot(FrappeTestCase):
+class TestExecutableOrNot(IntegrationTestCase):
 	def setUp(self):
 		self.config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
 		if not self.config:

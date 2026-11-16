@@ -6,7 +6,7 @@ Run with:
 """
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_links import asks_for_links_review, links_review_output
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -27,7 +27,7 @@ CLASSIFY_SCRIPT = (
 )
 
 
-class TestAsksForLinksReview(FrappeTestCase):
+class TestAsksForLinksReview(UnitTestCase):
 	def test_a_review_of_signals_and_messages_across_related_maps_is_one(self):
 		for text in (
 			"Update this map so every message and signal it catches has a matching sender in my related process maps.",
@@ -50,7 +50,7 @@ class TestAsksForLinksReview(FrappeTestCase):
 		self.assertFalse(asks_for_links_review(None))
 
 
-class TestLinksReviewOutput(FrappeTestCase):
+class TestLinksReviewOutput(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.catcher = _model("rv_catcher", CATCH_SIGNAL, signal="Review links signal")
@@ -111,7 +111,7 @@ class TestLinksReviewOutput(FrappeTestCase):
 		self.assertNotIn("process_links", get_turn(CONVERSATION))
 
 
-class TestReviewPatch(FrappeTestCase):
+class TestReviewPatch(UnitTestCase):
 	def test_the_route_is_added_before_the_classifier_and_the_import_is_added(self):
 		edited = apply_edits(CLASSIFY_SCRIPT, review_patch.SCRIPT_EDITS)
 

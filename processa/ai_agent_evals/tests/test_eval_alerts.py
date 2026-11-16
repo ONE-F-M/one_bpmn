@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
 from processa.ai_agent_evals.eval_alerts import (
@@ -39,7 +39,7 @@ def _user(email, roles=()):
 	return user.name
 
 
-class TestRecipients(FrappeTestCase):
+class TestRecipients(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.owner = _user("_test_eval_owner@one-fm.com")
@@ -81,7 +81,7 @@ class TestRecipients(FrappeTestCase):
 		self.assertNotIn(leaver, owners_of([agent]))
 
 
-class TestDelivery(FrappeTestCase):
+class TestDelivery(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.owner = _user("_test_eval_owner2@one-fm.com")
@@ -124,7 +124,7 @@ class TestDelivery(FrappeTestCase):
 		self.assertIsInstance(notify("subject", "body", []), list)
 
 
-class TestWhoIsAPerson(FrappeTestCase):
+class TestWhoIsAPerson(IntegrationTestCase):
 	"""A site where service logins hold System Manager turns "tell the admins"
 	into a dozen alerts, several of them to robots."""
 

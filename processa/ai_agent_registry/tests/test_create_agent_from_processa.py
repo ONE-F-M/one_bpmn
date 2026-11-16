@@ -3,14 +3,14 @@
 """Create an AI Agent Configuration from the Processa editor."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import create_agent_configuration
 
 NAME = "ZZ Processa Create Test"
 
 
-class TestCreateAgentFromProcessa(FrappeTestCase):
+class TestCreateAgentFromProcessa(IntegrationTestCase):
 	def tearDown(self):
 		frappe.flags.in_migrate = False
 		super().tearDown()

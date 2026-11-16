@@ -12,7 +12,7 @@ import os
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
 from processa.patches.v1_0 import frontend_agent_reads_in_windows as fix
@@ -53,7 +53,7 @@ def _read(path: str, content: str, **window) -> dict:
 	return _exec(fix.READ_FILE, dict(ARGS, path=path, **window), dispatch=dispatch)
 
 
-class TestALongFileIsReadInWindows(FrappeTestCase):
+class TestALongFileIsReadInWindows(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -95,7 +95,7 @@ class TestALongFileIsReadInWindows(FrappeTestCase):
 		self.assertNotIn("hint", out)
 
 
-class TestTheFrontendToolsPointAtWindows(FrappeTestCase):
+class TestTheFrontendToolsPointAtWindows(IntegrationTestCase):
 	def test_each_search_hit_carries_an_offset_and_limit(self):
 		out = _exec(fix.SEARCH_FRONTEND, {"pattern": "defineProps", "apps": ["processa"], "exts": [".vue"]})
 		self.assertTrue(out["hits"])
@@ -120,7 +120,7 @@ class TestTheFrontendToolsPointAtWindows(FrappeTestCase):
 		self.assertEqual(value, _source("frontend/tailwind.config.cjs"))
 
 
-class TestThePatchEdits(FrappeTestCase):
+class TestThePatchEdits(IntegrationTestCase):
 	def test_running_it_again_changes_nothing(self):
 		before = {
 			n: frappe.db.get_value("Server Script", n, "script")

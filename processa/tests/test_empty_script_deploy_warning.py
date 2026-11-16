@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 """Deploy warns about Script Tasks that have no script."""
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.deploy_warnings import check_script_tasks_have_a_script
 from processa.api.process_maps import validate_bpmn_readiness
@@ -20,7 +20,7 @@ MAP = """<?xml version="1.0" encoding="UTF-8"?>
 EMPTY_TASK = '<bpmn:scriptTask id="Activity_empty" name="Calculate Total" />'
 
 
-class TestEmptyScriptDeployWarning(FrappeTestCase):
+class TestEmptyScriptDeployWarning(IntegrationTestCase):
 	def _details(self, tasks: str) -> list:
 		return [w["detail"] for w in check_script_tasks_have_a_script(MAP.format(tasks=tasks))]
 

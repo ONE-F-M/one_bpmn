@@ -2,7 +2,7 @@
 """Deploy refuses a user without write permission and a map with a prohibited shape."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.deploy import compile_process_model, disable_process_model
 
@@ -33,7 +33,7 @@ WITH_MANUAL_TASK = _xml(
 )
 
 
-class TestDeployEndpoints(FrappeTestCase):
+class TestDeployEndpoints(IntegrationTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		super().tearDown()

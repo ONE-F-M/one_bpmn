@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from processa.patches.v1_0 import chat_agents_name_the_failure_reason as reason_fix
@@ -58,7 +58,7 @@ clear_turn(conversation_id)
 """
 
 
-class TurnFixture(FrappeTestCase):
+class TurnFixture(IntegrationTestCase):
 	def setUp(self):
 		self.instance = frappe.get_doc(
 			{
@@ -204,7 +204,7 @@ class TestSaveResponsePostsTheError(TurnFixture):
 		)
 
 
-class TestThePatchEdits(FrappeTestCase):
+class TestThePatchEdits(IntegrationTestCase):
 	def test_each_edit_applies_once(self):
 		edited = fix.apply_edit(
 			PROSALLY_SAVE_RESPONSE, fix.SAVE_ANCHOR, fix.error_block(BPMN_ID) + fix.SAVE_ANCHOR

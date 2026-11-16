@@ -6,7 +6,7 @@ import json
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.agui import contract as agui_contract
 from processa.processa_engine.agent_runtime import turn_signal
@@ -26,7 +26,7 @@ def _with_progress(text):
 	return with_edits(text, GENERATE_EDITS)
 
 
-class TestPublishProgress(FrappeTestCase):
+class TestPublishProgress(IntegrationTestCase):
 	def test_the_line_goes_to_the_instance_the_request_is_waiting_on(self):
 		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
 		try:
@@ -79,7 +79,7 @@ class FakeClock:
 		return self.now
 
 
-class TestAQuietPartRepeatsItsLine(FrappeTestCase):
+class TestAQuietPartRepeatsItsLine(IntegrationTestCase):
 	def _consume(self, queue, still_running=lambda: True, idle_seconds=60):
 		clock = FakeClock()
 		windows = []
@@ -135,7 +135,7 @@ class TestAQuietPartRepeatsItsLine(FrappeTestCase):
 		self.assertEqual(windows[1], 1800)
 
 
-class TestTheGenerateScriptReportsEachPart(FrappeTestCase):
+class TestTheGenerateScriptReportsEachPart(IntegrationTestCase):
 	def _run(self, shape, should_cut):
 		calls = []
 		original = split_patch.rewrite
@@ -170,7 +170,7 @@ class TestTheGenerateScriptReportsEachPart(FrappeTestCase):
 			ast.parse(_with_progress(split_patch.rewrite(_script(shape))))
 
 
-class TestTheModifyScriptReportsIt(FrappeTestCase):
+class TestTheModifyScriptReportsIt(IntegrationTestCase):
 	def test_an_edit_says_it_is_updating_the_diagram(self):
 		pattern = "ProsAlly%Tool Modify Process"
 		name = frappe.db.get_value("Server Script", {"name": ["like", pattern]}, "name")
@@ -199,7 +199,7 @@ class TestTheModifyScriptReportsIt(FrappeTestCase):
 		self.assertTrue(all(c[0].startswith(("Updating", "Checking")) for c in calls))
 
 
-class TestProgressPatch(FrappeTestCase):
+class TestProgressPatch(IntegrationTestCase):
 	def test_every_anchor_is_found_once_and_a_second_run_changes_nothing(self):
 		for pattern, (edits, marker) in progress_patch.SCRIPTS.items():
 			name = frappe.db.get_value("Server Script", {"name": ["like", pattern]}, "name")

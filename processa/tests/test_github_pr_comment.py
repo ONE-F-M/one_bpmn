@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_connectors.operations import github as gh
 from processa.patches.v1_0 import seed_github_connector as seed
@@ -21,7 +21,7 @@ VERDICT = [
 ]
 
 
-class TestRenderComment(FrappeTestCase):
+class TestRenderComment(IntegrationTestCase):
 	def test_layout_is_the_summary_line_routing_a_table_a_video_line_per_criterion_and_the_reasons(self):
 		body = gh.render_comment("Checked on staging.", "Sonnet: small, low-risk change", VERDICT, "ta-1")
 		lines = body.splitlines()
@@ -39,7 +39,7 @@ class TestRenderComment(FrappeTestCase):
 		self.assertLessEqual(len(gh.render_comment("", "", long)), gh.MAX_BODY)
 
 
-class TestPostPrComment(FrappeTestCase):
+class TestPostPrComment(IntegrationTestCase):
 	def _post(self, params=None, existing=None):
 		sent = []
 
@@ -78,7 +78,7 @@ class TestPostPrComment(FrappeTestCase):
 			self.assertNotIn(word, source)
 
 
-class TestToken(FrappeTestCase):
+class TestToken(IntegrationTestCase):
 	def _token(self, connector, secret, settings):
 		doc = SimpleNamespace(get_password=lambda field, raise_exception=False: secret)
 		cached = SimpleNamespace(get_password=lambda field, raise_exception=False: settings)
@@ -99,7 +99,7 @@ class TestToken(FrappeTestCase):
 		self.assertIn("Auth Secret on the github connector", str(caught.exception))
 
 
-class TestSeed(FrappeTestCase):
+class TestSeed(IntegrationTestCase):
 	def test_the_connector_has_one_python_handler_operation_with_a_handler_that_exists(self):
 		op = seed.GITHUB_CONNECTOR["operations"][0]
 		self.assertEqual((op["value"], op["executionType"]), ("post_pr_comment", "Python Handler"))

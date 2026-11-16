@@ -10,7 +10,7 @@ under test.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import move_domain_rules_into_skills as seed
 
@@ -20,7 +20,7 @@ WRITERS = {
 }
 
 
-class TestDomainRuleSkills(FrappeTestCase):
+class TestDomainRuleSkills(IntegrationTestCase):
 	def _sub_prompt(self, agent_id: str, sub_agent_id: str) -> str:
 		parent = frappe.db.get_value("AI Agent Configuration", {"agent_id": agent_id}, "name")
 		return frappe.db.get_value(

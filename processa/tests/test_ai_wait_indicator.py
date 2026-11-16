@@ -14,13 +14,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 
 from processa.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 from processa.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from processa.tests.test_ai_job_executor import JobHarness, _executor_with_tools
-
-test_ignore = ["BPMN Process Model"]
 
 
 class TestParkedAiUnits(JobHarness):

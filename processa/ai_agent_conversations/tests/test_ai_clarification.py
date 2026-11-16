@@ -18,7 +18,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_conversations import clarification
@@ -54,7 +54,7 @@ def _instance(context_docname=None):
 	)
 
 
-class TestWhoGetsAsked(FrappeTestCase):
+class TestWhoGetsAsked(IntegrationTestCase):
 	"""The question goes to whoever set the requirement."""
 
 	def tearDown(self):
@@ -73,7 +73,7 @@ class TestWhoGetsAsked(FrappeTestCase):
 		self.assertIsNone(clarification.story_owner("Work Item", None))
 
 
-class TestTheRecord(FrappeTestCase):
+class TestTheRecord(IntegrationTestCase):
 	"""A clarification that lives only in the run's transcript cannot be audited,
 	and "why was it built this way" is asked weeks later."""
 
@@ -190,7 +190,7 @@ class TestTheRecord(FrappeTestCase):
 		self.assertEqual(row.round, 2)
 
 
-class TestHowOftenItMayAsk(FrappeTestCase):
+class TestHowOftenItMayAsk(IntegrationTestCase):
 	"""Over-asking is the documented failure of an interactive agent — a question
 	that adds friction without improving the outcome."""
 
@@ -262,7 +262,7 @@ class TestHowOftenItMayAsk(FrappeTestCase):
 		self.assertEqual(len(compile_shape_tools(shapes, instance)), 0)
 
 
-class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
+class TestHowTheQuestionAppearsToAPerson(IntegrationTestCase):
 	"""Two things a person saw that they should not have.
 
 	The task showed as "ask_story_owner" — the shape's id — in the Actions menu
@@ -325,7 +325,7 @@ class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
 		self.assertNotIn("Ask the story owner", offered, "an agent's question does not")
 
 
-class TestItWorksOnAnyDocument(FrappeTestCase):
+class TestItWorksOnAnyDocument(IntegrationTestCase):
 	"""The record names a doctype and a document, so it was never
 	Work-Item-specific. The form script is bound to every form for the same
 	reason: the moment an agent is pointed at a Sales Order, a question about it
@@ -399,7 +399,7 @@ class TestItWorksOnAnyDocument(FrappeTestCase):
 		self.assertTrue(set(before).issubset(set(after)))
 
 
-class TestTheCapIsSetFromProcessa(FrappeTestCase):
+class TestTheCapIsSetFromProcessa(IntegrationTestCase):
 	"""The limit has to be adjustable where the agent is configured.
 
 	A cap that could only be changed in the Desk would be a control with its
@@ -465,7 +465,7 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 		self.assertFalse(clarification.cap_reached(agent, "Work Item", _work_item()))
 
 
-class TestChasingAnUnansweredQuestion(FrappeTestCase):
+class TestChasingAnUnansweredQuestion(IntegrationTestCase):
 	"""Do not block forever, and do not proceed on a timeout. This does the first
 	half — somebody is told — and deliberately not the second."""
 
@@ -521,7 +521,7 @@ class TestChasingAnUnansweredQuestion(FrappeTestCase):
 		self.assertFalse(row.answer)
 
 
-class TestAnsweringFromTheStory(FrappeTestCase):
+class TestAnsweringFromTheStory(IntegrationTestCase):
 	"""The owner answers on the work item, not on a process instance they have no
 	reason to open."""
 
@@ -591,7 +591,7 @@ class TestAnsweringFromTheStory(FrappeTestCase):
 			clarification_api.answer("AC-does-not-exist", "hello")
 
 
-class TestTheClarificationMonitor(FrappeTestCase):
+class TestTheClarificationMonitor(IntegrationTestCase):
 	"""The A2A screen's Clarifications tab.
 
 	Delegations answer "who is working on what". This answers "what did an agent
@@ -794,7 +794,7 @@ class TestTheClarificationMonitor(FrappeTestCase):
 					call(**kwargs)
 
 
-class TestTheQuestionIsSignedByTheAgent(FrappeTestCase):
+class TestTheQuestionIsSignedByTheAgent(IntegrationTestCase):
 	"""Both clarification comments narrate what the AGENT did.
 
 	``add_comment`` owns a comment as the session user, which on a chat turn or a

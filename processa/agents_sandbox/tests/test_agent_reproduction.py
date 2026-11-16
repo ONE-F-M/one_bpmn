@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox import criteria
 from processa.agents_sandbox import reproduction as repro
@@ -31,7 +31,7 @@ def _run(action, state="completed", work_item="WI-BUG-1", result=None, commit=No
 	return doc
 
 
-class ReproCase(FrappeTestCase):
+class ReproCase(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

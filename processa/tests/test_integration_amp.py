@@ -11,10 +11,10 @@ from email.parser import Parser
 from unittest.mock import patch, MagicMock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestAmpEmailIntegration(FrappeTestCase):
+class TestAmpEmailIntegration(IntegrationTestCase):
 	"""Integration tests verifying the full AMP email pipeline."""
 
 	def test_email_queue_has_amp_html_field(self):

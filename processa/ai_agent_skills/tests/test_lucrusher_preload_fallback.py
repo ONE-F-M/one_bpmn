@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations import session_state
 from processa.ai_agent_skills import skill_tools
@@ -13,7 +13,7 @@ from processa.ai_agent_skills import skill_tools
 AGENT = "lucrusher"
 
 
-class TestPreloadFallsBackToProgress(FrappeTestCase):
+class TestPreloadFallsBackToProgress(IntegrationTestCase):
 	"""Runs the live Build Context Server Script; it reaches a site with the LuCrusher map by export."""
 
 	def setUp(self):

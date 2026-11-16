@@ -3,7 +3,7 @@
 """The Email Notification editor's Notice settings reach the task config, the AI configurer and the readiness check."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.bpmn_task_config import resolve_node_attrs
 from processa.processa_engine.compiler.extensions import extract_service_task_config
@@ -31,7 +31,7 @@ def _map(task_attrs=SETTINGS):
 </bpmn:definitions>"""
 
 
-class TestEmailNoticeAttributes(FrappeTestCase):
+class TestEmailNoticeAttributes(IntegrationTestCase):
 	def test_facts_and_details_are_referenced_on_the_email_doctype(self):
 		refs = extract_bpmn_references(_map())
 

@@ -8,7 +8,7 @@ Run with:
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_prompts
 from processa.ai_agent_registry.definitions.prosally.tools_links import process_links_for_turn
@@ -35,7 +35,7 @@ TOOLS_MAP = """<bpmn:process id="p">
   </bpmndi:BPMNPlane>"""
 
 
-class TestProsallyProcessLinksTool(FrappeTestCase):
+class TestProsallyProcessLinksTool(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.catcher = _model("pa_catcher", CATCH_SIGNAL, signal="Prosally links signal")
@@ -100,7 +100,7 @@ class TestProsallyProcessLinksTool(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("BPMN Process Model", self.thrower, ["modified", "bpmn_xml"]), before)
 
 
-class TestProsallyProcessLinksPatch(FrappeTestCase):
+class TestProsallyProcessLinksPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

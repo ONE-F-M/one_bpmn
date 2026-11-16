@@ -9,7 +9,7 @@ import asyncio
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall
@@ -40,7 +40,7 @@ def _shapes(tools_inner: str) -> list:
 	return json.loads(svc["Agent_1"]["aiToolShapes"])
 
 
-class TestHumanToolExtraction(FrappeTestCase):
+class TestHumanToolExtraction(UnitTestCase):
 	def test_user_and_manual_tasks_become_human_tools(self):
 		shapes = _shapes(
 			'<bpmn:userTask id="Approve_1" name="Approve Refund">'
@@ -87,7 +87,7 @@ class TestHumanToolExtraction(FrappeTestCase):
 		self.assertNotIn("parameters", by_id["lookup"])
 
 
-class TestHumanToolCompilation(FrappeTestCase):
+class TestHumanToolCompilation(UnitTestCase):
 	def _instance(self):
 		return frappe._dict(context_doctype="", context_docname="", name="_inst")
 

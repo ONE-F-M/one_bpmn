@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.logix import helpers, tools
 from processa.processa_engine.agent_runtime.llm_types import StepResult
@@ -39,7 +39,7 @@ class FakeAdapter:
 		return StepResult(content=json.dumps(self.replies.pop(0)))
 
 
-class TestLogixDebugsAnExistingScript(FrappeTestCase):
+class TestLogixDebugsAnExistingScript(IntegrationTestCase):
 	def setUp(self):
 		self.addCleanup(clear_turn, CONV)
 		set_turn(CONV, {"user_text": USER_TEXT, **helpers.debug_inputs(USER_TEXT, "", "")})
@@ -116,7 +116,7 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		self.assertEqual(inputs, {"script_text": PASTED, "last_error": TRACE})
 
 
-class TestLogixDebugPatch(FrappeTestCase):
+class TestLogixDebugPatch(IntegrationTestCase):
 	def test_build_context_puts_the_script_and_its_error_on_the_turn(self):
 		if not frappe.db.exists("Server Script", p.BUILD_CONTEXT):
 			self.skipTest(f"{p.BUILD_CONTEXT} is not on this site")

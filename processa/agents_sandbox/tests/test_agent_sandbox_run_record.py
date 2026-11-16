@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import (
 	ERROR_LIMIT,
@@ -21,7 +21,7 @@ def _run(**fields):
 	return doc
 
 
-class TestTheRunRecord(FrappeTestCase):
+class TestTheRunRecord(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()
@@ -69,7 +69,7 @@ class TestTheRunRecord(FrappeTestCase):
 		self.assertEqual(frappe.get_doc("Agent Sandbox Run", run.name).commands[0].action, "read_file")
 
 
-class TestBoundedError(FrappeTestCase):
+class TestBoundedError(UnitTestCase):
 	def test_a_short_error_is_kept_whole(self):
 		self.assertEqual(bounded_error("boom"), "boom")
 
@@ -84,7 +84,7 @@ class TestBoundedError(FrappeTestCase):
 		self.assertEqual(bounded_error(None), "")
 
 
-class TestBackfill(FrappeTestCase):
+class TestBackfill(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

@@ -24,7 +24,7 @@ from __future__ import annotations
 from unittest.mock import Mock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.assignment import (
 	add_frappe_assignment,
@@ -47,7 +47,7 @@ def _instance(name="TEST-NOTIFY-PI"):
 	return inst
 
 
-class TestNotifyAssigneePerTask(FrappeTestCase):
+class TestNotifyAssigneePerTask(IntegrationTestCase):
 	def _patched_sendemail(self):
 		"""Patch frappe.sendmail as the composer calls it."""
 		sendmail = Mock()

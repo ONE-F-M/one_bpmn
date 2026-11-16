@@ -7,7 +7,7 @@ import json
 from types import SimpleNamespace
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 import processa.ai_agent_evals.runner.cases as runner_cases
 from processa.ai_agent_evals.runner.assertions import evaluate_assertion
@@ -30,7 +30,7 @@ def _lanes_spec(matcher="equals", expected=LANES):
 	return {"tool": "generate_process", "path": "ir.lanes.name", "matcher": matcher, "expected": expected}
 
 
-class TestToolArtifactAssertion(FrappeTestCase):
+class TestToolArtifactAssertion(IntegrationTestCase):
 	def test_a_path_through_a_list_matches_every_item(self):
 		self.assertTrue(_check(_lanes_spec(), [_call(artifact=json.dumps(IR))])["passed"])
 
@@ -90,7 +90,7 @@ class TestToolArtifactAssertion(FrappeTestCase):
 		self.assertTrue(_check(_lanes_spec(), trace)["passed"])
 
 
-class TestProsAllyBaselineCases(FrappeTestCase):
+class TestProsAllyBaselineCases(UnitTestCase):
 	def test_the_named_lane_case_passes_on_exactly_those_lanes_and_fails_on_an_extra_one(self):
 		lane_check = next(
 			a for a in seed_prosally_baseline_suite.CASES[0]["assertions"] if a["assertion_type"] == "tool_artifact"

@@ -1,6 +1,6 @@
 """A site that seeded the Connector suite after the case patch still ends up whole."""
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import (
 	add_tool_call_cases_to_agent_suites as cases_patch,
@@ -17,7 +17,7 @@ def _trajectory_cases():
 	return frappe.get_all("AI Eval Case", filters={"suite": suite, "title": CASE}, pluck="name") if suite else []
 
 
-class TestConnectorTrajectoryCaseHeals(FrappeTestCase):
+class TestConnectorTrajectoryCaseHeals(IntegrationTestCase):
 
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", connector_seed.AGENT) or not frappe.db.exists(

@@ -12,7 +12,7 @@ shown to take the edit the same way.
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0.lucrusher_confirmations_carry_no_draft import (
 	_AGENT_ID,
@@ -36,7 +36,7 @@ _SEEDED_EXCERPT = "\n".join(
 )
 
 
-class TestConfirmationLines(FrappeTestCase):
+class TestConfirmationLines(IntegrationTestCase):
 	def test_each_line_is_rewritten_once(self):
 		updated, changed = rewrite_confirmation_lines(_SEEDED_EXCERPT)
 		self.assertTrue(changed)

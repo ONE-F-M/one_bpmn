@@ -8,7 +8,7 @@ from dataclasses import asdict
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.process_maps import dry_run_ai_task, preview_ai_task
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
@@ -55,7 +55,7 @@ class FakeExecutor:
 		)
 
 
-class TestAiTaskPreview(FrappeTestCase):
+class TestAiTaskPreview(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

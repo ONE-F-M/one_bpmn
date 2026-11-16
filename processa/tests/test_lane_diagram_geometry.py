@@ -22,7 +22,7 @@ them; nothing should ever raise them without a reason in the commit message.
 import itertools
 import xml.etree.ElementTree as ET
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 
@@ -213,7 +213,7 @@ def _measure(xml_text):
 	}
 
 
-class TestLaneDiagramGeometry(FrappeTestCase):
+class TestLaneDiagramGeometry(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

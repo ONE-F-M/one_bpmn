@@ -2,7 +2,7 @@
 """What the first Docu baseline run caught: a naming rule that repeats, a vague request designed, a ceiling no turn meets."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import docu_child_table_case_asks_for_a_new_doctype as child_table
 from processa.patches.v1_0 import docu_clarify_trace_ends_at_clarify as clarify_trace
@@ -23,7 +23,7 @@ def _ir(autoname):
 	}
 
 
-class TestNamingRule(FrappeTestCase):
+class TestNamingRule(IntegrationTestCase):
 	def test_a_counter_outside_the_braces_of_a_format_rule_is_refused(self):
 		result = validate_doctype_ir(_ir("format:INC-.#####"))
 		self.assertFalse(result["valid"])
@@ -34,7 +34,7 @@ class TestNamingRule(FrappeTestCase):
 			self.assertTrue(validate_doctype_ir(_ir(autoname))["valid"], autoname)
 
 
-class TestNamingSkill(FrappeTestCase):
+class TestNamingSkill(IntegrationTestCase):
 	def test_the_seeded_skill_teaches_a_counter_the_validator_accepts(self):
 		body = next(s["body"] for s in SKILLS if s["skill_name"] == naming_skill.SKILL)
 		self.assertIn(naming_skill.NEW, body)
@@ -50,7 +50,7 @@ class TestNamingSkill(FrappeTestCase):
 		self.assertEqual(body, "# Naming\n" + naming_skill.NEW + "\nrest")
 
 
-class TestPatches(FrappeTestCase):
+class TestPatches(IntegrationTestCase):
 	def setUp(self):
 		self.agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": vague.AGENT_ID}, "name")
 		if not self.agent:
@@ -144,7 +144,7 @@ class TestPatches(FrappeTestCase):
 		self.assertEqual(tools(design), ["classify_intent", "write_schema", "review_schema", "finalize"])
 
 
-class TestChildTableCasePrompt(FrappeTestCase):
+class TestChildTableCasePrompt(IntegrationTestCase):
 	def test_the_old_prompt_becomes_the_seeded_one_and_other_cases_stay(self):
 		def case(title, prompt):
 			return frappe.get_doc(

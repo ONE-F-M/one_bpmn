@@ -17,7 +17,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 _TEST_SECRET = "test-secret-key-for-unit-tests"
 
@@ -67,7 +67,7 @@ def _setup_request(method="POST", origin="https://mail.google.com", source_origi
 	frappe.local.response.headers = {}
 
 
-class TestHandleAmpAction(FrappeTestCase):
+class TestHandleAmpAction(IntegrationTestCase):
 	"""Tests for :func:`handle_amp_action`."""
 
 	def test_valid_action_completes(self):
@@ -161,7 +161,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		self.assertEqual(headers.get("AMP-Access-Control-Allow-Source-Origin"), "sender@one-fm.com")
 
 
-class TestAmpEmailSenderHeader(FrappeTestCase):
+class TestAmpEmailSenderHeader(IntegrationTestCase):
 	"""AMP-Email-Sender request header is echoed as AMP-Email-Allow-Sender."""
 
 	def test_sender_header_echoed(self):
@@ -176,7 +176,7 @@ class TestAmpEmailSenderHeader(FrappeTestCase):
 		self.assertIn("AMP-Email-Allow-Sender", extra["Access-Control-Expose-Headers"])
 
 
-class TestContextDocState(FrappeTestCase):
+class TestContextDocState(IntegrationTestCase):
 	"""get_context_doc_state reads workflow_state, else status, else nothing."""
 
 	def test_workflow_state_preferred(self):

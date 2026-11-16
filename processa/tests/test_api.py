@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import process_maps
 
@@ -20,7 +20,7 @@ VALID_BPMN_XML = """\
 """
 
 
-class TestProcessMapsApi(FrappeTestCase):
+class TestProcessMapsApi(IntegrationTestCase):
 	def setUp(self):
 		snapshot = patch("processa.api.versions.create_diagram_snapshot")
 		snapshot.start()

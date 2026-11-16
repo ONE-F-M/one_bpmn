@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.agent_config_resolver import start_reprovision
 from processa.patches.v1_0 import creation_map_takes_back_existing_agents as fix
@@ -31,7 +31,7 @@ def _map(start=fix.START_CONDITIONS_REPLACED[0], generate=fix.GENERATE_CONDITION
 	return MAP.format(start=start, generate=generate)
 
 
-class TestTheMapIsUpdated(FrappeTestCase):
+class TestTheMapIsUpdated(IntegrationTestCase):
 	def test_the_original_map_gets_both_new_conditions(self):
 		xml, notes = fix.updated_map(_map())
 		self.assertIn(f"<bpmn:condition>{fix.START_CONDITION}</bpmn:condition>", xml)
@@ -83,7 +83,7 @@ class TestTheMapIsUpdated(FrappeTestCase):
 		write.assert_not_called()
 
 
-class TestTheReprovisionGuard(FrappeTestCase):
+class TestTheReprovisionGuard(IntegrationTestCase):
 	def setUp(self):
 		suffix = frappe.generate_hash(length=6)
 		self.agent = (
@@ -130,7 +130,7 @@ class TestTheReprovisionGuard(FrappeTestCase):
 		start.assert_called_once()
 
 
-class TestAFailedStartIsNotLeftActive(FrappeTestCase):
+class TestAFailedStartIsNotLeftActive(IntegrationTestCase):
 	def test_a_map_without_a_compiled_copy_leaves_an_errored_instance(self):
 		from processa.api.instances import start_process
 

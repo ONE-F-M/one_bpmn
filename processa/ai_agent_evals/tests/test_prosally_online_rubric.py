@@ -1,6 +1,6 @@
 """The seeded rubric must accept Prosally's real answers and still catch bad ones."""
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.runner.assertions import evaluate_assertion
 from processa.ai_agent_evals.online_eval import rubric_assertions, rubric_suite
@@ -25,7 +25,7 @@ def _fails(answer, rules):
 	return [r for r in rules if not evaluate_assertion(frappe._dict(r), answer).get("passed")]
 
 
-class TestProsallyOnlineRubric(FrappeTestCase):
+class TestProsallyOnlineRubric(IntegrationTestCase):
 
 	def setUp(self):
 		if not patch._agent():
@@ -56,7 +56,7 @@ class TestProsallyOnlineRubric(FrappeTestCase):
 		)
 
 
-class TestLeakRuleIsCaseSensitive(FrappeTestCase):
+class TestLeakRuleIsCaseSensitive(IntegrationTestCase):
 	"""Frappe's ToDo DocType is not a leaked TODO marker."""
 
 	def setUp(self):

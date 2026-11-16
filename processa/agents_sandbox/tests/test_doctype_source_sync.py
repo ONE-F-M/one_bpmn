@@ -21,7 +21,7 @@ import json
 import os
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.customization import doctype_source_sync as source
 from processa.api.production_review import _customization_pr_files, _pr_body
@@ -43,7 +43,7 @@ def _source_text(dt):
     return open(full).read() if os.path.exists(full) else None
 
 
-class TestOwnershipDecidesTheDestination(FrappeTestCase):
+class TestOwnershipDecidesTheDestination(IntegrationTestCase):
     """AC1, AC2. Ownership of the DocType, not the presence of a customization."""
 
     def setUp(self):
@@ -92,7 +92,7 @@ class TestOwnershipDecidesTheDestination(FrappeTestCase):
         self.assertFalse(source.owned_in_source(OURS))
 
 
-class TestEditingOurOwnJson(FrappeTestCase):
+class TestEditingOurOwnJson(IntegrationTestCase):
     """AC3, AC4, AC5, AC6. A Custom Field insert commits, so fixtures are
     removed by name rather than left to a rollback."""
 
@@ -293,7 +293,7 @@ class TestEditingOurOwnJson(FrappeTestCase):
             source.merge_into_source("", OURS)
 
 
-class TestCreatingSourceForADoctypeTheRepoLacks(FrappeTestCase):
+class TestCreatingSourceForADoctypeTheRepoLacks(IntegrationTestCase):
     """A DocType authored on the BA site has never been in source.
 
     Seen live: "Sync" raised "not in the repository, so there is nothing to
@@ -375,7 +375,7 @@ class TestCreatingSourceForADoctypeTheRepoLacks(FrappeTestCase):
             self.assertNotIn("patches", path)
 
 
-class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
+class TestTheArtefactSetFollowsOwnership(IntegrationTestCase):
     """AC1, AC7, AC8."""
 
     def setUp(self):
@@ -479,7 +479,7 @@ class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
         self.assertIn("override is the only mechanism", body)
 
 
-class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
+class TestDocuWritesWhereOwnershipSays(IntegrationTestCase):
     """Docu asked to add a field to a DocType we own minted a Custom Field.
 
     Same rule as the sync above, different entry point: apply_doctype branched on
@@ -518,7 +518,7 @@ class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
             frappe.conf["developer_mode"] = previous
 
 
-class TestTheSyncKeepsItsPromises(FrappeTestCase):
+class TestTheSyncKeepsItsPromises(IntegrationTestCase):
     """A PR must carry every field its description lists, and the field a fetch reads."""
 
     def test_a_promised_field_missing_from_the_file_stops_the_pr(self):

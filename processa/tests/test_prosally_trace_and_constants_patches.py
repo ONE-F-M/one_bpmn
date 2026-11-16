@@ -2,7 +2,7 @@
 """ProsAlly Baseline stops expecting finalize; stage scripts move from hard-coded skill names to constants."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import prosally_baseline_trace_ends_at_stage_tool as trace_patch
 from processa.patches.v1_0 import prosally_stage_skills as stage
@@ -12,7 +12,7 @@ from processa.patches.v1_0 import seed_prosally_baseline_suite as seed
 PROSALLY = frappe.db.get_value("AI Agent Configuration", {"agent_id": stage.AGENT_ID}, "name")
 
 
-class TestProsAllyBaselineTrace(FrappeTestCase):
+class TestProsAllyBaselineTrace(IntegrationTestCase):
 	def test_the_seeded_trace_ends_at_generate_process(self):
 		tools = [c["tool_name"] for c in seed.GENERATE_TRACE]
 		self.assertEqual(tools, ["classify_intent", "generate_process"])
@@ -54,7 +54,7 @@ class TestProsAllyBaselineTrace(FrappeTestCase):
 		self.assertEqual(tools, ["classify_intent", "generate_process"])
 
 
-class TestProsAllyStageSkillsReadConstants(FrappeTestCase):
+class TestProsAllyStageSkillsReadConstants(IntegrationTestCase):
 	def test_the_hard_coded_line_becomes_the_constants_line_once(self):
 		if not PROSALLY:
 			self.skipTest("ProsAlly is not on this site")

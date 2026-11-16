@@ -8,7 +8,7 @@ Run with:
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_prompts
 from processa.ai_agent_registry.definitions.prosally.tools_links import MAX_TURN_MAPS, read_process_map_for_turn
@@ -20,7 +20,7 @@ from processa.tests.test_prosally_cross_process import CFG, TOOLS_MAP
 CONVERSATION = "zz-prosally-read-map-test"
 
 
-class TestReadProcessMapTool(FrappeTestCase):
+class TestReadProcessMapTool(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.thrower = _model("rm_thrower", THROW_SIGNAL, signal="Read map signal")
@@ -73,7 +73,7 @@ class TestReadProcessMapTool(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("BPMN Process Model", self.thrower, ["modified", "bpmn_xml"]), before)
 
 
-class TestProcessMapsBlock(FrappeTestCase):
+class TestProcessMapsBlock(UnitTestCase):
 	def prompt(self, sub_id, turn):
 		return tools_prompts.stage_system_prompt(CFG, sub_id, "", turn)
 
@@ -100,7 +100,7 @@ class TestProcessMapsBlock(FrappeTestCase):
 		self.assertEqual(self.prompt("modifier", {}), "MODIFIER")
 
 
-class TestReadProcessMapPatch(FrappeTestCase):
+class TestReadProcessMapPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

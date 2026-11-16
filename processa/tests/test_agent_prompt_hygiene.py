@@ -13,7 +13,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0.drop_cannot_see_conversation import (
 	OLD_SENTENCES,
@@ -23,7 +23,7 @@ from processa.patches.v1_0.drop_cannot_see_conversation import (
 PHRASE = "cannot see the conversation"
 
 
-class TestNoMapDeniesTheMessage(FrappeTestCase):
+class TestNoMapDeniesTheMessage(IntegrationTestCase):
 	def _maps(self):
 		return [m for m in OLD_SENTENCES if frappe.db.exists("BPMN Process Model", m)]
 

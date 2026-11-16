@@ -9,7 +9,7 @@ round trip losing a right the builder does not display.
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import apply_doctype, get_doctype_schema
 from processa.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
@@ -27,7 +27,7 @@ def _ir(**over):
 	return ir
 
 
-class TestDocuPermissionRules(FrappeTestCase):
+class TestDocuPermissionRules(IntegrationTestCase):
 	def tearDown(self):
 		if frappe.db.exists("DocType", DT):
 			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "Processa Engine"})
@@ -212,7 +212,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "Processa Engine"})
 
 
-class TestDocuKnowsPermissionsAreItsJob(FrappeTestCase):
+class TestDocuKnowsPermissionsAreItsJob(IntegrationTestCase):
 	"""Docu answered "permissions are not part of the DocType design" and never
 	entered its own pipeline. The prompts are what decide that, so they are
 	worth pinning: the config's system prompt wins over the copy on the map."""

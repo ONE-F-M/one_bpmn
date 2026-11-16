@@ -19,7 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox.sandbox import ops
 
@@ -58,7 +58,7 @@ def _any_process_model() -> str:
 	}).insert(ignore_permissions=True).name
 
 
-class AgentSandboxCase(FrappeTestCase):
+class AgentSandboxCase(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		branch_check = patch.object(ops, "_missing_branch_error", return_value=None)
@@ -101,7 +101,7 @@ class AgentSandboxCase(FrappeTestCase):
 		super().tearDown()
 
 
-class TestCallbackUrl(FrappeTestCase):
+class TestCallbackUrl(UnitTestCase):
 	"""_callback_url forces https regardless of what get_url() constructs.
 
 	Confirmed live: a real production dispatch was rejected with a 422 by
@@ -325,7 +325,7 @@ class TestSandboxDispatch(AgentSandboxCase):
 	arguments are required, how to word an error) lives in the Server
 	Script itself, not here). Never raises, by design.
 
-	Inherits AgentSandboxCase (not a plain FrappeTestCase) for its real,
+	Inherits AgentSandboxCase (not a plain IntegrationTestCase) for its real,
 	already-saved BPMN Process Instance fixture - caller_instance is a
 	genuine Link field, and Agent Sandbox Run's own insert() never sets
 	ignore_links, so a bare SimpleNamespace stand-in fails Link validation
@@ -650,7 +650,7 @@ class TestRetryPolicy(AgentSandboxCase):
 		resume.assert_not_called()
 
 
-class TestTimingFields(FrappeTestCase):
+class TestTimingFields(UnitTestCase):
 	def test_each_reported_key_lands_on_its_own_field(self):
 		fields = ops.timing_fields({"total": 90, "git": 10, "tool": 3, "migrate": 20, "tests": 50, "pr": 7})
 		self.assertEqual(
@@ -665,7 +665,7 @@ class TestTimingFields(FrappeTestCase):
 		self.assertEqual(ops.timing_fields({}), {})
 
 
-class TestDispatchError(FrappeTestCase):
+class TestDispatchError(IntegrationTestCase):
 	def test_an_app_the_sandbox_does_not_have_is_refused_naming_the_choices(self):
 		message = ops.dispatch_error("spiff", "staging")
 		self.assertIn("'spiff' is not an app the sandbox has", message)
@@ -739,7 +739,7 @@ class TestARefusedDispatchCreatesNoRun(AgentSandboxCase):
 		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
 
 
-class TestTheSandboxIsPostedToWithRetries(FrappeTestCase):
+class TestTheSandboxIsPostedToWithRetries(UnitTestCase):
 	def _response(self, status):
 		return MagicMock(status_code=status)
 
@@ -805,7 +805,7 @@ class TestTheSandboxIsPostedToWithRetries(FrappeTestCase):
 			self.assertNotIn(action, ops._IDEMPOTENT_ACTIONS)
 
 
-class TestSlowActionCommandKind(FrappeTestCase):
+class TestSlowActionCommandKind(UnitTestCase):
 	"""Which session command kind each slow action is queued as: only the pull request is a finalize."""
 
 	def _kind(self, action):

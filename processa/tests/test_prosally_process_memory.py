@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers, tools_prompts
 from processa.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
@@ -48,7 +48,7 @@ def _user_row(user, content):
 	)
 
 
-class TestProcessForDiagram(FrappeTestCase):
+class TestProcessForDiagram(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -66,7 +66,7 @@ class TestProcessForDiagram(FrappeTestCase):
 		self.assertEqual(helpers.process_for_diagram(""), "")
 
 
-class TestRecall(FrappeTestCase):
+class TestRecall(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -103,7 +103,7 @@ class TestRecall(FrappeTestCase):
 		)
 
 
-class TestPrompt(FrappeTestCase):
+class TestPrompt(UnitTestCase):
 	CFG = {"sub_prompts": {"modifier": {"prompt": "MODIFIER"}}, "constants": {}}
 	TURN = {"memory_notes": ["promotion needs the board lane"]}
 
@@ -124,7 +124,7 @@ class TestPrompt(FrappeTestCase):
 		get_all.assert_not_called()
 
 
-class TestQueueProcessMemory(FrappeTestCase):
+class TestQueueProcessMemory(IntegrationTestCase):
 	TURN = {"memory_process": PROMOTION, "user_text": "yes", "memory_notes": ["a note"], "chat_history": []}
 
 	def _queue(self, turn, intent, fields=MEMORY_ON):
@@ -156,7 +156,7 @@ class TestQueueProcessMemory(FrappeTestCase):
 		self._queue(self.TURN, "BPMN_GENERATED").assert_not_called()
 
 
-class TestStageToolsPatch(FrappeTestCase):
+class TestStageToolsPatch(IntegrationTestCase):
 	SCRIPTS = {
 		BUILD_CONTEXT: "x = 1\n# The AI Agent Task does tool-calling internally\nresult = 1\n",
 		f"ProsAlly {memory_patch.DASH} Tool Classify Intent": (

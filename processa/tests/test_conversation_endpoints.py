@@ -23,7 +23,7 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 _TEST_SECRET = "test-secret-key-for-unit-tests"
 _TASK_ID = "task-uuid"
@@ -78,7 +78,7 @@ def _raw(fn):
 	return inspect.unwrap(fn)
 
 
-class TestConversationToken(FrappeTestCase):
+class TestConversationToken(IntegrationTestCase):
 	def test_payload_carries_type_and_no_action(self):
 		from processa.processa_engine.notifications.token import verify_action_token
 
@@ -99,7 +99,7 @@ class TestConversationToken(FrappeTestCase):
 				generate_conversation_token(_INSTANCE, _TASK_ID, _USER, "approve")
 
 
-class TestConversationTokenRefusedByActionEndpoint(FrappeTestCase):
+class TestConversationTokenRefusedByActionEndpoint(IntegrationTestCase):
 	def test_conversation_token_refused_by_handle_amp_action(self):
 		"""AC9: a reply token can never complete the task with an action."""
 		from processa.api.email_actions import handle_amp_action
@@ -160,7 +160,7 @@ def make_hd_ticket(test):
 		test.fail(f"HD Ticket fixture failed with {values}: " + " | ".join(frames[:8]))
 
 
-class TestConversationEndpoints(FrappeTestCase):
+class TestConversationEndpoints(IntegrationTestCase):
 	"""HD Ticket as the context document."""
 
 	def setUp(self):
@@ -429,7 +429,7 @@ class TestConversationEndpoints(FrappeTestCase):
 			self.assertIn("already handled", _handled_by_message(_INSTANCE, _TASK_ID))
 
 
-class TestConversationOnOtherDocTypes(FrappeTestCase):
+class TestConversationOnOtherDocTypes(IntegrationTestCase):
 	"""Issue as the context document: notes go to the standard Comment, never to HD Ticket Comment."""
 
 	def setUp(self):

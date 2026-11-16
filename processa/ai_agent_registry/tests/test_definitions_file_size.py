@@ -3,13 +3,13 @@
 
 import os
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 DEFINITIONS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "definitions")
 MAX_LINES = 800
 
 
-class TestDefinitionsFileSize(FrappeTestCase):
+class TestDefinitionsFileSize(UnitTestCase):
 	def test_every_definitions_file_is_at_most_800_lines(self):
 		checked = 0
 		for folder, _dirs, names in os.walk(DEFINITIONS):

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api.deploy import compile_process_model
 from processa.processa_engine.compiler.called_processes import resolve_called_process_xml
@@ -78,7 +78,7 @@ def _parent_xml(called="wi2111_child", process_id=PARENT_ID):
 </bpmn:definitions>"""
 
 
-class TestCallActivityResolution(FrappeTestCase):
+class TestCallActivityResolution(UnitTestCase):
 	"""parse_bpmn: registering the called document is what makes it resolve."""
 
 	def test_calling_an_unregistered_process_fails(self):
@@ -119,7 +119,7 @@ class TestCallActivityResolution(FrappeTestCase):
 		self.assertIn("calledelement", str(ctx.exception).lower())
 
 
-class TestCallActivityCompile(FrappeTestCase):
+class TestCallActivityCompile(IntegrationTestCase):
 	"""compile_process_model: resolution, extension merging, and the errors."""
 
 	def setUp(self):
@@ -336,7 +336,7 @@ def _calling(process="", called=V1_ID):
 	return xml
 
 
-class TestCallActivityRunsTheActiveMapOfItsProcess(FrappeTestCase):
+class TestCallActivityRunsTheActiveMapOfItsProcess(IntegrationTestCase):
 	"""A Call Activity names a Process, and the Process's active map is what runs."""
 
 	def setUp(self):

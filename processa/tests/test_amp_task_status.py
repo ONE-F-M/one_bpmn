@@ -13,7 +13,7 @@ import time
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 _TEST_SECRET = "test-secret-key-for-unit-tests"
 _CONTEXT = frappe._dict(context_doctype="ToDo", context_docname="TODO-1")
@@ -30,7 +30,7 @@ def _expired(token: str) -> str:
 	return f"{encoded}.{_sign(payload_json)}"
 
 
-class TestGetAmpTaskStatus(FrappeTestCase):
+class TestGetAmpTaskStatus(IntegrationTestCase):
 	def setUp(self):
 		frappe.clear_cache(doctype="ToDo")
 

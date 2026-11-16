@@ -16,7 +16,7 @@ import csv
 import io
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, getdate
 
 from processa.ai_agent_observability.reports.periods import grain_for
@@ -28,10 +28,8 @@ from processa.api.insights import (
 	search_orchestrator_work_items,
 )
 
-test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
-
-class TestInsightsUsage(FrappeTestCase):
+class TestInsightsUsage(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -276,14 +274,14 @@ class TestInsightsUsage(FrappeTestCase):
 
 		frappe.set_user(username)
 		# frappe.only_for is a no-op while in_test is set.
-		frappe.flags.in_test = False
+		frappe.in_test = False
 		try:
 			self.assertRaises(frappe.PermissionError, get_agent_overview)
 			self.assertRaises(frappe.PermissionError, get_cost_token_report)
 			self.assertRaises(frappe.PermissionError, export_cost_token_report)
 			self.assertRaises(frappe.PermissionError, search_orchestrator_work_items)
 		finally:
-			frappe.flags.in_test = True
+			frappe.in_test = True
 			frappe.set_user("Administrator")
 
 	def test_work_item_search_lists_only_orchestrator_items(self):

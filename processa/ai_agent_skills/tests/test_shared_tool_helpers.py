@@ -8,7 +8,7 @@ import json
 import re
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.shared import helpers
 from processa.ai_agent_skills.tools.shape_tools import SCRIPT_NAMES, execute_shape
@@ -41,7 +41,7 @@ def _run(block: str, **names) -> dict:
 	return namespace
 
 
-class TestHistoryMatchesTheInlineCopy(FrappeTestCase):
+class TestHistoryMatchesTheInlineCopy(UnitTestCase):
 	def test_docu_label_matches_both_inline_variants(self):
 		for role in ("_role", "_role2"):
 			inline = _run(fix.HISTORY_BLOCK.format(role=role), chat_history=CHAT_HISTORY)["_hist"]
@@ -53,7 +53,7 @@ class TestHistoryMatchesTheInlineCopy(FrappeTestCase):
 		self.assertTrue(helpers.format_history(CHAT_HISTORY).endswith("ProsAlly: a reply"))
 
 
-class TestJsonMatchesTheInlineCopy(FrappeTestCase):
+class TestJsonMatchesTheInlineCopy(UnitTestCase):
 	def test_every_reply_the_inline_copy_parsed_parses_the_same(self):
 		for raw in REPLIES:
 			inline = _run(fix.CLARIFY_JSON_BLOCK, raw=raw)["data"]
@@ -67,7 +67,7 @@ class TestJsonMatchesTheInlineCopy(FrappeTestCase):
 		self.assertEqual(_run(fix.CLARIFY_JSON_CALL, raw=raw)["data"], {"question": "Which form?"})
 
 
-class TestThePatchEdits(FrappeTestCase):
+class TestThePatchEdits(UnitTestCase):
 	def test_each_edit_applies_once(self):
 		script = f"chat_history = []\n{fix.HISTORY_BLOCK.format(role='_role')}\nprompt = _hist\n"
 		edited = edits.apply_edit(script, fix.HISTORY_BLOCK.format(role="_role"), fix.HISTORY_CALL)
@@ -91,7 +91,7 @@ class _FakeTask:
 		self.task_spec = _FakeTaskSpec()
 
 
-class TestTheEditorListIsTrue(FrappeTestCase):
+class TestTheEditorListIsTrue(IntegrationTestCase):
 	def _probe_script(self, name: str) -> str:
 		checks = "".join(
 			f"try:\n    {n}\n    _seen.append({n!r})\nexcept NameError:\n    pass\n"
@@ -127,7 +127,7 @@ class TestTheEditorListIsTrue(FrappeTestCase):
 		self.assertEqual(out["seen"], self._expected(3))
 
 
-class TestTheNamesEndpoint(FrappeTestCase):
+class TestTheNamesEndpoint(IntegrationTestCase):
 	def test_a_user_who_can_read_server_scripts_gets_the_list(self):
 		names = {row["name"] for row in get_script_names()}
 		self.assertTrue({"frappe", "task_data", "result", "shape_config"} <= names)

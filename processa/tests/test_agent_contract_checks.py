@@ -9,7 +9,7 @@ here are about the false positives as much as the catches. A check that cries
 wolf on every agent gets ignored.
 """
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.compiler.ai_checks import _tool_contract_gaps, validate_ai_tool_contract
 from processa.processa_engine.compiler.turn_store import (
@@ -22,7 +22,7 @@ BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 SPIFF = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 
-class TestToolContractGaps(FrappeTestCase):
+class TestToolContractGaps(UnitTestCase):
 	def test_a_tool_the_instructions_call_but_the_box_lacks(self):
 		gaps = _tool_contract_gaps("Then call propose_pull_request once.", {"register_hook"}, set())
 		self.assertEqual(gaps, ["propose_pull_request"])
@@ -50,7 +50,7 @@ class TestToolContractGaps(FrappeTestCase):
 		self.assertEqual(_tool_contract_gaps(prompt, set(), set()), [])
 
 
-class TestThePromptThatRunsIsRead(FrappeTestCase):
+class TestThePromptThatRunsIsRead(IntegrationTestCase):
 	"""Whichever prompt reaches the model is the one checked.
 
 	A shape with no configuration runs its own copy. A linked shape runs the
@@ -95,7 +95,7 @@ class TestThePromptThatRunsIsRead(FrappeTestCase):
 		), patch.object(frappe.db, "get_value", return_value="Call do_work once."):
 			validate_ai_tool_contract(exts)
 
-class TestTurnStoreKeys(FrappeTestCase):
+class TestTurnStoreKeys(UnitTestCase):
 	def test_keys_written_inline_and_by_name(self):
 		top, out = _turn_keys_written('update_turn(d, work_order="x", output={"summary": 1})')
 		self.assertEqual((top, out), ({"work_order"}, {"summary"}))
@@ -131,7 +131,7 @@ class TestTurnStoreKeys(FrappeTestCase):
 		self.assertEqual(top, {"summary"})
 
 
-class TestTurnStoreContract(FrappeTestCase):
+class TestTurnStoreContract(IntegrationTestCase):
 	"""End to end over a map: the closing script, the tools and the warning."""
 
 	def setUp(self):

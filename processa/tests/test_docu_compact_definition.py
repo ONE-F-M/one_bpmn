@@ -4,7 +4,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import _docfield_dict
 from processa.patches.v1_0 import docu_edit_prompt_sends_a_compact_definition as p
@@ -18,7 +18,7 @@ PROMPT = (
 )
 
 
-class TestDocuCompactDefinition(FrappeTestCase):
+class TestDocuCompactDefinition(IntegrationTestCase):
 	def test_compact_definition_drops_every_zero_and_empty_property(self):
 		compact = tools.compact_ir(tools.read_doctype_definition("ToDo"))
 		rows = [compact, *compact["fields"], *compact["permissions"]]

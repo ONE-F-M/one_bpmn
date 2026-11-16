@@ -5,7 +5,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import tools_prompts
 from processa.ai_agent_registry.provisioning.bpmn_task_config import match_lane_role, resolve_ir_lane_roles
@@ -31,7 +31,7 @@ def _lane_items(xml):
 	return {i["name"]: i for c in result["categories"] if c["label"] == "Lane Roles" for i in c["items"]}
 
 
-class TestMatchLaneRole(FrappeTestCase):
+class TestMatchLaneRole(IntegrationTestCase):
 	def test_an_exact_match_ignores_case(self):
 		self.assertEqual(match_lane_role("hr manager", ROLES), ["HR Manager"])
 
@@ -42,7 +42,7 @@ class TestMatchLaneRole(FrappeTestCase):
 		self.assertEqual(match_lane_role("Administrator", ROLES), [])
 
 
-class TestResolveIrLaneRoles(FrappeTestCase):
+class TestResolveIrLaneRoles(IntegrationTestCase):
 	def test_an_exact_match_is_rewritten_to_the_role_name(self):
 		ir = {"lanes": [{"id": "hr", "name": "hr manager"}]}
 
@@ -66,7 +66,7 @@ class TestResolveIrLaneRoles(FrappeTestCase):
 		self.assertEqual(resolve_ir_lane_roles(ir, ROLES), [])
 
 
-class TestLaneRoleReadiness(FrappeTestCase):
+class TestLaneRoleReadiness(IntegrationTestCase):
 	def test_a_user_name_is_reported_as_not_a_role(self):
 		item = _lane_items(_map("Administrator"))["Administrator"]
 
@@ -109,7 +109,7 @@ def _task_map(role, task):
 </bpmn:definitions>"""
 
 
-class TestLaneRolePermissionWarnings(FrappeTestCase):
+class TestLaneRolePermissionWarnings(IntegrationTestCase):
 	USER_TASK = '<bpmn:userTask id="Task_1" name="Review" spiffworkflow:targetDoctype="ToDo" />'
 
 	def _make_role(self):
@@ -184,7 +184,7 @@ class TestLaneRolePermissionWarnings(FrappeTestCase):
 		self.assertIn("read, write", warnings[0]["detail"])
 
 
-class TestDescribeLanesSuggestsRoles(FrappeTestCase):
+class TestDescribeLanesSuggestsRoles(IntegrationTestCase):
 	def _reply(self, *lane_names):
 		ir = {"lanes": [{"id": f"l{i}", "name": n} for i, n in enumerate(lane_names)]}
 		with patch.object(tools_prompts.frappe, "get_all", return_value=ROLES):

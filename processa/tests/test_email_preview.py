@@ -6,7 +6,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.api import notifications
@@ -24,7 +24,7 @@ NOTICE = {
 }
 
 
-class TestEmailPreview(FrappeTestCase):
+class TestEmailPreview(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		self.todo = frappe.get_doc(
@@ -149,7 +149,7 @@ class TestEmailPreview(FrappeTestCase):
 TASK_ACTIONS = json.dumps([{"action": "Approve"}, {"action": "Reject", "confirmTransition": "true"}])
 
 
-class TestTaskEmailPreview(FrappeTestCase):
+class TestTaskEmailPreview(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 		self.todo = frappe.get_doc(

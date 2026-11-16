@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.eval_case_factory import (
 	create_eval_case_from_run,
 	get_run_steps_for_case_picker,
 )
-
-test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 
 def _process_owner():
@@ -159,7 +157,7 @@ def _run(element_type="task", status="Success", final_output="the answer", with_
 	return run
 
 
-class TestEvalCaseFactory(FrappeTestCase):
+class TestEvalCaseFactory(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

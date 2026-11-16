@@ -8,7 +8,7 @@ from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers, tools_pipeline, tools_prompts, tools_replies, tools_review, tools_subprocess
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
@@ -34,7 +34,7 @@ TWO_LANE_IR = {
 }
 
 
-class TestRequestedLanes(FrappeTestCase):
+class TestRequestedLanes(UnitTestCase):
 	def test_named_lane_lists_are_read(self):
 		self.assertEqual(tools_prompts.requested_lanes([THREE_LANES]), ["Recruiter", "GRD Operator", "GRD Manager"])
 		self.assertEqual(
@@ -52,7 +52,7 @@ class TestRequestedLanes(FrappeTestCase):
 		self.assertEqual(tools_prompts.requested_lanes(["add swimlanes for each role", "use lanes for HR"]), [])
 
 
-class TestDescribeLanes(FrappeTestCase):
+class TestDescribeLanes(IntegrationTestCase):
 	def test_a_missing_named_lane_is_named(self):
 		text = tools_prompts.describe_lanes([{"role": "user", "content": THREE_LANES}], "Yes, proceed", TWO_LANE_IR)
 		self.assertIn("Lanes drawn:\n- Recruiter\n- GRD Manager\n\nYou also asked for GRD Operator", text)
@@ -63,7 +63,7 @@ class TestDescribeLanes(FrappeTestCase):
 		self.assertEqual(tools_prompts.describe_lanes([], THREE_LANES, {"lanes": []}), "")
 
 
-class TestDescribeChanges(FrappeTestCase):
+class TestDescribeChanges(UnitTestCase):
 	OLD = (
 		'<bpmn:userTask id="visit" name="Site Visit" /><bpmn:userTask id="ok" name="Approve" />'
 		'<bpmn:sequenceFlow id="f1" sourceRef="visit" targetRef="ok" />'
@@ -111,7 +111,7 @@ class TestDescribeChanges(FrappeTestCase):
 		self.assertIn("could not find any change", tools_replies.describe_changes(old, new))
 
 
-class TestGenerateNamesTheMissingLane(FrappeTestCase):
+class TestGenerateNamesTheMissingLane(IntegrationTestCase):
 	"""Runs the live Generate Process Server Script; the script reaches a site with the ProsAlly map by export."""
 
 	def setUp(self):
@@ -148,7 +148,7 @@ class TestGenerateNamesTheMissingLane(FrappeTestCase):
 		self.assertIn("You also asked for GRD Operator", get_turn(CONVERSATION)["output"]["response"])
 
 
-class TestPatchTransform(FrappeTestCase):
+class TestPatchTransform(UnitTestCase):
 	def test_the_reply_gains_the_call_and_the_import(self):
 		helper, anchor, call = STAGES["ProsAlly%Tool Modify Process"]
 		script = (
@@ -168,7 +168,7 @@ class TestPatchTransform(FrappeTestCase):
 		)
 
 
-class TestRelayout(FrappeTestCase):
+class TestRelayout(IntegrationTestCase):
 	"""Draws the real fuel requisition map again; needs node to compile."""
 
 	@classmethod
@@ -252,7 +252,7 @@ class TestRelayout(FrappeTestCase):
 		self.assertIn("Shall I add them?", output["response"])
 
 
-class TestCompareReadsInlineLists(FrappeTestCase):
+class TestCompareReadsInlineLists(UnitTestCase):
 	SPEC = "What is missing? Check: - Set to Draft, - Manager approves the request, - Send reminder to HR"
 	XML = (
 		'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">'
@@ -290,7 +290,7 @@ class TestCompareReadsInlineLists(FrappeTestCase):
 		self.assertEqual(tools_review.missing_spec_items(self.MONTHLY, spec), [])
 
 
-class TestNoChangeIsNotAnUpdate(FrappeTestCase):
+class TestNoChangeIsNotAnUpdate(IntegrationTestCase):
 	"""Runs the live Modify Process script on a saved diagram that lists its flow references."""
 
 	IR = {

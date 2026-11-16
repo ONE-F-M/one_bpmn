@@ -16,7 +16,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox.ops import (
 	_PLAN_ACTION,
@@ -43,7 +43,7 @@ def _row(instance_name, action, state="completed", request_payload=None):
 	return row.name
 
 
-class TestGoalReminder(FrappeTestCase):
+class TestGoalReminder(IntegrationTestCase):
 	"""No real A2A Task is ever inserted here - that doctype's insert is
 	live-polled by a scheduled job that would dispatch the actual Dev Agent
 	workflow (confirmed the hard way: a real Anthropic API call fired from
@@ -100,7 +100,7 @@ class TestGoalReminder(FrappeTestCase):
 		self.assertIsNone(goal_reminder(inst))
 
 
-class TestPlanRequiredError(FrappeTestCase):
+class TestPlanRequiredError(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

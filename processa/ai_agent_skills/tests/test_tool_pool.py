@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_skills.tools.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 from processa.processa_engine.compiler.ai_checks import validate_adhoc_selector_pool
@@ -39,7 +39,7 @@ def _selector_xml(inner: str) -> str:
 """
 
 
-class TestResolveToolPool(FrappeTestCase):
+class TestResolveToolPool(UnitTestCase):
 	# ── one candidate per head task, documentation as description ──
 
 	def test_diagram_candidates_from_inner_tasks(self):
@@ -98,7 +98,7 @@ class TestResolveToolPool(FrappeTestCase):
 			self.assertTrue(all(c.spec.parameters == {} for c in pool))
 
 
-class TestSelectorPoolCompileValidation(FrappeTestCase):
+class TestSelectorPoolCompileValidation(UnitTestCase):
 	def test_container_candidate_rejected(self):
 		for tag, label in (
 			("subProcess", "Sub-Process"),

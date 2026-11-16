@@ -4,7 +4,7 @@
 
 import ast
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.lucrusher import tools as ci
 from processa.patches.v1_0 import lucrusher_drafts_cross_process_links as p
@@ -20,7 +20,7 @@ def _body(skill_name):
 	return next(s["body"] for s in SKILLS if s["skill_name"] == skill_name)
 
 
-class TestScanLinks(FrappeTestCase):
+class TestScanLinks(IntegrationTestCase):
 	def test_enqueue_message_and_new_doc_are_reported(self):
 		source = (
 			"def on_submit(doc):\n"
@@ -46,7 +46,7 @@ class TestScanLinks(FrappeTestCase):
 		self.assertEqual(_links("def f(doc):\n\tdoc.save()"), [])
 
 
-class TestSkillEdits(FrappeTestCase):
+class TestSkillEdits(UnitTestCase):
 	def test_each_skill_gains_its_link_rules_once(self):
 		for skill_name, marker, edits in p.SKILL_EDITS:
 			body = _body(skill_name)

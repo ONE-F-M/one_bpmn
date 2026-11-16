@@ -16,14 +16,14 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import evals, feedback
 
 OTHER_USER = "wi2068_outsider@example.com"
 
 
-class QueueFixture(FrappeTestCase):
+class QueueFixture(IntegrationTestCase):
 	"""A conversation with two rated replies, each with a question before it."""
 
 	def setUp(self):

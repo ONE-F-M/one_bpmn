@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.ai_agent_conversations.agui import contract as agui_contract
 from processa.ai_agent_conversations.agui.contract import translators
@@ -13,7 +13,7 @@ def _named(events):
 	return {e.name: e.value for e in events}
 
 
-class TestContractData(FrappeTestCase):
+class TestContractData(UnitTestCase):
 	def test_every_example_validates_against_its_own_schema(self):
 		problems = agui_contract.validate_examples()
 		self.assertEqual(problems, [], f"contract examples are invalid: {problems}")
@@ -49,7 +49,7 @@ class TestContractData(FrappeTestCase):
 		self.assertTrue(problems)
 
 
-class TestTranslators(FrappeTestCase):
+class TestTranslators(UnitTestCase):
 	"""Legacy reply dicts (shapes verified on staging) → contract events."""
 
 	def test_logix_modify_becomes_script_diff(self):
@@ -158,7 +158,7 @@ class TestTranslators(FrappeTestCase):
 			self.assertEqual(list(fn(reply)), [], fn.__name__)
 
 
-class TestTypedArtifact(FrappeTestCase):
+class TestTypedArtifact(UnitTestCase):
 	"""The generic `artifact` reply key renders through the typed event the
 	agent's Artifact Type names (wired)."""
 
@@ -218,7 +218,7 @@ class TestTypedArtifact(FrappeTestCase):
 		self.assertEqual(list(translators._typed_artifact(reply)), [])
 
 
-class TestEndToEndTranslation(FrappeTestCase):
+class TestEndToEndTranslation(UnitTestCase):
 	"""The shared stream emits validated contract events for legacy dicts."""
 
 	def test_stream_carries_script_diff_custom_event(self):

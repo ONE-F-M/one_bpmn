@@ -17,7 +17,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_skills.tools.shape_tools import execute_shape
 from processa.processa_engine.maps.readiness import connector_tools_without_result_variable
@@ -56,7 +56,7 @@ def _left(status, **detail):
 	return behaviour
 
 
-class TestAConnectorFailureIsNotReportedAsSuccess(FrappeTestCase):
+class TestAConnectorFailureIsNotReportedAsSuccess(UnitTestCase):
 	def test_a_swallowed_handler_error_is_reported_as_a_failure(self):
 		"""failOnError off: the dispatcher logs, records the failure and carries on."""
 		res = _run(CONNECTOR_CFG, _left("failed", error="upstream 500"))
@@ -87,7 +87,7 @@ class TestAConnectorFailureIsNotReportedAsSuccess(FrappeTestCase):
 		self.assertEqual(res, {"connector_result": {"id": "abc"}})
 
 
-class TestTheConfigIsReadFromWhereTheDispatcherReadsIt(FrappeTestCase):
+class TestTheConfigIsReadFromWhereTheDispatcherReadsIt(UnitTestCase):
 	def test_connector_config_comes_from_the_instance_extensions(self):
 		"""The tool descriptor carries only bpmn_id/description/serviceType.
 
@@ -107,7 +107,7 @@ class TestTheConfigIsReadFromWhereTheDispatcherReadsIt(FrappeTestCase):
 		self.assertNotIn("error", res)
 
 
-class TestMissingResultVariableIsSaidOutLoud(FrappeTestCase):
+class TestMissingResultVariableIsSaidOutLoud(UnitTestCase):
 	def test_data_that_was_returned_and_discarded_is_named(self):
 		"""The measured case: the connector returned data, the shape had nowhere
 		to put it, and the agent used to receive a bare {"ok": true}."""
@@ -136,7 +136,7 @@ class TestMissingResultVariableIsSaidOutLoud(FrappeTestCase):
 		self.assertEqual(res, {"connector_result": {"id": "abc"}})
 
 
-class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
+class TestNotPermittedIsNotTheSameAsNoData(UnitTestCase):
 	def test_a_refused_connector_says_so_and_is_never_dispatched(self):
 		dispatched = []
 
@@ -154,7 +154,7 @@ class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
 		self.assertEqual(res, {"connector_result": {"id": "x"}})
 
 
-class TestAParkedConnectorStillSuspends(FrappeTestCase):
+class TestAParkedConnectorStillSuspends(UnitTestCase):
 	def test_the_waiting_marker_wins_over_the_outcome_report(self):
 		"""A delegation connector answers later, from elsewhere. Reporting its
 		empty result as "did not complete" would end the turn the model was
@@ -166,7 +166,7 @@ class TestAParkedConnectorStillSuspends(FrappeTestCase):
 			_run(CONNECTOR_CFG, lambda task: task.data.update({A2A_WAITING_KEY: {"task": "A2A-1"}}))
 
 
-class TestTheEndpointStaysReachable(FrappeTestCase):
+class TestTheEndpointStaysReachable(UnitTestCase):
 	"""Inserting a helper between @frappe.whitelist() and its function moves the
 	decorator onto the helper. Everything still passes in-process — whitelisting
 	only matters over HTTP — while the Deploy button dies with "not whitelisted".
@@ -183,7 +183,7 @@ class TestTheEndpointStaysReachable(FrappeTestCase):
 		self.assertNotIn(connector_tools_without_result_variable, frappe.whitelisted)
 
 
-class TestDeployReadinessFlagsTheGap(FrappeTestCase):
+class TestDeployReadinessFlagsTheGap(UnitTestCase):
 	BPMN = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -227,7 +227,7 @@ class TestDeployReadinessFlagsTheGap(FrappeTestCase):
 		self.assertEqual(connector_tools_without_result_variable("<not-xml"), [])
 
 
-class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
+class TestConnectorsThatAnswerOutOfBandAreNotFlagged(UnitTestCase):
 	def test_a_sandbox_tool_without_a_result_variable_is_by_design(self):
 		"""Every Dev, Frontend and Mobile agent map has run_tests and
 		open_pull_request with no Result Variable: they park and answer through
@@ -244,7 +244,7 @@ class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
 		self.assertEqual(check_connector_tools_can_answer(xml), [])
 
 
-class TestCompileSaysSoToo(FrappeTestCase):
+class TestCompileSaysSoToo(UnitTestCase):
 	"""The deploy checklist names the gap; a compile that skips the checklist —
 	an import, a call from the API — has to as well, because an import is
 	exactly where a shape arrives with the field dropped."""
@@ -280,7 +280,7 @@ class TestCompileSaysSoToo(FrappeTestCase):
 		)
 
 
-class TestThroughTheRealDispatcher(FrappeTestCase):
+class TestThroughTheRealDispatcher(IntegrationTestCase):
 	"""The fakes above pin what is reported for each state the dispatcher leaves.
 	These run the real ``dispatch_connector`` with only the handler stubbed, so
 	the states are the ones it actually leaves — the merge onto today's dispatch
@@ -352,7 +352,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 		self.assertEqual(res["error"], "not_permitted")
 
 
-class TestTheToolCallRowAgreesWithItsBody(FrappeTestCase):
+class TestTheToolCallRowAgreesWithItsBody(UnitTestCase):
 	"""The inspector colours a row by its status. A row that says Success above
 	a body that says connector_failed is the same lie one level up."""
 

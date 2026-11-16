@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
@@ -87,7 +87,7 @@ def _complete_manual(wf, name, data=None):
 	return task
 
 
-class TestAdhocSequentialDispatch(FrappeTestCase):
+class TestAdhocSequentialDispatch(IntegrationTestCase):
 	# ── Scenario 1: only one head activated even though Spiff readied all ──
 
 	def test_single_task_active_at_entry(self):
@@ -351,7 +351,7 @@ ADHOC_USER_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestAdhocInstanceLifecycle(FrappeTestCase):
+class TestAdhocInstanceLifecycle(IntegrationTestCase):
 	"""Instance-level (doctype) coverage: the engine-level tests above drive
 	the gate directly, which let a bug in runtime.engine_loop.run_engine_inner
 	slip through — its STARTED-dispatch loop force-completed the ad-hoc
@@ -436,7 +436,7 @@ ADHOC_SEND_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestSendTaskDispatch(FrappeTestCase):
+class TestSendTaskDispatch(IntegrationTestCase):
 	"""Send Tasks were runtime no-ops until 2026-07-04: nothing consumed
 	spiffworkflow:notificationName, so 'send acknowledgment' shapes completed
 	without sending anything or leaving evidence — selector prompts gating on
@@ -535,7 +535,7 @@ class TestSendTaskDispatch(FrappeTestCase):
 		self.assertIn("Wait Here", [r.task_name for r in instance.active_tasks])
 
 
-class TestUnseededCompletionCondition(FrappeTestCase):
+class TestUnseededCompletionCondition(IntegrationTestCase):
 	"""The completion-condition variable typically doesn't exist until a
 	late inner task sets it (e.g. a wrap-up script running `done = True`).
 	Upstream path_complete evaluated the condition with a raw eval after
@@ -570,7 +570,7 @@ class TestUnseededCompletionCondition(FrappeTestCase):
 		self.assertTrue(wf.completed)
 
 
-class TestDeciderChoosesEntryTask(FrappeTestCase):
+class TestDeciderChoosesEntryTask(IntegrationTestCase):
 	"""User decision 2026-07-04: an installed AI Task Selector decider picks
 	even the FIRST task at subprocess entry (previously the first head in
 	diagram order auto-ran before the selector was ever consulted). Plain

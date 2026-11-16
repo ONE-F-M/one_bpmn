@@ -1,10 +1,10 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestChatMessageFields(FrappeTestCase):
+class TestChatMessageFields(IntegrationTestCase):
 	def test_is_reply_is_not_a_field(self):
 		fieldnames = [df.fieldname for df in frappe.get_meta("Chat Message").fields]
 		self.assertNotIn("is_reply", fieldnames)

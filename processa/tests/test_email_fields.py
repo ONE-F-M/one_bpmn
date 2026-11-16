@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model import no_value_fields
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.translate import clear_cache
 
 from processa.api.lookups import get_email_fields
@@ -63,7 +63,7 @@ def _row(rows, label):
 	return next(r for r in rows if r["label"]["en"] == label)
 
 
-class TestEmailFieldsOnToDo(FrappeTestCase):
+class TestEmailFieldsOnToDo(IntegrationTestCase):
 	"""ToDo ships with Frappe, so these run on any site."""
 
 	def setUp(self):
@@ -186,7 +186,7 @@ class TestEmailFieldsOnToDo(FrappeTestCase):
 
 
 @unittest.skipUnless(_has_leave_setup(), "needs HRMS and one_fm's Arabic Employee fields")
-class TestEmailFieldsOnLeaveApplication(FrappeTestCase):
+class TestEmailFieldsOnLeaveApplication(IntegrationTestCase):
 	def setUp(self):
 		clear_cache()
 

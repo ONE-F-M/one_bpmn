@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers
 from processa.ai_agent_memory import writeback
@@ -24,7 +24,7 @@ def _titles(log_error):
 	return [call.kwargs.get("title") for call in log_error.call_args_list]
 
 
-class TestQueueLogsItsDecision(FrappeTestCase):
+class TestQueueLogsItsDecision(IntegrationTestCase):
 	def _queue(self, turn, agent_result, fields=DISTILLED):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
 		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
@@ -53,7 +53,7 @@ class TestQueueLogsItsDecision(FrappeTestCase):
 			log_error.assert_not_called()
 
 
-class TestWritebackLogsAnEmptyDistillation(FrappeTestCase):
+class TestWritebackLogsAnEmptyDistillation(UnitTestCase):
 	def _write(self, facts):
 		with patch.object(writeback, "_distill_with_retries", return_value=facts), patch.object(
 			writeback, "_reconcile_batch", side_effect=lambda f, ctx: f

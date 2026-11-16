@@ -12,9 +12,9 @@ Two things have to hold for this control to be worth having:
      so roughly half of these tests are negative cases.
 """
 
-import unittest
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_security.screening import pii
 
@@ -36,7 +36,7 @@ CIVIL_ID = _valid_civil_id()
 CARD = "4111111111111111"  # Luhn-valid test PAN
 
 
-class TestPIIDetection(unittest.TestCase):
+class TestPIIDetection(IntegrationTestCase):
 	"""What gets caught."""
 
 	def test_kuwait_civil_id_is_tokenised(self):
@@ -88,7 +88,7 @@ class TestPIIDetection(unittest.TestCase):
 		)
 
 
-class TestFalsePositives(unittest.TestCase):
+class TestFalsePositives(IntegrationTestCase):
 	"""What must survive untouched — the reason this control stays switched on."""
 
 	def test_twelve_digits_failing_the_checksum_is_left_alone(self):
@@ -113,7 +113,7 @@ class TestFalsePositives(unittest.TestCase):
 		self.assertEqual(pii.redact(None).text, "")
 
 
-class TestRestoration(unittest.TestCase):
+class TestRestoration(IntegrationTestCase):
 	"""Reversibility — the reason tokens are used instead of ``****``."""
 
 	def test_restore_returns_the_original_text(self):
@@ -153,7 +153,7 @@ class TestRestoration(unittest.TestCase):
 		self.assertFalse(pii.current_mapping())
 
 
-class TestToolSpecWrapping(unittest.TestCase):
+class TestToolSpecWrapping(IntegrationTestCase):
 	"""Every tool the system builds is a ToolSpec, so wrapping there covers
 	shape tools, pooled tools and Server-Script-built tools alike."""
 
@@ -195,7 +195,7 @@ class TestToolSpecWrapping(unittest.TestCase):
 		self.assertIs(second.fn, first.fn)
 
 
-class TestChatMessageHook(unittest.TestCase):
+class TestChatMessageHook(IntegrationTestCase):
 	"""The stored transcript must not hold raw PII.
 
 	This is load-bearing rather than defensive: every map-driven agent's
@@ -262,7 +262,7 @@ class TestChatMessageHook(unittest.TestCase):
 		self.assertEqual(pii.redact(f"my civil id is {CIVIL_ID}").text, stored)
 
 
-class TestInvokeAgentEndToEnd(unittest.TestCase):
+class TestInvokeAgentEndToEnd(IntegrationTestCase):
 	"""The whole path: invoke_agent → runner → adapter.
 
 	The adapter is faked so no request leaves the machine, but everything up to
@@ -316,7 +316,7 @@ class TestInvokeAgentEndToEnd(unittest.TestCase):
 		self.assertFalse(pii.current_mapping())
 
 
-class TestPerAgentOptOut(unittest.TestCase):
+class TestPerAgentOptOut(IntegrationTestCase):
 	def test_disabled_agent_is_passed_through(self):
 		result = pii.screen_input(f"id {CIVIL_ID}", {"pii_screening": "Disabled"})
 		self.assertIn(CIVIL_ID, result.text)

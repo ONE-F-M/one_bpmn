@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.agents_sandbox.sandbox import ops
 
@@ -19,7 +19,7 @@ def _rows(*calls):
 	return [frappe._dict(request_payload=frappe.as_json({"action": a, "args": {"path": p}})) for a, p in calls]
 
 
-class TestFrontendEditError(FrappeTestCase):
+class TestFrontendEditError(IntegrationTestCase):
 	def _gate(self, action="edit_file", path=VUE, instance=FRONTEND, skill=True, read=True, over_budget=False):
 		with patch.object(ops, "_skill_loaded", return_value=skill), patch.object(
 			ops, "_has_read", return_value=read
@@ -50,7 +50,7 @@ class TestFrontendEditError(FrappeTestCase):
 		self.assertIsNone(self._gate(instance=None, skill=False, read=False))
 
 
-class TestHasRead(FrappeTestCase):
+class TestHasRead(UnitTestCase):
 	def _has_read(self, path, *calls):
 		with patch.object(frappe, "get_all", return_value=_rows(*calls)):
 			return ops._has_read(FRONTEND, path)
@@ -66,7 +66,7 @@ class TestHasRead(FrappeTestCase):
 		self.assertFalse(self._has_read(VUE, ("read_file", "frontend/src/pages/Runs.vue"), ("list_files", VUE)))
 
 
-class TestSandboxDispatchRefuses(FrappeTestCase):
+class TestSandboxDispatchRefuses(IntegrationTestCase):
 	def test_a_refused_edit_never_reaches_the_sandbox(self):
 		with patch.object(ops, "_skill_loaded", return_value=True), patch.object(
 			ops, "_has_read", return_value=False

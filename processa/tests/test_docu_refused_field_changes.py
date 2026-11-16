@@ -4,7 +4,7 @@
 
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import _docu_user, apply_doctype
 from processa.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
@@ -21,7 +21,7 @@ def _date_field(fieldtype: str = "Date") -> dict:
 	return {"fieldname": FIELDNAME, "label": "Docu Refused Change Date", "fieldtype": fieldtype}
 
 
-class TestRefusedTypeChange(FrappeTestCase):
+class TestRefusedTypeChange(IntegrationTestCase):
 	"""Creating and deleting a Custom Field runs ALTER TABLE, which commits, so each test cleans up itself."""
 
 	def setUp(self):
@@ -64,7 +64,7 @@ class TestRefusedTypeChange(FrappeTestCase):
 		self.assertEqual(frappe.get_meta(DOCTYPE).get_field(FIELDNAME).fieldtype, "Data")
 
 
-class TestNoParallelField(FrappeTestCase):
+class TestNoParallelField(IntegrationTestCase):
 	def tearDown(self):
 		# A field created by mistake commits its ALTER TABLE, so it is removed explicitly.
 		name = frappe.db.get_value("Custom Field", {"dt": DOCTYPE, "fieldname": "docu_second_description"})
@@ -82,7 +82,7 @@ class TestNoParallelField(FrappeTestCase):
 		self.assertIn("(description)", result["notes"][0])
 
 
-class TestFetchFromIsChecked(FrappeTestCase):
+class TestFetchFromIsChecked(IntegrationTestCase):
 	def _violations(self, fetch_from: str) -> list:
 		field = {"fieldname": "assignee_name", "label": "Assignee Name", "fieldtype": "Data", "fetch_from": fetch_from}
 		return validate_doctype_ir({"doctype_name": DOCTYPE, "fields": [field]})["violations"]

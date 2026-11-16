@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 
-class TestDeriveCurrentStep(FrappeTestCase):
+class TestDeriveCurrentStep(UnitTestCase):
 	"""list_process_instances' fallback: name the engine position when no
 	user task is waiting — running automations, inner subprocess tasks, or
 	an ad-hoc subprocess with everything parked (selector declined/stalled)."""

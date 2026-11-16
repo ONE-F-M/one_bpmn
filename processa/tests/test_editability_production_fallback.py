@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.api import editability
 
@@ -15,7 +15,7 @@ def _response(status, text="", message=None):
 	return resp
 
 
-class TestProductionFallback(FrappeTestCase):
+class TestProductionFallback(UnitTestCase):
 	def setUp(self):
 		creds = patch.object(editability, "_production_creds", return_value=("https://prod.example", "k", "s"))
 		creds.start()

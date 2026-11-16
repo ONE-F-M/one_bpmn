@@ -9,6 +9,8 @@ every edge case in the BPMN Script-Task security spec (section 2.1 / 4.1).
 
 import unittest
 
+from frappe.tests import IntegrationTestCase, UnitTestCase
+
 from processa.ai_agent_security.code_checks.script_validator import (
 	ValidatorOptions,
 	deep_inspect_script,
@@ -20,7 +22,7 @@ def _flags(code, **opts):
 	return deep_inspect_script(code, ValidatorOptions(**opts) if opts else None)
 
 
-class TestSafeScriptsPass(unittest.TestCase):
+class TestSafeScriptsPass(IntegrationTestCase):
 	def test_orm_read_write(self):
 		self.assertEqual(_flags("doc = frappe.get_doc('Employee', 'E1')\ndoc.save()"), [])
 
@@ -46,7 +48,7 @@ class TestSafeScriptsPass(unittest.TestCase):
 		self.assertEqual(_flags("s = 'ab' * 1000\nn = 3 * 4"), [])
 
 
-class TestBannedBuiltins(unittest.TestCase):
+class TestBannedBuiltins(UnitTestCase):
 	def test_hard_banned(self):
 		for name in ("exec", "eval", "compile", "getattr", "setattr", "delattr",
 					 "globals", "locals", "vars", "dir", "open"):
@@ -63,7 +65,7 @@ class TestBannedBuiltins(unittest.TestCase):
 		self.assertTrue(_flags("type(doc)", strict_builtins=True))
 
 
-class TestBannedAttributes(unittest.TestCase):
+class TestBannedAttributes(IntegrationTestCase):
 	def test_frame_walking(self):
 		for attr in ("__class__", "__bases__", "__subclasses__", "__globals__",
 					 "f_back", "f_globals", "gi_frame", "__mro__", "__dict__"):
@@ -84,7 +86,7 @@ class TestBannedAttributes(unittest.TestCase):
 		self.assertTrue(_flags("c = frappe.conf", strict_frappe_attrs=True))
 
 
-class TestKwargsPermissionInjection(unittest.TestCase):
+class TestKwargsPermissionInjection(IntegrationTestCase):
 	def test_explicit_kwarg(self):
 		self.assertTrue(_flags("doc.save(ignore_permissions=True)"))
 		self.assertTrue(_flags("doc.insert(ignore_permissions=True)"))
@@ -93,7 +95,7 @@ class TestKwargsPermissionInjection(unittest.TestCase):
 		self.assertTrue(_flags('doc.save(**{"ignore_permissions": True})'))
 
 
-class TestSubscriptStringLookup(unittest.TestCase):
+class TestSubscriptStringLookup(UnitTestCase):
 	def test_dunder_subscript(self):
 		self.assertTrue(_flags('x = frappe["__dict__"]'))
 		self.assertTrue(_flags('x = obj["f_back"]'))
@@ -103,7 +105,7 @@ class TestSubscriptStringLookup(unittest.TestCase):
 		self.assertEqual(_flags('x = mydict["name"]'), [])
 
 
-class TestImports(unittest.TestCase):
+class TestImports(UnitTestCase):
 	def test_forbidden_module(self):
 		self.assertTrue(_flags("import os"))
 		self.assertTrue(_flags("from subprocess import run"))
@@ -116,7 +118,7 @@ class TestImports(unittest.TestCase):
 		self.assertTrue(_flags("from datetime import datetime", block_all_imports=True))
 
 
-class TestBuiltinsModuleEscape(unittest.TestCase):
+class TestBuiltinsModuleEscape(IntegrationTestCase):
 	"""``exec`` is blocked as a bare name; it must not come back via a module.
 
 	The call check inspects bare names only, so once ``exec`` is bound to an
@@ -175,7 +177,7 @@ class TestBuiltinsModuleEscape(unittest.TestCase):
 		self.assertEqual(_flags("rows = frappe.db.get_all('User')\nresult = [r.name for r in rows]"), [])
 
 
-class TestControlFlowGated(unittest.TestCase):
+class TestControlFlowGated(UnitTestCase):
 	def test_while_gate(self):
 		self.assertEqual(_flags("while True:\n    break"), [])
 		self.assertTrue(_flags("while True:\n    break", block_while=True))
@@ -189,7 +191,7 @@ class TestControlFlowGated(unittest.TestCase):
 		self.assertTrue(_flags("f = lambda: 1", block_lambda=True))
 
 
-class TestMemoryBomb(unittest.TestCase):
+class TestMemoryBomb(UnitTestCase):
 	def test_large_multiply_flagged(self):
 		self.assertTrue(_flags("x = 'A' * 999999999"))
 		self.assertTrue(_flags("x = 999999999 * 'A'"))
@@ -203,7 +205,7 @@ class TestMemoryBomb(unittest.TestCase):
 		self.assertTrue(_flags("x = 'A' * 200", binop_multiply_threshold=100))
 
 
-class TestDestructiveSql(unittest.TestCase):
+class TestDestructiveSql(IntegrationTestCase):
 	def test_destructive_flagged(self):
 		for kw in ("DROP TABLE tabUser", "TRUNCATE tabUser", "ALTER TABLE tabUser ADD x INT"):
 			with self.subTest(sql=kw):
@@ -214,7 +216,7 @@ class TestDestructiveSql(unittest.TestCase):
 		self.assertEqual(deep_inspect_script(code, ValidatorOptions(), frozenset({"frappe.db.sql"})), [])
 
 
-class TestSyntaxAndWrapper(unittest.TestCase):
+class TestSyntaxAndWrapper(IntegrationTestCase):
 	def test_syntax_error(self):
 		out = _flags("def broken(:\n    pass")
 		self.assertEqual(len(out), 1)

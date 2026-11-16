@@ -2,10 +2,10 @@
 # See license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestContingencyTaskCompletion(FrappeTestCase):
+class TestContingencyTaskCompletion(IntegrationTestCase):
 	def test_requester_defaults_to_the_session_user(self):
 		doc = frappe.new_doc("Contingency Task Completion")
 		doc.run_method("before_insert")

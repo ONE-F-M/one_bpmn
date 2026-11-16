@@ -13,7 +13,7 @@ import inspect
 import io
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import getdate
 
 from processa.ai_agent_observability.reports.periods import list_bucket_labels
@@ -45,7 +45,7 @@ ELEMENT_FIELDS = {
 }
 
 
-class TestLatencyReport(FrappeTestCase):
+class TestLatencyReport(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -283,11 +283,11 @@ class TestLatencyReport(FrappeTestCase):
 		frappe.set_user(email)
 
 		# frappe.only_for is a no-op while in_test is set, so the guard cannot fire unless it is cleared.
-		frappe.flags.in_test = False
+		frappe.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):
 				get_performance_report(from_date=FROM, to_date=TO)
 			with self.assertRaises(frappe.PermissionError):
 				export_latency_report(from_date=FROM, to_date=TO)
 		finally:
-			frappe.flags.in_test = True
+			frappe.in_test = True

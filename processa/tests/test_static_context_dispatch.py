@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.provisioning.context_assembler import EXAMPLES_HEADER, GUARDRAILS_HEADER
 from processa.processa_engine.agent_runtime.executor import (
@@ -56,7 +56,7 @@ BEHAVIOUR = {
 }
 
 
-class TestDispatcherStaticContext(FrappeTestCase):
+class TestDispatcherStaticContext(IntegrationTestCase):
 	def setUp(self):
 		_CAPTURED.clear()
 		patches = [
@@ -141,7 +141,7 @@ class TestDispatcherStaticContext(FrappeTestCase):
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
 
 
-class TestLiveLogixShape(FrappeTestCase):
+class TestLiveLogixShape(IntegrationTestCase):
 	"""Against the REAL deployed Logix map + the seeded guard rails, not a
 	fixture: the rules must reach the system prompt and memory must not.
 	Skipped on a site where Logix is not deployed."""
@@ -203,7 +203,7 @@ class TestLiveLogixShape(FrappeTestCase):
 			self.assertIn("Relevant memory:", config.user_prompt)
 
 
-class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
+class TestConfiguratorKnowsTheNewFields(IntegrationTestCase):
 	"""The AI Assistant learns the config contract from live data,
 	so the new fields must be IN that data and must survive its sanitiser."""
 

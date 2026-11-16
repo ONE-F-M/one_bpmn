@@ -13,13 +13,13 @@ Clients are built with a dummy key; nothing here reaches a network.
 
 from __future__ import annotations
 
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 
 from processa.processa_engine.agent_runtime.executor import DEFAULT_TIMEOUT_SECONDS
 from processa.processa_engine.agent_runtime.llm_factory import get_llm_adapter
 
 
-class TestModelCallsHonourAiTimeout(FrappeTestCase):
+class TestModelCallsHonourAiTimeout(UnitTestCase):
 	def test_the_anthropic_client_carries_the_timeout_and_retries_it_was_given(self):
 		client = get_llm_adapter("anthropic", "claude-x", "key", timeout_seconds=7, max_retries=0)._client
 		self.assertEqual((client.timeout, client.max_retries), (7, 0))

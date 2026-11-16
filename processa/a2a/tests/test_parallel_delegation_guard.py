@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import (
 	_SECOND_HUMAN_RESULT,
@@ -66,7 +66,7 @@ def _run(adapter, tools, max_turns=4):
 	)
 
 
-class TestOneDelegationPerTurn(FrappeTestCase):
+class TestOneDelegationPerTurn(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.started = []
@@ -185,7 +185,7 @@ class TestOneDelegationPerTurn(FrappeTestCase):
 		self.assertIn(_SECOND_HUMAN_RESULT, second["content"])
 
 
-class TestConnectorGuard(FrappeTestCase):
+class TestConnectorGuard(IntegrationTestCase):
 	"""The load-bearing half: nothing is created while a pause is held."""
 
 	class _FakeTask:

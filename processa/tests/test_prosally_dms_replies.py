@@ -9,7 +9,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.prosally import helpers, tools_prompts
 from processa.ai_agent_registry.definitions.shared.tools_dms import DOCUMENT_TYPES
@@ -49,7 +49,7 @@ def answered(text="Director approval is needed above five days.", sources=None):
 	return json.dumps({"answered": True, "answer": text, "sources": sources or []})
 
 
-class TestProsallyDmsAnswer(FrappeTestCase):
+class TestProsallyDmsAnswer(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		set_turn(CONVERSATION, {"user_text": QUESTION})
@@ -144,7 +144,7 @@ class TestProsallyDmsAnswer(FrappeTestCase):
 		self.assertTrue(get_turn(CONVERSATION)["dms_documents"])
 
 
-class TestAddDocumentSources(FrappeTestCase):
+class TestAddDocumentSources(IntegrationTestCase):
 	DOCS = [
 		{"document_code": "POL-0002", "title": "Policy for workflow states", "document_type": "Policy"},
 		{"document_code": "POL-0002", "title": "Policy for workflow states", "document_type": "Policy"},
@@ -176,7 +176,7 @@ class TestAddDocumentSources(FrappeTestCase):
 		self.assertEqual(line.count(";"), 3)
 
 
-class TestProsallyDmsRepliesPatch(FrappeTestCase):
+class TestProsallyDmsRepliesPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 

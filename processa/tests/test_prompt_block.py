@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.patches.v1_0 import (
 	coding_agents_use_batched_tools_and_evidence as batched,
@@ -16,7 +16,7 @@ from processa.patches.v1_0.prompt_block import with_block
 BLOCK = "Title:\n- one rule\n- another rule\n"
 
 
-class TestWithBlock(FrappeTestCase):
+class TestWithBlock(UnitTestCase):
 	def test_the_block_is_added_after_the_prompt(self):
 		self.assertEqual(with_block("Do the job.", BLOCK), "Do the job.\n\nTitle:\n- one rule\n- another rule\n")
 
@@ -36,7 +36,7 @@ class TestWithBlock(FrappeTestCase):
 		self.assertTrue(result.startswith("Do the job."))
 
 
-class TestPatchesInAnyOrder(FrappeTestCase):
+class TestPatchesInAnyOrder(IntegrationTestCase):
 	def setUp(self):
 		self.agent = next((a for a in ("Frontend Agent", "Mobile App Agent") if frappe.db.exists("AI Agent Configuration", a)), None)
 		if not self.agent:

@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.doctype.processa_legacy_migration import legacy_migration
 from processa.processa_engine.doctype.processa_legacy_migration.test_processa_legacy_migration import (
@@ -17,7 +17,7 @@ from processa.processa_engine.doctype.processa_legacy_migration.test_processa_le
 from processa.processa_engine.instances.starting import start_process
 
 
-class TestLegacyMigrationFinishFlow(FrappeTestCase):
+class TestLegacyMigrationFinishFlow(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -32,7 +32,7 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 
 	def setUp(self):
 		super().setUp()
-		# FrappeTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
+		# IntegrationTestCase rolls back per class; the savepoint keeps each test's rows out of the next.
 		frappe.db.savepoint("plm_finish_test")
 		self.addCleanup(frappe.db.rollback, save_point="plm_finish_test")
 

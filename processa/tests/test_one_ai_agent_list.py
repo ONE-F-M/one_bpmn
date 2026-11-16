@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api import agui
 from processa.api.a2a import ONE_AI_AGENT_IDS, list_one_ai_agents
@@ -31,7 +31,7 @@ def _config(agent_id: str, label: str, **overrides) -> str:
 	return doc.name
 
 
-class TestOneAiAgentList(FrappeTestCase):
+class TestOneAiAgentList(IntegrationTestCase):
 	"""The page's picker: fixed membership, live fields, quiet absences."""
 
 	def setUp(self):
@@ -101,7 +101,7 @@ class TestOneAiAgentList(FrappeTestCase):
 		self.assertEqual([a["agent_id"] for a in list_one_ai_agents()], ["ba_architect"])
 
 
-class TestOneAiConversationList(FrappeTestCase):
+class TestOneAiConversationList(IntegrationTestCase):
 	"""The history sidebar shows this page's conversations and no others."""
 
 	def setUp(self):

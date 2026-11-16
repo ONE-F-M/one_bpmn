@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.a2a import contract as a2a_contract
 from processa.ai_agent_evals.tests.factories import make_agent_configuration
@@ -29,7 +29,7 @@ def make_exposed_agent(**kwargs):
 	return make_agent_configuration(**defaults)
 
 
-class RPCHarness(FrappeTestCase):
+class RPCHarness(IntegrationTestCase):
 	"""Shared plumbing: fake the request body, call rpc(), read the reply."""
 
 	def call_rpc(self, payload: dict, agent_id: str = None) -> dict:

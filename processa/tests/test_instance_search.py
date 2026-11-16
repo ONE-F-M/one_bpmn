@@ -6,19 +6,17 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.instances import list_process_instances
 from processa.processa_engine.instances import listing
 from processa.processa_engine.instances.listing import _search_rank
 
-test_ignore = ["BPMN Process Model"]
-
 SD5 = "Software Development v5"
 FLR = "First Line Response Leave Approval"
 
 
-class TestSearchRank(FrappeTestCase):
+class TestSearchRank(IntegrationTestCase):
 	def rank(self, query, model=SD5):
 		return _search_rank(query, {"process_model": model, "name": "BPMN-INST-0001"})
 
@@ -45,7 +43,7 @@ class TestSearchRank(FrappeTestCase):
 		self.assertIsNone(self.rank("q"))
 
 
-class TestListSearch(FrappeTestCase):
+class TestListSearch(IntegrationTestCase):
 	def _instance(self, model: str, status: str = "Active") -> str:
 		doc = frappe.get_doc(
 			{"doctype": "BPMN Process Instance", "process_model": model, "status": status}

@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_conversations.session_state import get_state, record
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
@@ -17,7 +17,7 @@ TASKS = {
 }
 
 
-class TestLuCrusherConfirmTurn(FrappeTestCase):
+class TestLuCrusherConfirmTurn(IntegrationTestCase):
 	def setUp(self):
 		for name in (SAVE_RESPONSE, BUILD_CONTEXT):
 			if not frappe.db.exists("Server Script", name):

@@ -2,7 +2,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_evals.runner.cases_memory import execute_memory_case
 from processa.patches.v1_0 import (
@@ -18,7 +18,7 @@ def _cases():
 	) if suite else []
 
 
-class TestCaseTypeExampleFixtures(FrappeTestCase):
+class TestCaseTypeExampleFixtures(IntegrationTestCase):
 
 	def setUp(self):
 		if not frappe.db.get_value("AI Agent Configuration", {"agent_name": seed.AGENT}, "name"):

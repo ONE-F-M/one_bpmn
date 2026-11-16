@@ -11,7 +11,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.assignment import (
 	_swap_user,
@@ -21,7 +21,7 @@ from processa.processa_engine.assignment import (
 )
 
 
-class TestRedirectIsRecorded(FrappeTestCase):
+class TestRedirectIsRecorded(IntegrationTestCase):
 	def test_a_redirect_reports_who_it_took_the_task_from(self):
 		pairs = []
 		with patch.object(frappe.db, "get_value", side_effect=["EMP-1", "bob@x.com"]):
@@ -39,7 +39,7 @@ class TestRedirectIsRecorded(FrappeTestCase):
 			self.assertEqual(get_reliever_if_on_leave("alice@x.com"), "bob@x.com")
 
 
-class TestSwapUser(FrappeTestCase):
+class TestSwapUser(UnitTestCase):
 	"""assigned_user carries every assignee of a Table Field task. A hand-back
 	touches one entry; the others never went anywhere."""
 
@@ -84,7 +84,7 @@ def _row(**kw):
 	return frappe._dict(base)
 
 
-class TestRestoreTasksOnReturn(FrappeTestCase):
+class TestRestoreTasksOnReturn(IntegrationTestCase):
 	def _run(self, rows, user="alice@x.com"):
 		"""Run the sweep over *rows*, returning (count, writes)."""
 		writes = []
@@ -141,7 +141,7 @@ class TestRestoreTasksOnReturn(FrappeTestCase):
 LEAVE_RELIEVER = "processa.processa_engine.assignment._current_reliever"
 
 
-class TestTaskActors(FrappeTestCase):
+class TestTaskActors(UnitTestCase):
 	def test_the_recorded_pair_can_both_act(self):
 		with patch(LEAVE_RELIEVER, return_value=None):
 			self.assertEqual(task_actors(_row()), {"alice@x.com", "bob@x.com"})
@@ -167,7 +167,7 @@ class TestTaskActors(FrappeTestCase):
 			self.assertEqual(task_actors(row), {"carl@x.com"})
 
 
-class TestRelieverCanActionTheTask(FrappeTestCase):
+class TestRelieverCanActionTheTask(IntegrationTestCase):
 	def _refusal(self, user, row):
 		from processa.processa_engine.instances.task_actions import _task_authorization
 
@@ -191,7 +191,7 @@ class TestRelieverCanActionTheTask(FrappeTestCase):
 			self.assertIsNone(self._refusal("bob@x.com", row))
 
 
-class TestPendingListIncludesTheReliever(FrappeTestCase):
+class TestPendingListIncludesTheReliever(UnitTestCase):
 	def _pending(self, user, rows, covered):
 		from processa.processa_engine.instances.listing import _instances_pending_on
 

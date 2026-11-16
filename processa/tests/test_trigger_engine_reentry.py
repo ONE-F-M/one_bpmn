@@ -4,12 +4,12 @@
 from unittest import mock
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine import triggers
 
 
-class TestTriggerEngineReentry(FrappeTestCase):
+class TestTriggerEngineReentry(IntegrationTestCase):
 	def setUp(self):
 		super().setUp()
 		self.doc = frappe.get_doc({"doctype": "ToDo", "description": "reentry probe"})

@@ -285,7 +285,7 @@ def agent_event_stream(
 
 					save_user_message(conversation, builder_input["_turn_message"])
 					save_bot_message(conversation, direct_reply)
-					if not frappe.flags.in_test:
+					if not frappe.in_test:
 						frappe.db.commit()
 					yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 					yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=direct_reply))
@@ -310,7 +310,7 @@ def agent_event_stream(
 		# exactly as the production Lumina generator does. (Guarded for the
 		# test runner's transaction isolation.)
 		def _commit_turn():
-			if not frappe.flags.in_test:
+			if not frappe.in_test:
 				frappe.db.commit()
 
 		if result.get("streaming"):
@@ -437,14 +437,14 @@ def agent_event_stream(
 		# events, so the count could never rise and containment could never
 		# trigger no matter how hard someone hammered the door. Six refusals in a
 		# row had logged exactly one attempt.
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
 		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
-		if not frappe.flags.in_test:
+		if not frappe.in_test:
 			frappe.db.rollback()
 		frappe.log_error(
 			title="agui stream error",

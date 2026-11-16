@@ -2,9 +2,9 @@
 # See license.txt
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 
-class TestProcessCreationRequest(FrappeTestCase):
+class TestProcessCreationRequest(IntegrationTestCase):
 	def test_owned_by_processa_engine(self):
 		self.assertEqual(frappe.get_meta("Process Creation Request").module, "Processa Engine")

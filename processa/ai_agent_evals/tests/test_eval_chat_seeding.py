@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import now_datetime
 
 import processa.ai_agent_evals.runner.agent_eval as runner_agent_eval
@@ -17,7 +17,7 @@ CFG = frappe._dict(agent_id="zz_eval_chat_agent", name="ZZ Eval Chat Agent")
 CASE_NAME = "zz-eval-chat-seeding-case"
 
 
-class TestChatEvalSeeding(FrappeTestCase):
+class TestChatEvalSeeding(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversations = []

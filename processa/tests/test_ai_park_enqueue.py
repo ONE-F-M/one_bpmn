@@ -17,14 +17,12 @@ import json
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from processa.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from processa.processa_engine import engine as bpmn_engine
 from processa.processa_engine.runtime.engine_loop import run_engine
-
-test_ignore = ["BPMN Process Model"]
 
 _LINEAR_AGENT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_ParkLinear" targetNamespace="http://bpmn.io/schema/bpmn">
@@ -92,7 +90,7 @@ def _executor_ok(output="agent done"):
 	)
 
 
-class ParkHarness(FrappeTestCase):
+class ParkHarness(IntegrationTestCase):
 	"""Shared harness: real instance doc + real engine workflow."""
 
 	def setUp(self):

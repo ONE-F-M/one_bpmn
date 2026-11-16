@@ -15,12 +15,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-
-test_ignore = ["BPMN Process Model"]
+from frappe.tests import IntegrationTestCase
 
 
-class TestInlineSessionSafety(FrappeTestCase):
+class TestInlineSessionSafety(IntegrationTestCase):
 	def _bare_instance(self, status):
 		instance = frappe.get_doc(
 			{

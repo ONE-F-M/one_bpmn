@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.agent_runtime.step_loop import run_agent_loop
 from processa.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
@@ -45,7 +45,7 @@ def _make_rule(**overrides):
 	return doc
 
 
-class TestPolicyEvaluation(FrappeTestCase):
+class TestPolicyEvaluation(IntegrationTestCase):
 	def setUp(self):
 		_make_rule()
 		self.addCleanup(tp.clear_rule_cache)
@@ -92,7 +92,7 @@ class TestPolicyEvaluation(FrappeTestCase):
 		self.assertEqual(tp._ACTION_BY_LABEL.get("anything at all", tp.DENY), tp.DENY)
 
 
-class TestWhatTheModelIsTold(FrappeTestCase):
+class TestWhatTheModelIsTold(IntegrationTestCase):
 	"""The refusal text is the only thing standing between a block and a user
 	who never learns about it."""
 
@@ -120,7 +120,7 @@ class TestWhatTheModelIsTold(FrappeTestCase):
 		self.assertNotIn("Secret Rule Name", decision.as_tool_result())
 
 
-class TestAgentScoping(FrappeTestCase):
+class TestAgentScoping(IntegrationTestCase):
 	def setUp(self):
 		_make_rule()
 		self.addCleanup(tp.clear_rule_cache)
@@ -151,7 +151,7 @@ class TestAgentScoping(FrappeTestCase):
 		self.assertIsNone(tp.current_agent())
 
 
-class TestGuardAppliedAtConstruction(FrappeTestCase):
+class TestGuardAppliedAtConstruction(IntegrationTestCase):
 	"""The interception point is ToolSpec.__post_init__ — NOT a loop. This is
 	what makes a tool built inside a Server Script (as the Logix clarifier does)
 	just as guarded as one built by compile_shape_tools."""
@@ -182,7 +182,7 @@ class TestGuardAppliedAtConstruction(FrappeTestCase):
 		self.assertIs(again.fn, inner.fn)
 
 
-class TestDenialRecordedAsSecurityEvent(FrappeTestCase):
+class TestDenialRecordedAsSecurityEvent(IntegrationTestCase):
 	"""A refused tool call is an AI Security Event as well as an Error Log row,
 	so it shows on the Security screen and can be promoted to an eval case."""
 
@@ -331,7 +331,7 @@ class _FakeAdapter:
 		return self.steps.pop(0)
 
 
-class TestLoopIntegration(FrappeTestCase):
+class TestLoopIntegration(IntegrationTestCase):
 	def setUp(self):
 		_make_rule()
 		self.addCleanup(tp.clear_rule_cache)
@@ -401,7 +401,7 @@ class TestLoopIntegration(FrappeTestCase):
 		self.assertEqual(completion.trace[0].tool_calls[0].result, "42")
 
 
-class TestObservability(FrappeTestCase):
+class TestObservability(IntegrationTestCase):
 	def test_denied_result_is_classified_as_denied_not_error(self):
 		from processa.ai_agent_observability.observability import tool_call_status
 
@@ -411,7 +411,7 @@ class TestObservability(FrappeTestCase):
 		self.assertEqual(tool_call_status("42"), "Success")
 
 
-class TestParameterCeilings(FrappeTestCase):
+class TestParameterCeilings(IntegrationTestCase):
 	"""The transaction-ceiling half: bounds on the argument VALUES,
 	not just on which tool may run or which record types it may touch.
 
@@ -573,7 +573,7 @@ class TestParameterCeilings(FrappeTestCase):
 		)
 
 
-class TestTheRuleFormWillSave(FrappeTestCase):
+class TestTheRuleFormWillSave(IntegrationTestCase):
 	"""A ceiling nobody can save is not a control. The save-time validation
 	predated parameter limits and demanded a Restricted DocType, which made a
 	pure transaction ceiling unsavable."""
@@ -634,7 +634,7 @@ class TestTheRuleFormWillSave(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
 
 
-class TestRespectUserPermissions(FrappeTestCase):
+class TestRespectUserPermissions(IntegrationTestCase):
 	"""A rule may stand down for a user who already holds the permission.
 
 	Opt-in per rule, because deferring is a genuine relaxation: a System Manager
@@ -765,7 +765,7 @@ def _plain_user():
 	return email
 
 
-class TestGuardrailsModule(FrappeTestCase):
+class TestGuardrailsModule(IntegrationTestCase):
 	def test_rule_doctype_lives_in_the_guardrails_module(self):
 		self.assertEqual(frappe.get_meta("AI Tool Policy Rule").module, "AI Agent Guardrails")
 

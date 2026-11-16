@@ -6,12 +6,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
-
-test_ignore = ["BPMN Process Model"]
+from frappe.tests import IntegrationTestCase
 
 
-class TestAiAgentQueueRouting(FrappeTestCase):
+class TestAiAgentQueueRouting(IntegrationTestCase):
 	# ── Scenario 2: both call sites enqueue on bpmn_ai_agent explicitly ──
 
 	def test_start_process_async_uses_dedicated_queue(self):

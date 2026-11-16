@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.compiler.ai_checks import validate_ai_max_tokens
 from processa.processa_engine.compiler.extensions import extract_service_task_config
@@ -28,7 +28,7 @@ def _task(max_tokens=None, service_type="ai_agent"):
 	return {"agent_task": cfg}
 
 
-class TestCompileRefusesAMaxTokensBelowOne(FrappeTestCase):
+class TestCompileRefusesAMaxTokensBelowOne(UnitTestCase):
 	def test_zero_blank_negative_and_non_numbers_are_refused_and_name_the_shape(self):
 		for value in ("0", "", "-5", "abc", "1.5", "  "):
 			with self.subTest(value=value):
@@ -50,7 +50,7 @@ class TestCompileRefusesAMaxTokensBelowOne(FrappeTestCase):
 			validate_ai_max_tokens(extract_service_task_config(MAP_XML))
 
 
-class TestExistingMapsAreCleared(FrappeTestCase):
+class TestExistingMapsAreCleared(IntegrationTestCase):
 	def test_only_non_positive_values_are_removed(self):
 		cleaned, removed = patch.strip_non_positive_max_tokens(MAP_XML)
 		self.assertEqual(removed, 3)

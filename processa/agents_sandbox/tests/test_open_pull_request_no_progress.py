@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.agents_sandbox.sandbox.ops import repeat_open_pull_request_without_progress_error as gate
 
@@ -30,7 +30,7 @@ def _instance():
 	return frappe._dict(name=INSTANCE, process_model="Mobile App Agent")
 
 
-class TestOpenPullRequestNoProgress(FrappeTestCase):
+class TestOpenPullRequestNoProgress(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 		super().tearDown()

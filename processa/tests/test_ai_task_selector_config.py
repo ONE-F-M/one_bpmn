@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.processa_engine.compiler.ai_checks import lint_ai_provider_config
 from processa.processa_engine.compiler.extensions import extract_adhoc_selector_config
@@ -31,7 +31,7 @@ def _xml(provider="", extra=""):
 	return SELECTOR_XML.replace("{provider}", provider).replace("{extra}", extra)
 
 
-class TestAiTaskSelectorConfig(FrappeTestCase):
+class TestAiTaskSelectorConfig(IntegrationTestCase):
 	# ── Scenario 2: attributes extracted from the subprocess element ──
 
 	def test_extracts_selector_attributes_from_adhoc_element(self):
@@ -111,7 +111,7 @@ ADHOC_STRUCTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-class TestAdhocStructureValidation(FrappeTestCase):
+class TestAdhocStructureValidation(IntegrationTestCase):
 	"""validate_adhoc_structure: BPMN-spec constraints on ad-hoc subprocesses
 	(no start/end events inside, at least one activity)."""
 

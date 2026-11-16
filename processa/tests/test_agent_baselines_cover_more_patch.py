@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import agent_baselines_cover_more as seed
 from processa.patches.v1_0 import connector_agent_baseline_covers_every_tool as connector
@@ -31,7 +31,7 @@ def _assertions(case):
 	return frappe.get_all("AI Eval Assertion", filters={"parent": case}, fields=["assertion_type", "value"])
 
 
-class TestBaselinesCoverMore(FrappeTestCase):
+class TestBaselinesCoverMore(IntegrationTestCase):
 	def test_a_site_without_the_suites_is_left_alone(self):
 		before = frappe.db.count("AI Eval Case")
 		with mock_patch.object(connector, "SUITE_TITLE", "No Such Suite"), mock_patch.object(

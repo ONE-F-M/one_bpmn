@@ -6,7 +6,7 @@ from collections import Counter
 from unittest.mock import patch as mock_patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, now_datetime
 
 from processa.ai_agent_memory.prune import _invalidate
@@ -25,7 +25,7 @@ def _memory(**kw):
 	return doc.name
 
 
-class TestApplyReviewedMemoryCleanupPatch(FrappeTestCase):
+class TestApplyReviewedMemoryCleanupPatch(IntegrationTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.dir = frappe.get_site_path("private", "files")

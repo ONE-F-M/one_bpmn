@@ -20,9 +20,9 @@ absent, because it can be authored against.
 
 import html
 import re
-import unittest
 
 import frappe
+from frappe.tests import IntegrationTestCase
 
 PROCESS = "Document Request"
 
@@ -65,7 +65,7 @@ def _template_expression() -> str:
 	return html.unescape(match.group(1)) if match else ""
 
 
-class TestUnifiedMapIsTheOnlyOne(unittest.TestCase):
+class TestUnifiedMapIsTheOnlyOne(IntegrationTestCase):
 	"""The point of the story: one map, not four."""
 
 	def test_exactly_one_active_map_triggers_on_document_request(self):
@@ -101,7 +101,7 @@ class TestUnifiedMapIsTheOnlyOne(unittest.TestCase):
 		self.assertTrue(model.serialized_spec, "an uncompiled map never starts")
 
 
-class TestDocumentTypeIsAParameter(unittest.TestCase):
+class TestDocumentTypeIsAParameter(IntegrationTestCase):
 	"""What used to be four diagrams is now one diagram plus a lookup."""
 
 	def test_start_guard_admits_every_type(self):
@@ -203,7 +203,7 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 				)
 
 
-class TestOneAgentServesEveryType(unittest.TestCase):
+class TestOneAgentServesEveryType(IntegrationTestCase):
 	def test_the_draft_task_points_at_the_shared_agent(self):
 		xml = frappe.db.get_value("BPMN Process Model", _active_model(), "bpmn_xml") or ""
 		match = re.search(r'id="draft_task"[^>]*aiAgentConfig="([^"]*)"', xml)
@@ -220,7 +220,7 @@ class TestOneAgentServesEveryType(unittest.TestCase):
 		self.assertTrue(agent.ai_model, "no AI Model linked -> Needs Attention -> will not deploy")
 
 
-class TestDeprecatedProcessMasters(unittest.TestCase):
+class TestDeprecatedProcessMasters(IntegrationTestCase):
 	"""A Process master with no map can still be authored against — which is
 	how two Process Implementation rows were opened against a process whose
 	diagram had already been deleted."""
@@ -248,7 +248,7 @@ class TestDeprecatedProcessMasters(unittest.TestCase):
 		)
 
 
-class TestEveryTypeStartsTheSameProcess(unittest.TestCase):
+class TestEveryTypeStartsTheSameProcess(IntegrationTestCase):
 	"""The end-to-end proof, run through the real doc-event trigger."""
 
 	def setUp(self):

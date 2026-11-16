@@ -3,7 +3,7 @@
 """The AI Assistant proposes new agent configurations through chat."""
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_registry.definitions.assistant import helpers as assistant_helpers
 from processa.ai_agent_registry.definitions.assistant.helpers import _sanitize_proposed_config
@@ -11,7 +11,7 @@ from processa.ai_agent_registry.definitions.assistant.helpers_prompts import cre
 from processa.ai_agent_registry.definitions.shared.helpers import extract_json
 
 
-class TestAssistantCreatesConfig(FrappeTestCase):
+class TestAssistantCreatesConfig(IntegrationTestCase):
 	def test_prerequisites_are_live_data(self):
 		block = creation_prerequisites_block()
 		# Required fields come from the doctype meta at call time — adding a

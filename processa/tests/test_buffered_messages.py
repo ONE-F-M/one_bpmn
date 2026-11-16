@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.api.deploy import compile_process_model
 from SpiffWorkflow.util.task import TaskState
@@ -52,7 +52,7 @@ MAP = f"""<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestBufferedMessages(FrappeTestCase):
+class TestBufferedMessages(IntegrationTestCase):
 	def setUp(self):
 		self._instances: list[str] = []
 		if frappe.db.exists("BPMN Process Model", MODEL):
@@ -175,7 +175,7 @@ class TestBufferedMessages(FrappeTestCase):
 		self.assertEqual(len(self._buffered(first)), 1)
 
 
-class TestDeclaresMessage(FrappeTestCase):
+class TestDeclaresMessage(UnitTestCase):
 	def setUp(self):
 		spec, subprocess_specs = engine.parse_bpmn(MAP, PROCESS_ID)
 		self.wf = engine.create_workflow(spec, subprocess_specs)

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.production_review import (
 	_build_doctype_snapshot,
@@ -34,7 +34,7 @@ def _snap(link_filters=None, extra_fields=None):
 	                    "property_setters": {}, "docfields": fields}}
 
 
-class TestDocFieldDriftIsVisible(FrappeTestCase):
+class TestDocFieldDriftIsVisible(IntegrationTestCase):
 	def test_a_link_filter_added_on_ba_is_reported(self):
 		"""The exact reported case: filter on BA, absent on Production."""
 		changes = _diff_doctypes(_snap(LINK_FILTERS), _snap(None))
@@ -58,7 +58,7 @@ class TestDocFieldDriftIsVisible(FrappeTestCase):
 		self.assertTrue(changes[0]["name"].endswith("new_field"))
 
 
-class TestOlderProductionIsNotMisreported(FrappeTestCase):
+class TestOlderProductionIsNotMisreported(IntegrationTestCase):
 	def test_a_production_without_the_key_reports_no_docfield_drift(self):
 		"""Absent must not read as empty.
 
@@ -74,7 +74,7 @@ class TestOlderProductionIsNotMisreported(FrappeTestCase):
 		self.assertEqual(changes, [])
 
 
-class TestSnapshotShape(FrappeTestCase):
+class TestSnapshotShape(IntegrationTestCase):
 	def test_docfields_are_keyed_by_fieldname_and_drop_the_row_name(self):
 		"""A DocField's name is a per-site hash, so it can neither key nor be compared."""
 		snap = _build_doctype_snapshot(["DocType"])["DocType"]

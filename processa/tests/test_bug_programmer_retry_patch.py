@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.patches.v1_0 import bug_programmer_does_not_retry_its_reproduction_run as patch
 
@@ -12,7 +12,7 @@ FLAG = "sandbox_retry_on_test_failure"
 OTHER = "Dev Agent"
 
 
-class TestBugProgrammerRetryPatch(FrappeTestCase):
+class TestBugProgrammerRetryPatch(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", patch.AGENT):
 			self.skipTest(f"{patch.AGENT} is not on this site")

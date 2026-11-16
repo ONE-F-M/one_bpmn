@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.ai_agent_memory import embedding_backfill as B
 from processa.ai_agent_memory import tools as T
@@ -18,7 +18,7 @@ def _null_embedding_count(agent: str) -> int:
 	)[0][0]
 
 
-class TestEmbeddingBackfill(FrappeTestCase):
+class TestEmbeddingBackfill(IntegrationTestCase):
 	def setUp(self):
 		if not T._vector_supported():
 			self.skipTest("AI Memory has no VECTOR column (MariaDB 11.7+ required)")

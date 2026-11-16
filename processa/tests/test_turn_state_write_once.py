@@ -23,7 +23,7 @@ Run with:
 from __future__ import annotations
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase, UnitTestCase
 
 from processa.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn, update_turn
 
@@ -31,7 +31,7 @@ ANSWERED = {"intent": "CONFIRM_REMOVAL", "response": "removals need approval", "
 STRAY = {"intent": "CONFIRM", "response": "Shall I go ahead?", "options": ["Yes, proceed"]}
 
 
-class TestTurnStateWriteOnce(FrappeTestCase):
+class TestTurnStateWriteOnce(UnitTestCase):
     def setUp(self):
         self.conversation = f"wi2001-{frappe.generate_hash(length=8)}"
         self.addCleanup(clear_turn, self.conversation)
@@ -102,7 +102,7 @@ class TestTurnStateWriteOnce(FrappeTestCase):
         self.assertEqual(get_turn(self.conversation)["output"], STRAY)
 
 
-class TestProsAllyModifyToolContract(FrappeTestCase):
+class TestProsAllyModifyToolContract(IntegrationTestCase):
     """The signal that invited the stray call in the first place.
 
     The removal-confirmation branch used to hand the orchestrator

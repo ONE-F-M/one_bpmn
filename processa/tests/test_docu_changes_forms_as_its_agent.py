@@ -5,7 +5,7 @@
 import json
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 
 from processa.api.docu import (
 	DOCU_AGENT,
@@ -20,7 +20,7 @@ PROBE_USER = "docu.identity.probe@example.com"
 ROLE = "Process Owner"
 
 
-class TestDocuChangesFormsAsItsAgent(FrappeTestCase):
+class TestDocuChangesFormsAsItsAgent(IntegrationTestCase):
 	def setUp(self):
 		if not frappe.db.exists("AI Agent Configuration", DOCU_AGENT):
 			self.skipTest("no Docu Agent configuration on this site")

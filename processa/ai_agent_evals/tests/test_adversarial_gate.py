@@ -11,7 +11,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from processa.ai_agent_evals.adversarial_gate import (
@@ -27,7 +27,7 @@ from processa.ai_agent_registry.provisioning.conformance import (
 PREFIX = "ZZ-wi1969"
 
 
-class TestAdversarialGate(FrappeTestCase):
+class TestAdversarialGate(IntegrationTestCase):
 	def setUp(self):
 		self._cleanup()
 		self.agent = frappe.get_doc({
@@ -319,7 +319,7 @@ class TestAdversarialGate(FrappeTestCase):
 
 
 
-class TestReReviewGoesThroughTheGate(FrappeTestCase):
+class TestReReviewGoesThroughTheGate(IntegrationTestCase):
 	"""Disable / re-enable must not be a way around the gate.
 
 	provision_agent is only reachable through the agent-creation process, which
@@ -482,7 +482,7 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		self.assertFalse(check(doc.name)["ok"])
 
 
-class TestAdversarialPack(FrappeTestCase):
+class TestAdversarialPack(IntegrationTestCase):
 	"""The shipped case pack. A gate is only real if writing the suite is easy."""
 
 	def setUp(self):
