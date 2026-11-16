@@ -381,3 +381,4 @@ processa.patches.v1_0.seed_github_connector #16-11-2026 the github connector wit
 processa.patches.v1_0.seed_github_video_upload_connector #16-11-2026 the github_video_upload connector that holds the machine user token for upload_videos, without the token
 processa.patches.v1_0.repath_a2a_remote_agent_endpoints #16-11-2026 A2A Remote Agent endpoints that call the old one_bpmn rpc method call processa's
 processa.patches.v1_0.add_github_connector_operations #16-11-2026 the github connector gets get_pull_request, list_pr_files and request_reviewers
+processa.patches.v15_0.processa_sync_doctype_sync___v1_058d35 #2026-11-16 Processa sync: Process Implementation
