@@ -859,6 +859,7 @@ def finalize_ai_run(
 			output = output[:_MAX_OUTPUT_CHARS]
 		update["status"] = "Success"
 		update["final_output"] = output
+		update.update(terminal_tool_failure(result.trace))
 	else:
 		update["status"] = "Error"
 		update["error_code"] = result.error_code.value
@@ -896,6 +897,23 @@ def finalize_ai_run(
 	model_health.note_run_outcome(
 		getattr(run, "model", None), update.get("error_code") or "SUCCESS", update.get("error_message")
 	)
+
+
+def terminal_tool_failure(trace) -> dict:
+	"""The status, error_code and error_message for finalize_ai_run when the last tool call failed with a code, else {}."""
+	calls = [call for turn in trace or [] for call in (turn.get("tool_calls") or [])]
+	if not calls:
+		return {}
+	text = str(calls[-1].get("result") or "")
+	if not text.lstrip().startswith("{"):
+		return {}
+	try:
+		body = json.loads(text)
+	except ValueError:
+		return {}
+	if body.get("error") and body.get("error_code"):
+		return {"status": "Error", "error_code": str(body["error_code"]), "error_message": str(body["error"])}
+	return {}
 
 
 def finalize_ai_run_on_exception(run, exception: Exception) -> None:
