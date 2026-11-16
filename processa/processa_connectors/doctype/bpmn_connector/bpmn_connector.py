@@ -17,7 +17,7 @@ _HEX_COLOUR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 # Auth types whose secret is presented by the HTTP executor and therefore needs
 # a place to read the secret from. "Service Account JSON" is resolved by the
 # Google clients (google/common.py) instead, so it needs no fields here.
-_SECRET_AUTH_TYPES = ("Bearer Token", "API Key Header", "API Key Query Param", "Basic")
+_SECRET_AUTH_TYPES = ("Bearer Token", "API Key Header", "API Key Query Param", "Basic", "GitHub App JSON")
 
 
 class BPMNConnector(Document):
@@ -40,7 +40,7 @@ class BPMNConnector(Document):
 		auth_secret: DF.Password | None
 		auth_secret_field: DF.Data | None
 		auth_settings_doctype: DF.Link | None
-		auth_type: DF.Literal["None", "Bearer Token", "API Key Header", "API Key Query Param", "Basic", "Service Account JSON"]
+		auth_type: DF.Literal["None", "Bearer Token", "API Key Header", "API Key Query Param", "Basic", "Service Account JSON", "GitHub App JSON"]
 		base_url: DF.Data | None
 		connector_id: DF.Data
 		credential_source: DF.Literal["On this connector", "From a settings DocType"]
@@ -170,6 +170,7 @@ def _clear_cache():
 def _clear_token(connector_id):
 	if not connector_id:
 		return
-	from processa.processa_connectors.operations.http import clear_service_account_token
+	from processa.processa_connectors.operations.http import clear_github_app_token, clear_service_account_token
 
 	clear_service_account_token(connector_id)
+	clear_github_app_token(connector_id)

@@ -184,7 +184,7 @@
    "fieldname": "auth_type",
    "fieldtype": "Select",
    "label": "Auth Type",
-   "options": "None\nBearer Token\nAPI Key Header\nAPI Key Query Param\nBasic\nService Account JSON"
+   "options": "None\nBearer Token\nAPI Key Header\nAPI Key Query Param\nBasic\nService Account JSON\nGitHub App JSON"
   },
   {
    "default": "On this connector",
@@ -197,7 +197,7 @@
   },
   {
    "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.credential_source!='From a settings DocType'",
-   "description": "For <b>Service Account JSON</b>, paste the whole key file Google issued — every brace, the full <code>private_key</code>, nothing trimmed. For the other auth types this is the token, API key, or <code>user:password</code>.",
+   "description": "For <b>GitHub App JSON</b>, paste <code>{\"app_id\": ..., \"installation_id\": ..., \"private_key\": \"-----BEGIN ...\\n...\\n-----END ...-----\\n\"}</code> with each line break of the key written as <code>\\n</code>, since this field takes one line. For <b>Service Account JSON</b>, paste the whole key file Google issued — every brace, the full <code>private_key</code>, nothing trimmed. For the other auth types this is the token, API key, or <code>user:password</code>.",
    "fieldname": "auth_secret",
    "fieldtype": "Password",
    "label": "Secret",
@@ -280,7 +280,7 @@
    "link_fieldname": "connector"
   }
  ],
- "modified": "2026-07-29 08:00:00",
+ "modified": "2026-11-16 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Processa Connectors",
  "name": "BPMN Connector",

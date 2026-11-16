@@ -11,6 +11,8 @@ import re
 import frappe
 import requests
 
+from processa.processa_connectors.operations import http as http_ops
+
 API = "https://api.github.com"
 # A comment may only go on a pull request of these owners, so a model cannot aim the token at someone else's repository.
 ALLOWED_OWNERS = ("ONE-F-M",)
@@ -66,23 +68,31 @@ CONNECTOR = "github"
 
 
 def _token():
-	"""The token the comment is posted with: the github connector's Auth Secret when it is enabled and uses Bearer Token auth, so the
-	comment identity is set on the connector, else the GitHub token in Processa Settings."""
+	"""The token the comment is posted with. When the github connector signs in as the GitHub App (Auth Type GitHub App JSON), it is the
+	App's installation token, and a missing or refused key fails the call: it never falls back to a personal token. Otherwise it is the
+	connector's Auth Secret when it is enabled with Bearer Token auth, else the GitHub Token in Processa Settings."""
 	row = frappe.db.get_value("BPMN Connector", CONNECTOR, ["enabled", "auth_type"], as_dict=True)
+	if row and row.enabled and row.auth_type == "GitHub App JSON":
+		from processa.processa_connectors import manifest
+
+		try:
+			return http_ops._github_app_token(manifest.get_execution_spec(CONNECTOR, "post_pr_comment"))
+		except http_ops.ConnectorHTTPError as e:
+			raise GitHubCommentError(str(e)) from e
 	if row and row.enabled and row.auth_type == "Bearer Token":
 		secret = (frappe.get_doc("BPMN Connector", CONNECTOR).get_password("auth_secret", raise_exception=False) or "").strip()
 		if secret:
 			return secret
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token", raise_exception=False) or ""
 	if not token:
-		raise GitHubCommentError("No GitHub token: set the Auth Secret on the github connector (Bearer Token), or the GitHub Token in Processa Settings.")
+		raise GitHubCommentError("No GitHub token: set the Auth Secret on the github connector, or the GitHub Token in Processa Settings.")
 	return token
 
 
 def _call(method, url, token, payload=None):
 	response = requests.request(
 		method, url, timeout=30, json=payload,
-		headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+		headers={**http_ops.github_headers(), "Authorization": f"Bearer {token}"},
 	)
 	if response.status_code >= 300:
 		raise GitHubCommentError(f"GitHub answered {response.status_code} for {method} {url.replace(API, '')}: {response.text[:200]}")
