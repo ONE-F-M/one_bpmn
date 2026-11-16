@@ -138,6 +138,25 @@ class TestRegistering(SessionCase):
 		self.assertEqual((session.state, session.register_token_hash), ("registered", ""))
 		self.assertIsNone(sessions.register(session.name, token))
 
+	def test_the_apps_the_sandbox_reports_are_kept_and_an_unusable_report_changes_nothing(self):
+		from processa.agents_sandbox.sandbox import apps
+
+		report = [{"app": "agent_sandbox", "repository": "ONE-F-M/agent-sandbox"}]
+		session, token = self._started()
+		self.assertTrue(sessions.register(session.name, token, report)["session_key"])
+		self.assertEqual(apps.reported(), report)
+		later, later_token = self._started(work_item="WI-SESS-APPS-2")
+		self.assertTrue(sessions.register(later.name, later_token, [])["session_key"])  # a failed scan reports nothing
+		self.assertEqual(apps.reported(), report)
+
+	def test_a_failure_to_keep_the_reported_apps_never_stops_a_session_registering(self):
+		from processa.agents_sandbox.sandbox import apps
+
+		session, token = self._started(work_item="WI-SESS-APPS-3")
+		with patch.object(apps, "record", side_effect=RuntimeError("boom")), patch.object(frappe, "log_error") as logged:
+			self.assertTrue(sessions.register(session.name, token, [{"app": "x"}])["session_key"])
+		logged.assert_called_once()
+
 	def test_a_wrong_token_unknown_session_or_empty_token_is_refused(self):
 		session, token = self._started()
 		self.assertIsNone(sessions.register(session.name, token + "x"))

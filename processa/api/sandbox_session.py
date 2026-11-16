@@ -13,7 +13,7 @@ REFUSED = {"accepted": False}
 def register() -> dict:
 	"""Exchange the one-time token for the session settings and key."""
 	body = _body()
-	settings = sessions.register(str(body.get("session") or ""), str(body.get("token") or "")) if body else None
+	settings = sessions.register(str(body.get("session") or ""), str(body.get("token") or ""), body.get("apps")) if body else None
 	return {"accepted": True, **settings} if settings else REFUSED
 
 

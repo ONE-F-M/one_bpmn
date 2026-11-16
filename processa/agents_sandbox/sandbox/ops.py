@@ -91,7 +91,17 @@ def target_app_choices() -> list[str]:
 	installed on this bench (the sandbox clones the same set) plus the
 	sandbox-only apps above that this bench's install state can't surface
 	on its own."""
-	return frappe.get_installed_apps() + _SANDBOX_ONLY_TARGET_APPS
+	from processa.agents_sandbox.sandbox import apps as reported_apps
+
+	return list(dict.fromkeys(frappe.get_installed_apps() + _SANDBOX_ONLY_TARGET_APPS + reported_apps.app_names()))
+
+
+def _accepted_target_apps() -> list[str]:
+	"""What a dispatch may name: the apps above, and the repository name of each app the sandbox reported (a Work Item holds the
+	repository name: password_management for the app one_fm_password_management). The sandbox maps the name to its folder."""
+	from processa.agents_sandbox.sandbox import apps as reported_apps
+
+	return list(dict.fromkeys(target_app_choices() + reported_apps.repository_names()))
 
 
 _WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
@@ -102,8 +112,8 @@ _BRANCH_MISSING_SECONDS = 60
 
 def dispatch_error(target_app: str, git_branch: str) -> str | None:
 	"""Why a dispatch cannot succeed, so it is refused before a run exists: an app the sandbox lacks, or a base branch GitHub does not have."""
-	if target_app not in target_app_choices():
-		return f"{target_app!r} is not an app the sandbox has. Use one of: {', '.join(target_app_choices())}."
+	if target_app not in _accepted_target_apps():
+		return f"{target_app!r} is not an app the sandbox has. Use one of: {', '.join(_accepted_target_apps())}."
 	return _missing_branch_error(target_app, git_branch)
 
 
