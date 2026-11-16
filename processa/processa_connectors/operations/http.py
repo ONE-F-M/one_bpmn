@@ -8,6 +8,7 @@ target host first: http or https only, and no private, loopback or link-local ad
 import ipaddress
 import json
 import socket
+import time
 from urllib.parse import urlencode, urlparse
 
 import frappe
@@ -17,8 +18,15 @@ from processa.processa_connectors.retry import call_with_retry
 # A larger body is refused so a workflow variable never becomes a file store.
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
-# Google access tokens last an hour; the cached copy expires early.
+# Google and GitHub access tokens last an hour; the cached copy expires early.
 _TOKEN_TTL_SECONDS = 55 * 60
+
+# What GitHub asks of every API call. An operation's own headers win over these defaults.
+GITHUB_API_VERSION = "2026-03-10"
+GITHUB_USER_AGENT = "processa-testing-agent/1.0"
+# GitHub refuses an App JWT that lives longer than 10 minutes, and a clock that is a little fast: it is dated a minute back.
+_GITHUB_JWT_BACKDATE_SECONDS = 60
+_GITHUB_JWT_LIFETIME_SECONDS = 9 * 60
 
 
 class ConnectorHTTPError(Exception):
@@ -209,6 +217,12 @@ def _apply_auth(spec, headers, query):
 		headers["Authorization"] = f"Bearer {_service_account_token(spec)}"
 		return
 
+	if auth_type == "GitHub App JSON":
+		for name, value in github_headers().items():
+			headers.setdefault(name, value)
+		headers["Authorization"] = f"Bearer {_github_app_token(spec)}"
+		return
+
 	secret = _read_secret(spec)
 	if not secret:
 		where = (
@@ -285,6 +299,88 @@ def _service_account_token(spec):
 def clear_service_account_token(connector_id):
 	"""Drop a cached access token; called when a connector's auth changes."""
 	frappe.cache().delete_value(f"bpmn_connector_sa_token:{connector_id}")
+
+
+def github_headers():
+	"""The headers every GitHub call carries."""
+	return {
+		"User-Agent": GITHUB_USER_AGENT,
+		"Accept": "application/vnd.github+json",
+		"X-GitHub-Api-Version": GITHUB_API_VERSION,
+	}
+
+
+def _where_the_secret_is(spec):
+	if spec.credential_source == "From a settings DocType":
+		return f"{spec.auth_settings_doctype}.{spec.auth_secret_field} (connector {spec.connector_id})"
+	return f"the Secret field on connector {spec.connector_id}"
+
+
+def _github_app_token(spec):
+	"""Sign in as the GitHub App: sign a short JWT with the App's private key, trade it for an installation token, and reuse that
+	token until shortly before it expires. The secret is {"app_id", "installation_id", "private_key"}.
+
+	It never falls back to another credential: a missing or refused key fails the call, naming the connector."""
+	secret = _read_secret(spec)
+	if not secret:
+		raise ConnectorHTTPError(f"Auth Type GitHub App JSON is set but no key was found at {_where_the_secret_is(spec)}.")
+	try:
+		info = json.loads(secret) if isinstance(secret, str) else secret
+	except ValueError as e:
+		raise ConnectorHTTPError(
+			f"The credential for connector {spec.connector_id} is not valid JSON: it must be "
+			'{"app_id": ..., "installation_id": ..., "private_key": "-----BEGIN ... END-----\\n"}.'
+		) from e
+	if not isinstance(info, dict):
+		raise ConnectorHTTPError(f"The credential for connector {spec.connector_id} must be a JSON object.")
+	missing = [k for k in ("app_id", "installation_id", "private_key") if not str(info.get(k) or "").strip()]
+	if missing:
+		raise ConnectorHTTPError(f"The credential for connector {spec.connector_id} is missing {', '.join(missing)}.")
+	installation_id = str(info["installation_id"]).strip()
+	if not installation_id.isdigit():
+		raise ConnectorHTTPError(f"The installation_id of connector {spec.connector_id} must be a number.")
+
+	cache_key = f"bpmn_connector_gh_token:{spec.connector_id}"
+	cached = frappe.cache().get_value(cache_key, expires=True)
+	if cached:
+		return cached
+
+	import jwt
+	import requests
+
+	now = int(time.time())
+	claims = {"iat": now - _GITHUB_JWT_BACKDATE_SECONDS, "exp": now + _GITHUB_JWT_LIFETIME_SECONDS, "iss": str(info["app_id"]).strip()}
+	# A key pasted on one line carries \n as two characters.
+	private_key = str(info["private_key"]).replace("\\n", "\n")
+	try:
+		signed = jwt.encode(claims, private_key, algorithm="RS256")
+	except Exception as e:
+		raise ConnectorHTTPError(f"The private key of connector {spec.connector_id} could not sign a token: {e}") from e
+
+	base = (spec.base_url or "https://api.github.com").rstrip("/")
+	try:
+		response = requests.post(
+			f"{base}/app/installations/{installation_id}/access_tokens",
+			headers={**github_headers(), "Authorization": f"Bearer {signed}"},
+			timeout=30,
+		)
+	except requests.RequestException as e:
+		raise ConnectorHTTPError(f"Connector {spec.connector_id} could not reach GitHub for an installation token: {e}") from e
+	if response.status_code != 201:
+		raise ConnectorHTTPError(
+			f"GitHub refused connector {spec.connector_id} an installation token (HTTP {response.status_code}): {(response.text or '')[:300]}"
+		)
+	token = (response.json() or {}).get("token")
+	if not token:
+		raise ConnectorHTTPError(f"GitHub answered connector {spec.connector_id} without an installation token.")
+
+	frappe.cache().set_value(cache_key, token, expires_in_sec=_TOKEN_TTL_SECONDS)
+	return token
+
+
+def clear_github_app_token(connector_id):
+	"""Drop a cached installation token; called when a connector's auth changes."""
+	frappe.cache().delete_value(f"bpmn_connector_gh_token:{connector_id}")
 
 
 def _read_secret(spec):

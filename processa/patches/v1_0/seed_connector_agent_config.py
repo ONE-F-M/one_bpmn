@@ -173,7 +173,7 @@ THE TWO LEVELS THAT ARE EASY TO CONFUSE
 
 RULES THE VALIDATOR ENFORCES — break one and the draft comes straight back to you
 - `connectorId` starts with a lowercase letter and contains only lowercase letters, digits and underscores.
-- Auth Type is exactly one of: None, Bearer Token, API Key Header, API Key Query Param, Basic, Service Account JSON. `API Key Header` needs `headerName`; `API Key Query Param` needs `queryParam`.
+- Auth Type is exactly one of: None, Bearer Token, API Key Header, API Key Query Param, Basic, Service Account JSON, GitHub App JSON (the secret is the App's {app_id, installation_id, private_key}; Processa signs in as the App itself). `API Key Header` needs `headerName`; `API Key Query Param` needs `queryParam`.
 - NEVER include a secret, key or token VALUE — only where the secret lives. A person supplies the value later.
 - Field `type` is one of: String, Text, Dropdown, Boolean, Hidden. A Dropdown must have `choices`.
 - EVERY `{{ params.x }}` in a template must match a declared field `name`, and every declared field must be referenced by some template. The two are checked against each other, so do not declare a field you do not use.
