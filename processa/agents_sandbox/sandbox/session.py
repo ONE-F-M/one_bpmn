@@ -107,7 +107,7 @@ def _timeout_for(session_name: str) -> int:
 	return START_WAIT_SECONDS if state in ("queued", "starting") else FAST_WAIT_SECONDS
 
 
-def register(session_name: str, token: str) -> dict | None:
+def register(session_name: str, token: str, apps=None) -> dict | None:
 	"""Prove the container with its one-time token and hand it the session settings, or None when the proof fails."""
 	session = frappe.get_doc(SESSION, session_name) if frappe.db.exists(SESSION, session_name) else None
 	if not session or session.state != "starting" or not session.register_token_hash:
@@ -120,6 +120,12 @@ def register(session_name: str, token: str) -> dict | None:
 	session.db_set({"register_token_hash": "", "state": "registered", "registered_at": now_datetime(), "last_heartbeat": now_datetime()}, update_modified=False)
 	session.session_key = key
 	session.save(ignore_permissions=True)
+	try:
+		from processa.agents_sandbox.sandbox import apps as reported_apps
+
+		reported_apps.record(apps)
+	except Exception:  # the report is a convenience; a session must register without it
+		frappe.log_error(title="Sandbox session: could not keep the reported apps", message=frappe.get_traceback())
 	return {
 		"session_key": key,
 		"work_item": session.work_item, "attempt": session.attempt, "target_app": session.target_app,
