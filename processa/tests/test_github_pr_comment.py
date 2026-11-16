@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from processa.processa_connectors.operations import github as gh
 from processa.patches.v1_0 import seed_github_connector as seed
 
-PR = "https://github.com/ONE-F-M/one_bpmn/pull/1493"
+PR = "https://github.com/ONE-F-M/processa/pull/1493"
 VERDICT = [
 	{"criterion": "AC1 | Given a | Then b", "result": "Pass", "evidence": "Passes on the PR head and fails on the base.", "video_url": "https://v.example/ac1.webm"},
 	{"criterion": "AC2 | Given c | Then d", "result": "Fail", "evidence": "expected 1 | got 2"},
@@ -47,7 +47,7 @@ class TestPostPrComment(FrappeTestCase):
 			sent.append((method, url.replace(gh.API, ""), payload))
 			if method == "GET":
 				return existing or []
-			return {"id": 7, "html_url": "https://github.com/ONE-F-M/one_bpmn/pull/1493#issuecomment-7"}
+			return {"id": 7, "html_url": "https://github.com/ONE-F-M/processa/pull/1493#issuecomment-7"}
 
 		with patch.object(gh, "_token", return_value="t"), patch.object(gh, "_call", side_effect=call):
 			return gh.post_pr_comment({"pr_url": PR, "verdict": VERDICT, "run_id": "ta-1", **(params or {})}, {}), sent
@@ -55,12 +55,12 @@ class TestPostPrComment(FrappeTestCase):
 	def test_it_posts_one_issue_comment_and_returns_its_link(self):
 		out, sent = self._post()
 		self.assertEqual(out["comment_url"].endswith("issuecomment-7"), True)
-		self.assertEqual([(m, u) for m, u, _ in sent if m != "GET"], [("POST", "/repos/ONE-F-M/one_bpmn/issues/1493/comments")])
+		self.assertEqual([(m, u) for m, u, _ in sent if m != "GET"], [("POST", "/repos/ONE-F-M/processa/issues/1493/comments")])
 		self.assertFalse(out["updated"])
 
 	def test_a_rerun_of_the_same_run_edits_its_comment_instead_of_adding_a_second(self):
 		out, sent = self._post(existing=[{"id": 99, "body": "x\n<!-- testing-agent run:ta-1 -->"}])
-		self.assertEqual([(m, u) for m, u, _ in sent if m != "GET"], [("PATCH", "/repos/ONE-F-M/one_bpmn/issues/comments/99")])
+		self.assertEqual([(m, u) for m, u, _ in sent if m != "GET"], [("PATCH", "/repos/ONE-F-M/processa/issues/comments/99")])
 		self.assertTrue(out["updated"])
 
 	def test_the_verdict_may_arrive_as_json_text_and_a_bad_request_is_refused_before_any_call(self):

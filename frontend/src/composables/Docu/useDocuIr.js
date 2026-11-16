@@ -50,7 +50,7 @@ export function useDocuIr({ tree, settings }) {
 	function currentIr() {
 		return {
 			doctype_name: dtName.value.trim(),
-			module: dtModule.value || "ONE BPMN",
+			module: dtModule.value || "Processa Engine",
 			is_child_table: isChild.value,
 			autoname: dtAutoname.value || "",
 			...settingsPayload(),

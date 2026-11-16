@@ -1,4 +1,4 @@
-# Copyright (c) 2026, ONE BPMN and contributors
+# Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """GitHub REST client that opens Review Doctypes Sync pull requests through the Contents API, with no local git remote."""
 

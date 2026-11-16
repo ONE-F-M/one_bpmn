@@ -304,7 +304,7 @@ export function useEditorComments(ed) {
 
 		// Expose the current model to bpmn-js properties providers that
 		// live outside Vue (Registry Tools applicability).
-		window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
+		window.__PROCESSA_CURRENT_MODEL__ = props.modelName || "";
 
 		// Initial fetch of comments
 		if (props.modelName) {

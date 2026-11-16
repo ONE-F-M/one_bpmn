@@ -41,7 +41,7 @@ class TestOperationRecord(FrappeTestCase):
 
 class TestTokenFromTheConnector(AgentSandboxCase):
 	PARAMS = {"target_app": "processa", "git_branch": "staging", "work_item_description": "Test it.", "run_id": "run-1",
-	          "repository": "ONE-F-M/one_bpmn", "pr_number": "5"}
+	          "repository": "ONE-F-M/processa", "pr_number": "5"}
 
 	def _connector(self, **over):
 		if frappe.db.exists("BPMN Connector", ops.UPLOAD_CONNECTOR):
@@ -65,7 +65,7 @@ class TestTokenFromTheConnector(AgentSandboxCase):
 		_result, ctx, post = self._dispatch(token=CALLER)
 		sent = post.call_args.kwargs["json"]["args"]
 		self.assertEqual(sent["token"], TOKEN)
-		self.assertEqual({k: v for k, v in sent.items() if k != "token"}, {"run_id": "run-1", "repository": "ONE-F-M/one_bpmn", "pr_number": "5"})
+		self.assertEqual({k: v for k, v in sent.items() if k != "token"}, {"run_id": "run-1", "repository": "ONE-F-M/processa", "pr_number": "5"})
 		row = frappe.get_doc("Agent Sandbox Run", ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]["run"])
 		self.assertNotIn(TOKEN, row.request_payload)
 		self.assertNotIn(CALLER, row.request_payload)
@@ -115,6 +115,6 @@ class TestSettlingUploads(FrappeTestCase):
 		self.assertIn("AC1 | https://github.com/user-attachments/assets/1", text)
 
 	def test_the_agent_is_told_when_the_fallback_path_posted_the_comment(self):
-		text = callback._sandbox_run_answer(self._run(result={"path": "gh_pr_comment", "comment_url": "https://github.com/ONE-F-M/one_bpmn/pull/5#issuecomment-9"}))
+		text = callback._sandbox_run_answer(self._run(result={"path": "gh_pr_comment", "comment_url": "https://github.com/ONE-F-M/processa/pull/5#issuecomment-9"}))
 		self.assertIn("refused the token", text)
 		self.assertIn("issuecomment-9", text)
