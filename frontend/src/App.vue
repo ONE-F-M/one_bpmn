@@ -6,7 +6,7 @@
 				<div class="w-8 h-8 rounded bg-gray-900 flex items-center justify-center">
 					<Icon icon="lucide:workflow" class="w-5 h-5 text-white" />
 				</div>
-				<span class="font-bold text-gray-900 text-sm tracking-tight uppercase">ONE BPMN</span>
+				<span class="font-bold text-gray-900 text-sm tracking-tight uppercase">Processa</span>
 			</div>
 			<button 
 				@click="isMobileMenuOpen = !isMobileMenuOpen"
@@ -42,7 +42,7 @@
 					class="text-[11px] font-bold text-gray-400 font-sans uppercase tracking-widest whitespace-nowrap transition-opacity duration-200"
 					:class="collapsed ? 'opacity-0 w-0' : 'opacity-100'"
 				>
-					ONE BPMN
+					Processa
 				</h2>
 				<Icon
 					v-if="collapsed"
@@ -56,7 +56,7 @@
 				<div class="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center shadow-lg text-white">
 					<Icon icon="lucide:workflow" class="w-6 h-6" />
 				</div>
-				<span class="font-extrabold text-gray-900 text-lg uppercase tracking-wider">ONE BPMN</span>
+				<span class="font-extrabold text-gray-900 text-lg uppercase tracking-wider">Processa</span>
 			</div>
 
 			<!-- Navigation -->
