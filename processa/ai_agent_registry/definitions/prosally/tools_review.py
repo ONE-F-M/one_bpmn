@@ -255,14 +255,16 @@ def diagnose_fallback_reply() -> str:
 
 
 def relayout_output(xml: str) -> dict:
-	"""The reply to a confirmed re-layout: the diagram drawn again, or why nothing changed."""
+	"""The reply to a confirmed re-layout: the diagram drawn again, or why nothing changed, and what the person can do."""
 	new_xml, reason = relayout(xml)
 	if new_xml:
 		return {
 			"intent": "BPMN_MODIFIED",
 			"action_intent": "RELAYOUT",
 			"bpmn_xml": new_xml,
-			"response": _("I laid the diagram out again. Every step, arrow and setting is kept. Review it on the canvas."),
+			"response": _("I laid the diagram out again. Every step, arrow and setting is kept. Review it on the canvas.")
+			+ " "
+			+ layout_is_automatic(),
 			"options": [],
 		}
 	if reason == "same":
@@ -271,7 +273,15 @@ def relayout_output(xml: str) -> dict:
 		say = _("This diagram has no lanes, so the editor lays it out itself. I changed nothing.")
 	else:
 		say = _("I could not lay the diagram out again without risking your steps, so I changed nothing.")
-	return {"intent": "CLARIFY", "response": say}
+	return {"intent": "CLARIFY", "response": say + " " + layout_is_automatic()}
+
+
+def layout_is_automatic() -> str:
+	"""What a person can do about the layout, since no single arrow, label or colour is placed by hand."""
+	return _(
+		"Layout is computed automatically, so I cannot place one arrow, label or colour by hand. "
+		"You can drag shapes on the canvas, or change the flow structure and I will lay it out again."
+	)
 
 
 NONE_TASK_KEPT_ATTRIBUTES = ("id", "name", "default")
