@@ -24,7 +24,6 @@ _FRAPPE_TO_TRIGGER_EVENT = {
 	"on_update": "On Update",
 	"after_save": "After Save",
 	"on_submit": "On Submit",
-	"on_cancel": "On Cancel",
 	"on_update_after_submit": "On Update After Submit",
 	"validate": "Validate",
 	"before_save": "Before Save",

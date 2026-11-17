@@ -383,3 +383,4 @@ processa.patches.v1_0.repath_a2a_remote_agent_endpoints #16-11-2026 A2A Remote A
 processa.patches.v1_0.add_github_connector_operations #16-11-2026 the github connector gets get_pull_request, list_pr_files and request_reviewers
 processa.patches.v15_0.processa_sync_doctype_sync___v1_0f7e7c #2026-11-16 Processa sync: Process Implementation
 processa.patches.v1_0.docu_defaults_to_processa_engine #16-11-2026 Docu's scripts, prompt and map default to the Processa Engine module
+processa.patches.v1_0.rename_on_cancel_request_trigger #17-11-2026 cancellation maps start On Cancel instead of On Cancel Request
