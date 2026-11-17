@@ -15,10 +15,10 @@
 				class="flex items-center gap-1.5 whitespace-nowrap"
 			>
 				<span
-					class="inline-block w-2 h-2 rounded-full"
+					class="inline-block w-2 h-2 rounded-[1px]"
 					:class="part.bar"
 				></span>
-				{{ part.label }} <span class="font-semibold text-gray-900">{{ fmtPct(part.share, 0) }}</span>
+				{{ part.label }} {{ fmtPct(part.share, 0) }}
 				<span v-if="showAverages">· {{ __("avg") }} {{ fmtDuration(part.avg) }}</span>
 			</span>
 		</div>
@@ -37,12 +37,12 @@ const props = defineProps({
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 const parts = computed(() => [
-	{ key: "model", label: __("Model"), bar: "bg-blue-500", share: props.split.model_share, avg: props.split.model_avg_ms },
-	{ key: "tool", label: __("Tools"), bar: "bg-amber-500", share: props.split.tool_share, avg: props.split.tool_avg_ms },
+	{ key: "model", label: __("Model calls"), bar: "bg-violet-600", share: props.split.model_share, avg: props.split.model_avg_ms },
+	{ key: "tool", label: __("Tools"), bar: "bg-cyan-600", share: props.split.tool_share, avg: props.split.tool_avg_ms },
 	{
 		key: "sub_call",
 		label: __("Sub-calls"),
-		bar: "bg-violet-500",
+		bar: "bg-pink-600",
 		share: props.split.sub_call_share,
 		avg: props.split.sub_call_avg_ms,
 	},

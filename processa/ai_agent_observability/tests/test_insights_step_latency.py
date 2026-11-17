@@ -66,7 +66,7 @@ class TestStepLatencyReport(FrappeTestCase):
 			}
 		).insert()
 
-	def _step(self, run, index, role, kind, latency, content="answer", tools=()):
+	def _step(self, run, index, role, kind, latency, content="answer", tools=(), model_ms=0):
 		frappe.get_doc(
 			{
 				"doctype": "AI Agent Step",
@@ -75,6 +75,7 @@ class TestStepLatencyReport(FrappeTestCase):
 				"role": role,
 				"step_kind": kind,
 				"latency_ms": latency,
+				"model_latency_ms": model_ms,
 				"content": content,
 				"tool_calls": [{"tool_name": name, "status": "Success"} for name in tools],
 			}
@@ -120,6 +121,29 @@ class TestStepLatencyReport(FrappeTestCase):
 			(split["model_avg_ms"], split["tool_avg_ms"], split["sub_call_avg_ms"]), (1000, 3000, 5000)
 		)
 
+	def test_the_model_turn_inside_a_tool_step_counts_as_model_time(self):
+		run = self._run()
+		self._step(run, 0, "tool", "tool_turn", 4000, tools=["lat_test_tool"], model_ms=1000)
+
+		split = self._report()["split"]
+
+		self.assertEqual((split["model_share"], split["tool_share"]), (25.0, 75.0))
+		self.assertEqual((split["model_avg_ms"], split["tool_avg_ms"]), (1000, 3000))
+
+	def test_rows_carry_the_bare_name_and_the_model_of_a_sub_call(self):
+		self._four_kinds(self._run())
+
+		rows = self._report()["rows"]
+
+		self.assertEqual(
+			[(r["name"], r["via"], r["kind"]) for r in rows],
+			[
+				("lat_test_review", "lat-model", "sub_call"),
+				("lat_test_tool", "", "tool"),
+				(self.model, "", "model"),
+			],
+		)
+
 	def test_steps_without_a_stored_kind_are_classified(self):
 		self._four_kinds(self._run(), stored=False)
 
@@ -160,7 +184,9 @@ class TestStepLatencyReport(FrappeTestCase):
 		self.assertEqual([r["agent_latency_ms"] for r in first["runs"]], [32400, 32300, 32200])
 		top = first["runs"][0]
 		self.assertEqual((top["status"], top["step_count"]), ("Success", 2))
-		self.assertEqual(top["slowest_step"], {"label": "tool: slow_tool", "latency_ms": 900})
+		self.assertEqual(
+			top["slowest_step"], {"label": "tool: slow_tool", "name": "slow_tool", "latency_ms": 900}
+		)
 		self.assertEqual(len(rest["runs"]), 8)
 		self.assertEqual(rest["runs"][-1]["agent_latency_ms"], 31400)
 

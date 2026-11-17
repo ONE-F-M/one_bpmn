@@ -357,6 +357,7 @@ def _latency_steps(from_d, to_d, origin: str, filters: dict, key: str | None = N
 			Step.role,
 			Step.step_kind,
 			Step.latency_ms,
+			Step.model_latency_ms,
 			fn.Substring(Step.content, 1, SUB_CALL_CHARS).as_("content"),
 			Run.model,
 			Run.agent_configuration,
@@ -375,7 +376,12 @@ def _time_split(steps: list) -> dict:
 	totals = defaultdict(int)
 	counts = defaultdict(int)
 	for s in steps:
-		totals[s.part] += cint(s.latency_ms)
+		# A tool step's latency also holds the model turn that asked for the tool.
+		model_ms = cint(s.model_latency_ms) if s.part == "tool" else 0
+		if model_ms:
+			totals["model"] += model_ms
+			counts["model"] += 1
+		totals[s.part] += cint(s.latency_ms) - model_ms
 		counts[s.part] += 1
 	whole = sum(totals.values())
 	split = {f"{part}_share": flt(totals[part] / whole * 100, 1) if whole else 0.0 for part in SPLIT_PARTS}
@@ -388,12 +394,16 @@ def _step_rows(steps: list, tool_names: dict) -> list:
 	"""One row per step label and agent with its count, total, average, max and share, costliest first."""
 	whole = sum(cint(s.latency_ms) for s in steps)
 	groups = defaultdict(list)
+	names = {}
 	for s in steps:
 		label = _step_label(s, tool_names.get(s.name, []), s.model)
 		groups[(label, s.part, cstr(s.agent_configuration))].append(cint(s.latency_ms))
+		names.setdefault(label, _step_name(s, tool_names.get(s.name, []), s.model))
 	rows = [
 		{
 			"step_kind": label,
+			"name": names[label][0],
+			"via": names[label][1],
 			"kind": part,
 			"agent_configuration": agent,
 			"steps": len(values),
@@ -440,6 +450,7 @@ def _slowest_step(steps: list, model: str) -> dict | None:
 	names = _tool_names([slowest.name]) if slowest.role == "tool" else {}
 	return {
 		"label": _step_label(slowest, names.get(slowest.name, []), model),
+		"name": _step_name(slowest, names.get(slowest.name, []), model)[0],
 		"latency_ms": cint(slowest.latency_ms),
 	}
 
@@ -447,6 +458,16 @@ def _slowest_step(steps: list, model: str) -> dict | None:
 def _step_label(step, tool_names: list, model: str) -> str:
 	sub_call = parse_sub_call(step.content) if step.kind == "sub_call" else None
 	return step_kind(step.role, sub_call, tool_names, model)
+
+
+def _step_name(step, tool_names: list, model: str) -> tuple:
+	"""A step's name without its kind prefix, and the model a sub-call ran on."""
+	sub_call = parse_sub_call(step.content) if step.kind == "sub_call" else None
+	if sub_call:
+		return sub_call["tool"], sub_call["model"]
+	if step.role == "tool":
+		return ", ".join(tool_names), ""
+	return cstr(model), ""
 
 
 def step_kind(role: str, sub_call: dict | None, tool_names: list, model: str | None = None) -> str:
