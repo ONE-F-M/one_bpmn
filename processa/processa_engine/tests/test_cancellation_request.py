@@ -9,8 +9,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from processa.api import instances
 from processa.api.deploy import compile_process_model
+from processa.patches.v1_0 import rename_on_cancel_request_trigger
 from processa.processa_engine.instances.cancellation import set_pending_cancellation_onload
-from processa.processa_engine.instances.listing import clear_processa_doctype_cache
+from processa.processa_engine.instances.listing import clear_processa_doctype_cache, get_cancellation_maps
 
 COMPANY = "One Facilities Management"
 
@@ -20,7 +21,7 @@ CANCELLATION_XML = """<?xml version="1.0" encoding="UTF-8"?>
     id="Defs_CancelRequest" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="Process_CancelRequest" isExecutable="true">
     <bpmn:startEvent id="StartEvent_1" spiffworkflow:triggerDoctype="Journal Entry"
-        spiffworkflow:triggerType="On Cancel Request">
+        spiffworkflow:triggerType="On Cancel">
       <bpmn:outgoing>Flow_1</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="review" />
@@ -127,6 +128,9 @@ class CancellationRequestTestCase(FrappeTestCase):
 			(instance.context_doctype, instance.context_docname), ("Journal Entry", self.journal_entry.name)
 		)
 		self.assertEqual(_docstatus(self.journal_entry), 2)
+		self.assertEqual(
+			frappe.db.count("BPMN Process Instance", {"context_docname": self.journal_entry.name}), 1
+		)
 
 	def test_rejection_keeps_the_entry_submitted(self):
 		_cancellation_map()
@@ -168,3 +172,24 @@ class CancellationRequestTestCase(FrappeTestCase):
 		self.assertFalse(
 			frappe.db.exists("BPMN Process Instance", {"context_docname": self.journal_entry.name})
 		)
+
+	def test_patch_renames_the_old_trigger_in_existing_maps(self):
+		model_name = _cancellation_map()
+		frappe.db.set_value(
+			"BPMN Start Event Config", {"parent": model_name}, "trigger_event", "On Cancel Request"
+		)
+		frappe.db.set_value(
+			"BPMN Process Model",
+			model_name,
+			"bpmn_xml",
+			CANCELLATION_XML.replace('triggerType="On Cancel"', 'triggerType="On Cancel Request"'),
+		)
+		rename_on_cancel_request_trigger.execute()
+		self.assertEqual(
+			frappe.db.get_value("BPMN Start Event Config", {"parent": model_name}, "trigger_event"),
+			"On Cancel",
+		)
+		self.assertIn(
+			'triggerType="On Cancel"', frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+		)
+		self.assertEqual(get_cancellation_maps().get("Journal Entry"), model_name)

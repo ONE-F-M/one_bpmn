@@ -14,7 +14,7 @@ PROCESSA_DOCTYPES_CACHE_KEY = "processa_controlled_doctypes"
 CANCELLATION_MAPS_CACHE_KEY = "processa_cancellation_maps"
 
 # Start trigger event of a map that runs when a user asks to cancel a submitted document.
-CANCEL_REQUEST_EVENT = "On Cancel Request"
+CANCEL_REQUEST_EVENT = "On Cancel"
 
 
 def list_process_instances(
@@ -365,7 +365,7 @@ def get_processa_controlled_doctypes() -> list:
 
 
 def get_cancellation_maps() -> dict:
-	"""DocType to the active map that starts On Cancel Request for it; cached until clear_processa_doctype_cache."""
+	"""DocType to the active map that starts On Cancel for it; cached until clear_processa_doctype_cache."""
 	cached = frappe.cache().get_value(CANCELLATION_MAPS_CACHE_KEY)
 	if cached is not None:
 		return cached
