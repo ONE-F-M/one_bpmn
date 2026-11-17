@@ -85,7 +85,7 @@ class TestProcessaControlledDoctypes(IntegrationTestCase):
 		self.assertIn(probe, get_processa_controlled_doctypes())
 
 	def test_target_doctype_is_controlled(self):
-		probe = "Blog Category"
+		probe = "Email Group"
 		self._assert_unrelated(probe)
 		self._make_model(is_active=True, target_doctype=probe)
 		clear_processa_doctype_cache()
@@ -127,7 +127,7 @@ class TestProcessaControlledDoctypes(IntegrationTestCase):
 			)
 
 	def test_no_duplicates_and_sorted(self):
-		probe = "Blog Post"
+		probe = "Event"
 		self._assert_unrelated(probe)
 		# Same doctype as both start trigger and target — must appear once.
 		self._make_model(is_active=True, start_doctype=probe, target_doctype=probe)

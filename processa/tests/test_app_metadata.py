@@ -13,4 +13,4 @@ class TestAppMetadata(IntegrationTestCase):
 	def test_supported_frappe_range_is_declared(self):
 		text = PYPROJECT.read_text()
 		self.assertIn("[tool.bench.frappe-dependencies]", text)
-		self.assertIn('frappe = ">=15.0.0,<16.0.0"', text)
+		self.assertIn('frappe = ">=16.0.0,<17.0.0"', text)

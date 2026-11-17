@@ -51,3 +51,7 @@ class TestAiQueueWaitReport(IntegrationTestCase):
 		self.assertNotIn("origin", filters)
 		_, _, asked = self._execute([], {"days": 1, "origin": "production"})
 		self.assertEqual(asked.call_args.kwargs["filters"]["origin"], "production")
+
+	def test_runs_without_an_agent_get_their_own_row(self):
+		_, data, _ = self._execute(_runs("docu_agent", [100]) + _runs(None, [200]))
+		self.assertEqual([row["agent"] for row in data], [None, "docu_agent"])

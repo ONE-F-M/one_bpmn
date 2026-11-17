@@ -274,7 +274,7 @@ class TestProcessaLegacyMigrationValidation(IntegrationTestCase):
 				).insert()
 			_user(OWNER, ["Process Owner"])
 			_user(OTHER_OWNER, ["Process Owner"])
-			_user(NOBODY, ["Blogger"])
+			_user(NOBODY, ["Prepared Report User"])
 			for process, owner in ((OWNED_PROCESS, OWNER), (OTHER_PROCESS, OTHER_OWNER)):
 				frappe.get_doc(
 					{

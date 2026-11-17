@@ -11,7 +11,7 @@ TARGET_P90_MS = 5000
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	waits = queue_waits_by_agent(filters)
-	return get_columns(), [row_for(agent, values) for agent, values in sorted(waits.items())]
+	return get_columns(), [row_for(agent, values) for agent, values in sorted(waits.items(), key=lambda item: item[0] or "")]
 
 
 def queue_waits_by_agent(filters) -> dict:

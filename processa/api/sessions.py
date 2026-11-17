@@ -222,7 +222,8 @@ def _agent_modes() -> list:
 	rows = frappe.get_all(
 		CONVERSATION_DOCTYPE,
 		filters={"agent_mode": ["!=", AGENT_MEMORY_MODE]},
-		fields=["distinct agent_mode as agent_mode"],
+		fields=["agent_mode"],
+		distinct=True,
 		limit_page_length=0,
 	)
 	return sorted([r["agent_mode"] for r in rows if r.get("agent_mode")])

@@ -710,7 +710,7 @@ class TestRespectUserPermissions(IntegrationTestCase):
 		frappe.set_user("Administrator")
 		frappe.get_doc({
 			"doctype": "Custom DocPerm", "parent": self.DT, "parenttype": "DocType",
-			"parentfield": "permissions", "role": "Blogger", "read": 1, "write": 0,
+			"parentfield": "permissions", "role": "Prepared Report User", "read": 1, "write": 0,
 		}).insert(ignore_permissions=True)
 		frappe.clear_cache(doctype=self.DT)
 		frappe.set_user(user)
@@ -761,7 +761,7 @@ def _plain_user():
 			"send_welcome_email": 0, "user_type": "System User",
 		})
 		u.insert(ignore_permissions=True)
-		u.add_roles("Blogger")
+		u.add_roles("Prepared Report User")
 	return email
 
 

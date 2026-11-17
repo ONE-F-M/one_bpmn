@@ -456,14 +456,17 @@ def export_cost_allocation(
 
 	stem = f"cost-allocation-{report['axis']}-{report['from_date']}-to-{report['to_date']}"
 	if fmt == "xlsx":
-		import openpyxl
+		from io import BytesIO
+
+		import xlsxwriter
 		from frappe.utils.xlsxutils import make_xlsx
 
-		# make_xlsx inserts each sheet first and saves every call, so it needs a normal workbook.
-		wb = openpyxl.Workbook()
-		wb.remove(wb.active)
+		xlsx_file = BytesIO()
+		wb = xlsxwriter.Workbook(xlsx_file, {"in_memory": True})
+		make_xlsx(_summary_sheet(report), "Summary", wb=wb)
 		make_xlsx(_detail_sheet(axis, rows), "Detail", wb=wb)
-		content = make_xlsx(_summary_sheet(report), "Summary", wb=wb).getvalue()
+		wb.close()
+		content = xlsx_file.getvalue()
 		filename = f"{stem}.xlsx"
 	else:
 		import csv
