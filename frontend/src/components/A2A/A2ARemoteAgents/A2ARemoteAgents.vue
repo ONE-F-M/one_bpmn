@@ -11,6 +11,7 @@
 				</p>
 				<Button variant="solid" @click="openRemoteForm()">New remote agent</Button>
 			</div>
+			<p v-if="notice" class="mb-3 text-sm text-green-700">{{ notice }}</p>
 			<div v-if="loading" class="text-sm text-gray-500">Loading…</div>
 			<div v-else class="overflow-x-auto rounded-lg">
 				<table class="w-full min-w-[44rem] text-sm bg-white rounded-lg overflow-hidden">
@@ -37,6 +38,9 @@
 							<td class="px-4 py-2 text-gray-600">
 								<span v-if="r.card_name">{{ r.card_name }}</span>
 								<span v-else class="text-gray-400">not fetched</span>
+								<span v-if="r.card_fetched_at" class="block text-xs text-gray-400"
+									>fetched {{ r.card_fetched_at.slice(0, 16) }}</span
+								>
 							</td>
 							<td class="px-4 py-2">
 								<Badge :theme="statusTheme(r.approval_status)">{{
@@ -45,7 +49,12 @@
 							</td>
 							<td class="px-4 py-2 text-right whitespace-nowrap">
 								<Button variant="ghost" @click="openRemoteForm(r)">Edit</Button>
-								<Button variant="ghost" @click="fetchCard(r)">Fetch card</Button>
+								<Button
+									variant="ghost"
+									:loading="fetching === r.name"
+									@click="fetchCard(r)"
+									>Fetch card</Button
+								>
 								<Button
 									v-if="r.approval_status !== 'Approved'"
 									variant="ghost"
@@ -169,6 +178,8 @@ const remotes = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const formError = ref("");
+const notice = ref("");
+const fetching = ref("");
 const remoteFormOpen = ref(false);
 const remoteForm = ref(blankRemote());
 
@@ -262,16 +273,22 @@ async function saveRemote() {
 
 async function fetchCard(remote) {
 	emit("error", "");
+	notice.value = "";
+	fetching.value = remote.name;
 	try {
 		await frappeRequest({ url: A2A_API + "fetch_remote_card", params: { name: remote.name } });
 		await loadRemotes();
+		notice.value = `Card fetched for ${remote.agent_name}.`;
 	} catch (e) {
 		emit("error", serverMessage(e));
+	} finally {
+		fetching.value = "";
 	}
 }
 
 async function setRemote(remote, status) {
 	emit("error", "");
+	notice.value = "";
 	try {
 		await frappeRequest({
 			url: A2A_API + "set_remote_approval",
