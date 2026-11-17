@@ -16,16 +16,19 @@ from __future__ import annotations
 
 import json
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 import frappe
 from frappe import _
 
 from processa.a2a import contract as a2a_contract
+from processa.a2a.card import RPC_PATH
 from processa.a2a.protocol import log_validation_failure
 from processa.processa_connectors.operations.http import assert_host_allowed
 from processa.processa_connectors.retry import call_with_retry
 
 CARD_PATHS = ("/.well-known/agent-card.json", "/.well-known/agent.json")
+PROCESSA_CARD_PATH = "/api/method/processa.api.a2a.agent_card"
 
 
 class A2AClientError(frappe.ValidationError):
@@ -64,9 +67,16 @@ def fetch_agent_card(agent) -> dict:
 	if not base:
 		raise A2AClientError(_("This remote agent has no endpoint URL."))
 
+	# A Processa site serves the card from a method beside its rpc endpoint, not from a well-known path.
+	parts = urlsplit(base)
+	is_processa = parts.path == RPC_PATH
+	if is_processa:
+		urls = [urlunsplit(parts._replace(path=PROCESSA_CARD_PATH))]
+	else:
+		urls = [f"{base}{path}" for path in CARD_PATHS]
+
 	last_error = None
-	for path in CARD_PATHS:
-		url = f"{base}{path}"
+	for url in urls:
 		try:
 			assert_host_allowed(url, allow_internal=bool(doc.allow_internal_hosts))
 			response = call_with_retry(
@@ -74,6 +84,8 @@ def fetch_agent_card(agent) -> dict:
 			)
 			response.raise_for_status()
 			card = response.json()
+			if is_processa:
+				card = card.get("message")
 			if isinstance(card, dict) and card.get("skills"):
 				return card
 			last_error = A2AClientError(_("The response was not an agent card."))
