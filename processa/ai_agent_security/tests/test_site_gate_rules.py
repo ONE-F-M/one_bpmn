@@ -28,7 +28,9 @@ class TestSiteGateRules(FrappeTestCase):
 			violations = deep_inspect_script(WHILE_LOOP)
 
 		self.assertIn("- `while` loops: accepted on this site.", rules)
-		self.assertIn("- `import` lines: accepted on this site.", rules)
+		self.assertIn(
+			"- `import` lines (a forbidden module is refused either way): accepted on this site.", rules
+		)
 		self.assertEqual(violations, [])
 
 	def test_a_site_that_refuses_while_loops_says_so_and_its_gate_agrees(self):
@@ -37,7 +39,9 @@ class TestSiteGateRules(FrappeTestCase):
 			violations = deep_inspect_script(WHILE_LOOP)
 
 		self.assertIn("- `while` loops: refused on this site.", rules)
-		self.assertIn("- `import` lines: refused on this site.", rules)
+		self.assertIn(
+			"- `import` lines (a forbidden module is refused either way): refused on this site.", rules
+		)
 		self.assertTrue(violations)
 
 	def test_a_prompt_template_can_print_the_rules(self):
