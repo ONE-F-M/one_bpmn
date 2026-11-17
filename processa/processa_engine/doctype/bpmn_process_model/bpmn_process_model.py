@@ -74,7 +74,17 @@ class BPMNProcessModel(Document):
 	# end: auto-generated types
 	def before_insert(self):
 		self.regenerate_process_id_on_duplicate()
+		self.start_process_id_with_a_letter()
 		self.attach_process_implementation()
+
+	def start_process_id_with_a_letter(self):
+		"""Prefix an id that starts with a digit, in the record and its diagram, however the model was created."""
+		old_id = self.process_id or ""
+		if not old_id[:1].isdigit():
+			return
+		new_id = "p_" + old_id
+		self.bpmn_xml = swap_process_id(self.bpmn_xml, old_id, new_id)
+		self.process_id = new_id
 
 	def attach_process_implementation(self):
 		"""Link the editable Process Implementation that enabled this creation.

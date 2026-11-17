@@ -220,6 +220,33 @@ class TestAnIdIsALegalXmlId(FrappeTestCase):
 		self.assertTrue(new_process_id("Leave Request").startswith("leave_request_"))
 
 
+class TestEveryNewModelGetsALegalId(FrappeTestCase):
+	"""The Process Implementation map builds its own id from the process name; the record still corrects it."""
+
+	def test_a_digit_leading_id_from_any_creator_is_prefixed_in_the_record_and_its_diagram(self):
+		old_id = f"3_day_return_check_{frappe.generate_hash(length=8)}"
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.update({"title": f"PID Digit {old_id}", "process_id": old_id, "bpmn_xml": _diagram(old_id)})
+		doc.flags.skip_editability_check = True
+		doc.insert()
+		self.addCleanup(frappe.delete_doc, "BPMN Process Model", doc.name, force=1)
+
+		stored = frappe.db.get_value("BPMN Process Model", doc.name, ["process_id", "bpmn_xml"], as_dict=True)
+		self.assertEqual(stored.process_id, "p_" + old_id)
+		self.assertEqual(xml_process_id(stored.bpmn_xml), "p_" + old_id)
+		self.assertNotIn(f'"{old_id}"', stored.bpmn_xml)
+
+	def test_an_id_that_starts_with_a_letter_is_left_alone(self):
+		process_id = f"leave_request_{frappe.generate_hash(length=8)}"
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.update({"title": f"PID Letter {process_id}", "process_id": process_id, "bpmn_xml": _diagram(process_id)})
+		doc.flags.skip_editability_check = True
+		doc.insert()
+		self.addCleanup(frappe.delete_doc, "BPMN Process Model", doc.name, force=1)
+
+		self.assertEqual(frappe.db.get_value("BPMN Process Model", doc.name, "process_id"), process_id)
+
+
 class TestRepairingDigitLeadingIds(FrappeTestCase):
 	def setUp(self):
 		from processa.patches.v1_0 import repair_digit_leading_process_ids
@@ -234,12 +261,14 @@ class TestRepairingDigitLeadingIds(FrappeTestCase):
 		)
 
 	def _model(self, title, process_id, xml):
+		"""A record as it was stored before inserts started prefixing a leading digit."""
 		doc = frappe.new_doc("BPMN Process Model")
 		doc.update({"title": title, "process_id": process_id, "bpmn_xml": xml})
 		doc.flags.skip_editability_check = True
 		doc.flags.skip_script_security_check = True
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
+		frappe.db.set_value("BPMN Process Model", doc.name, {"process_id": process_id, "bpmn_xml": xml})
 		self.addCleanup(frappe.delete_doc, "BPMN Process Model", doc.name, force=1)
 		return doc.name
 
