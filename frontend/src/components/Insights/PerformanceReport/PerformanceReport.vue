@@ -107,6 +107,7 @@
 				:summary="summary"
 				:group-by="groupBy"
 				:element-runs="elementRuns"
+				:prior-days="priorDays"
 			/>
 		</template>
 	</div>
@@ -127,6 +128,7 @@ import PerformanceReportCards from "@/components/Insights/PerformanceReportCards
 import PerformanceReportChart from "@/components/Insights/PerformanceReportChart/PerformanceReportChart.vue"
 import PerformanceReportTable from "@/components/Insights/PerformanceReportTable/PerformanceReportTable.vue"
 import { useElementRuns } from "@/composables/useElementRuns"
+import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
 import { openReportExport } from "@/utils/exportReport"
 import { Icon } from "@iconify/vue"
@@ -172,6 +174,10 @@ const measuredSubtitle = computed(() => {
 const measuredSubtitleShort = computed(() => {
 	const { runs, measured_runs: measured } = summary.value
 	return measured < runs ? `${fmtNum(measured)}/${fmtNum(runs)} ${__("runs")}` : `${fmtNum(runs)} ${__("runs")}`
+})
+const priorDays = computed(() => {
+	const { previous_from: from, previous_to: to } = reportData.value
+	return from && to ? dayjs(to).diff(dayjs(from), "day") + 1 : 0
 })
 const priorDates = computed(() => {
 	const { previous_from: from, previous_to: to } = reportData.value
