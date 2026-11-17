@@ -39,13 +39,18 @@ const A2ARemoteAgents = (
 	await import("../../src/components/A2A/A2ARemoteAgents/A2ARemoteAgents.vue")
 ).default;
 
-// A renderer that builds plain objects, so the component can mount without a DOM.
+const texts = [];
+
+// A renderer that builds plain objects and keeps every text it is given, so the component can mount without a DOM.
 const { createApp } = createRenderer({
 	createElement: (tag) => ({ tag, children: [] }),
-	createText: (text) => ({ text }),
+	createText: (text) => {
+		texts.push(text);
+		return { text };
+	},
 	createComment: (text) => ({ comment: text }),
-	setText: () => {},
-	setElementText: () => {},
+	setText: (_, text) => texts.push(text),
+	setElementText: (_, text) => texts.push(text),
 	insert: (child, parent) => {
 		child.parent = parent;
 	},
@@ -70,6 +75,7 @@ let errors;
 beforeEach(() => {
 	globalThis.__buttons = {};
 	errors = [];
+	texts.length = 0;
 	frappeRequest.mockReset();
 });
 
@@ -99,5 +105,27 @@ describe("the remote agents tab", () => {
 		expect(errors.at(-1)).toBe(
 			"Could not fetch an agent card from https://ba.example: 403 Client Error",
 		);
+		expect(texts.join(" ")).not.toContain("Card fetched for BA Agent.");
+	});
+
+	it("says so when a card is fetched, and shows when", async () => {
+		const fetched = {
+			...REMOTE,
+			card_name: "Dev Agent",
+			card_fetched_at: "2026-11-17 12:23:48.607383",
+		};
+		frappeRequest.mockImplementation(async ({ url }) =>
+			url.endsWith("fetch_remote_card") ? { name: "Dev Agent" } : [fetched],
+		);
+
+		createApp(A2ARemoteAgents).mount({});
+		await flush();
+		expect(texts.join(" ")).not.toContain("Card fetched for BA Agent.");
+
+		await globalThis.__buttons["Fetch card"]();
+		await flush();
+
+		expect(texts.join(" ")).toContain("Card fetched for BA Agent.");
+		expect(texts.join(" ")).toContain("fetched 2026-11-17 12:23");
 	});
 });
