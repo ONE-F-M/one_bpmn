@@ -80,3 +80,33 @@ class TestMoveAStepToALane(FrappeTestCase):
 
 	def test_a_step_already_in_that_lane_is_not_a_move(self):
 		self.assertIsNone(self._move("move Confirm Start Date to the Hiring Manager lane"))
+
+	def test_words_in_another_script_after_the_lane_are_not_dropped(self):
+		self.assertIsNone(
+			self._move(
+				f"move {BUDDY} to Hiring Manager \u0648\u0623\u0639\u062f \u062a\u0633\u0645\u064a\u062a\u0647"
+			)
+		)
+
+	def test_a_new_step_asked_for_beside_the_move_is_left_to_the_modifier(self):
+		self.assertIsNone(self._move(f"put a user task and {BUDDY} in Hiring Manager"))
+
+	def test_a_name_two_steps_share_is_not_guessed(self):
+		twins = self.xml.replace('name="Confirm Start Date"', f'name="{BUDDY}"', 1)
+
+		with patch.object(
+			tools_review, "complete_sub_prompt", side_effect=AssertionError("a model was asked")
+		):
+			self.assertIsNone(tools_review.move_to_lane_output(twins, f"move {BUDDY} to Hiring Manager"))
+
+	def test_a_name_typed_inside_a_longer_word_is_not_a_step(self):
+		short = self.xml.replace(f'name="{BUDDY}"', 'name="Log"', 1)
+
+		self.assertIsNone(tools_review.lane_move(short, "move login to Hiring Manager"))
+		self.assertEqual(
+			tools_review.lane_move(short, "move Log to Hiring Manager")["steps"][0]["name"], "Log"
+		)
+
+	def test_a_diagram_that_cannot_be_laid_out_again_is_left_to_the_classifier(self):
+		with patch.object(tools_review, "relayout", return_value=(None, "unsupported")):
+			self.assertIsNone(self._move(f"move {BUDDY} to the Hiring Manager lane"))

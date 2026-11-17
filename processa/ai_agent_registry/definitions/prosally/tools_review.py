@@ -285,44 +285,10 @@ def layout_is_automatic() -> str:
 	)
 
 
-LANE_MOVE_VERBS = re.compile(r"\b(?:move|put|bring|shift|place|drag|relocate)\b", re.I)
-LANE_MOVE_FILLER = re.compile(
-	r"\b(?:move|put|bring|shift|place|drag|relocate|back|the|a|an|and|both|step|steps|task|tasks|user|please|lane|swimlane|swim)\b",
-	re.I,
-)
-
-
-def _name_pattern(name: str) -> str:
-	"""A pattern for name as a person types it: any case, with spaces, hyphens or nothing between its words."""
-	return r"[\s\-]*".join(re.escape(word) for word in re.split(r"[^A-Za-z0-9]+", name) if word)
-
-
-def lane_move(xml: str, text: str) -> dict | None:
-	"""The steps and the lane of a message that only asks to move steps on the diagram into one of its lanes."""
-	if not has_lanes(xml) or not LANE_MOVE_VERBS.search(text or ""):
-		return None
-	bpmn = "{" + NS["bpmn"] + "}"
-	root = ET.fromstring(xml)
-	lanes = sorted((e for e in root.iter(bpmn + "lane") if e.get("name")), key=lambda e: -len(e.get("name")))
-	for lane in lanes:
-		where = re.search(r"\b(?:in\s?to|to|under|in)\s+(?:the\s+)?" + _name_pattern(lane.get("name")) + r"\b", text, re.I)
-		if where:
-			break
-	else:
-		return None
-	here = {(ref.text or "").strip() for ref in lane.findall(bpmn + "flowNodeRef")}
-	asked = text[: where.start()]
-	steps = []
-	named = sorted((e for e in root.iter() if e.tag in STEP_TAGS and e.get("name")), key=lambda e: -len(e.get("name")))
-	for step in named:
-		asked, found = re.subn(_name_pattern(step.get("name")), " ", asked, flags=re.I)
-		if found and step.get("id") not in here:
-			steps.append({"id": step.get("id"), "name": step.get("name")})
-	# Anything else the message asks for is a change to the process, which this move would drop.
-	rest = LANE_MOVE_FILLER.sub(" ", asked + " " + text[where.end() :])
-	if not steps or re.search(r"[A-Za-z0-9]", rest):
-		return None
-	return {"steps": steps, "lane": {"id": lane.get("id"), "name": lane.get("name")}}
+LANE_MOVE_VERBS = r"\b(?:move|put|bring|shift|place|drag|relocate)\b"
+# Words a move may carry before the lane is named, and after it, without asking for anything else.
+LANE_MOVE_LEAD = re.compile(LANE_MOVE_VERBS + r"|\b(?:back|the|and|both|steps?|tasks?|please)\b", re.I)
+LANE_MOVE_TAIL = re.compile(r"\b(?:lane|swimlane|swim|please)\b", re.I)
 
 
 def move_to_lane_output(xml: str, text: str) -> dict | None:
@@ -348,11 +314,57 @@ def move_to_lane_output(xml: str, text: str) -> dict | None:
 		"intent": "BPMN_MODIFIED",
 		"action_intent": "MOVE_TO_LANE",
 		"bpmn_xml": new_xml,
-		"response": _("I moved {0} to the lane {1}. Every step, arrow and setting is kept. Review it on the canvas.").format(
-			", ".join(quoted(step["name"]) for step in move["steps"]), quoted(move["lane"]["name"])
-		),
+		"response": _(
+			"I moved {0} to the lane {1}. Every step, arrow and setting is kept. Review it on the canvas."
+		).format(", ".join(quoted(step["name"]) for step in move["steps"]), quoted(move["lane"]["name"])),
 		"options": [],
 	}
+
+
+def lane_move(xml: str, text: str) -> dict | None:
+	"""The steps and the lane of a message that only asks to move steps on the diagram into one of its lanes."""
+	if not has_lanes(xml) or not re.search(LANE_MOVE_VERBS, text, re.I):
+		return None
+	bpmn = "{" + NS["bpmn"] + "}"
+	root = ET.fromstring(xml)
+	lanes = [(_name_pattern(e.get("name") or ""), e) for e in root.iter(bpmn + "lane")]
+	where = lane = None
+	for pattern, candidate in sorted(lanes, key=lambda found: -len(found[0])):
+		where = pattern and re.search(r"\b(?:in\s?to|to|under|in)\s+(?:the\s+)?" + pattern, text, re.I)
+		if where:
+			lane = candidate
+			break
+	if lane is None:
+		return None
+	here = {(ref.text or "").strip() for ref in lane.findall(bpmn + "flowNodeRef")}
+	asked = text[: where.start()]
+	steps = []
+	# Only top-level steps sit in a lane; a step inside a sub-process moves with it.
+	named = [(_name_pattern(e.get("name") or ""), e) for p in root.iter(bpmn + "process") for e in p if e.tag in STEP_TAGS]
+	for pattern, step in sorted(named, key=lambda found: -len(found[0])):
+		if not pattern:
+			continue
+		# A step whose own name runs into the lane phrase makes the message read two ways.
+		if any(m.start() < where.end() and m.end() > where.start() for m in re.finditer(pattern, text, re.I)):
+			return None
+		asked, found = re.subn(pattern, " ", asked, flags=re.I)
+		if not found:
+			continue
+		if sum(1 for other, _elem in named if other == pattern) > 1:
+			return None
+		if step.get("id") not in here:
+			steps.append({"id": step.get("id"), "name": step.get("name")})
+	# Anything else the message asks for is a change to the process, which this move would drop.
+	rest = LANE_MOVE_LEAD.sub(" ", asked) + " " + LANE_MOVE_TAIL.sub(" ", text[where.end() :])
+	if not steps or re.search(r"\w", rest):
+		return None
+	return {"steps": steps, "lane": {"id": lane.get("id"), "name": lane.get("name")}}
+
+
+def _name_pattern(name: str) -> str:
+	"""A pattern for name as a person types it, whole words only; empty when name has no letter or digit."""
+	words = [re.escape(word) for word in re.split(r"[\W_]+", name) if word]
+	return r"\b" + r"[\s\-]*".join(words) + r"\b" if words else ""
 
 
 NONE_TASK_KEPT_ATTRIBUTES = ("id", "name", "default")
