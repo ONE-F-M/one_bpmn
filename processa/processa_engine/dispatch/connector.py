@@ -78,7 +78,10 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		if (instance.context_doctype and instance.context_docname)
 		else frappe._dict()
 	)
-	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": dict(task.data)}
+	# A tool call's task data is only what the model passed. The calling task's variables fill in the rest, so
+	# {{ task_data.target_app }} reads the same for a tool as for a step. What the model passed wins.
+	task_data = {**(getattr(task, "process_data", None) or {}), **task.data}
+	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": task_data}
 	specs = _manifest.field_specs(connector_id, operation)
 	transforms = _manifest.field_transforms(connector_id, operation)
 
@@ -102,7 +105,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		resolved[key] = val
 
 	# operation lets one handler serve several named operations of a connector.
-	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data), "operation": operation}
+	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": task_data, "operation": operation}
 	output = None
 	try:
 		output = handler(resolved, ctx)
