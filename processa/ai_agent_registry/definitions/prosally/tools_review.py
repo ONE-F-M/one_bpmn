@@ -16,6 +16,7 @@ from processa.ai_agent_registry.definitions.prosally.helpers import (
 	complete_sub_prompt,
 	confirmation_reply,
 	prosally_config,
+	quoted,
 	register_namespaces,
 )
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import (
@@ -282,6 +283,76 @@ def layout_is_automatic() -> str:
 		"Layout is computed automatically, so I cannot place one arrow, label or colour by hand. "
 		"You can drag shapes on the canvas, or change the flow structure and I will lay it out again."
 	)
+
+
+LANE_MOVE_VERBS = re.compile(r"\b(?:move|put|bring|shift|place|drag|relocate)\b", re.I)
+LANE_MOVE_FILLER = re.compile(
+	r"\b(?:move|put|bring|shift|place|drag|relocate|back|the|a|an|and|both|step|steps|task|tasks|user|please|lane|swimlane|swim)\b",
+	re.I,
+)
+
+
+def _name_pattern(name: str) -> str:
+	"""A pattern for name as a person types it: any case, with spaces, hyphens or nothing between its words."""
+	return r"[\s\-]*".join(re.escape(word) for word in re.split(r"[^A-Za-z0-9]+", name) if word)
+
+
+def lane_move(xml: str, text: str) -> dict | None:
+	"""The steps and the lane of a message that only asks to move steps on the diagram into one of its lanes."""
+	if not has_lanes(xml) or not LANE_MOVE_VERBS.search(text or ""):
+		return None
+	bpmn = "{" + NS["bpmn"] + "}"
+	root = ET.fromstring(xml)
+	lanes = sorted((e for e in root.iter(bpmn + "lane") if e.get("name")), key=lambda e: -len(e.get("name")))
+	for lane in lanes:
+		where = re.search(r"\b(?:in\s?to|to|under|in)\s+(?:the\s+)?" + _name_pattern(lane.get("name")) + r"\b", text, re.I)
+		if where:
+			break
+	else:
+		return None
+	here = {(ref.text or "").strip() for ref in lane.findall(bpmn + "flowNodeRef")}
+	asked = text[: where.start()]
+	steps = []
+	named = sorted((e for e in root.iter() if e.tag in STEP_TAGS and e.get("name")), key=lambda e: -len(e.get("name")))
+	for step in named:
+		asked, found = re.subn(_name_pattern(step.get("name")), " ", asked, flags=re.I)
+		if found and step.get("id") not in here:
+			steps.append({"id": step.get("id"), "name": step.get("name")})
+	# Anything else the message asks for is a change to the process, which this move would drop.
+	rest = LANE_MOVE_FILLER.sub(" ", asked + " " + text[where.end() :])
+	if not steps or re.search(r"[A-Za-z0-9]", rest):
+		return None
+	return {"steps": steps, "lane": {"id": lane.get("id"), "name": lane.get("name")}}
+
+
+def move_to_lane_output(xml: str, text: str) -> dict | None:
+	"""The reply to "move this step to that lane": the step moved and the diagram laid out again, no redraw by a model."""
+	move = lane_move(xml, text)
+	if not move:
+		return None
+	register_namespaces()
+	bpmn = "{" + NS["bpmn"] + "}"
+	root = ET.fromstring(xml)
+	moving = {step["id"] for step in move["steps"]}
+	for lane in root.iter(bpmn + "lane"):
+		for ref in [r for r in lane.findall(bpmn + "flowNodeRef") if (r.text or "").strip() in moving]:
+			lane.remove(ref)
+		if lane.get("id") == move["lane"]["id"]:
+			for step in move["steps"]:
+				ET.SubElement(lane, bpmn + "flowNodeRef").text = step["id"]
+	moved = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	new_xml, _reason = relayout(re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', moved))
+	if not new_xml:
+		return None
+	return {
+		"intent": "BPMN_MODIFIED",
+		"action_intent": "MOVE_TO_LANE",
+		"bpmn_xml": new_xml,
+		"response": _("I moved {0} to the lane {1}. Every step, arrow and setting is kept. Review it on the canvas.").format(
+			", ".join(quoted(step["name"]) for step in move["steps"]), quoted(move["lane"]["name"])
+		),
+		"options": [],
+	}
 
 
 NONE_TASK_KEPT_ATTRIBUTES = ("id", "name", "default")
