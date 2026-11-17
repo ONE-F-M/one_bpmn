@@ -6,6 +6,7 @@ const CONFIG_RECORD_KEYS = [
 	"server_scripts",
 	"workflow_states",
 	"workflow_action_masters",
+	"agent_users",
 	"agent_configurations",
 	"ai_skills",
 	"agent_tools",

@@ -212,3 +212,107 @@ class TestImportAgents(FrappeTestCase):
 			confirm_overwrite_config(
 				json.dumps([{"doctype": "AI Agent Configuration", "name": self.n.AGENT, "data": {}}])
 			)
+
+
+class TestAgentUsersTravelWithTheirAgents(FrappeTestCase):
+	"""The user an agent runs as goes out with it, and comes in only where the site lacks it."""
+
+	def setUp(self):
+		self.n = fixtures(self)
+		self.email = f"export_probe_{self.n.SUFFIX}@agents.processa"
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": self.email,
+				"first_name": "Export Probe",
+				"last_name": "(agent)",
+				"user_type": "System User",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Process Owner"}],
+			}
+		).insert()
+		frappe.db.set_value("AI Agent Configuration", self.n.AGENT, "agent_user", self.email)
+		patcher = patch("frappe.db.commit")
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self.addCleanup(frappe.set_user, "Administrator")
+
+	def _payload_for_a_new_site(self):
+		"""The export as a site without the agent's user would receive it: the user renamed, the agent pointing at it."""
+		payload = renamed(self.n, export_bpmn_config(self.n.XML))
+		return json.loads(json.dumps(payload).replace(self.email, f"copy_{self.email}"))
+
+	def test_the_agent_user_is_exported_with_its_roles_and_nothing_private(self):
+		out = export_bpmn_config(self.n.XML)
+
+		self.assertEqual(
+			out["agent_users"],
+			[
+				{
+					"name": self.email,
+					"first_name": "Export Probe",
+					"last_name": "(agent)",
+					"user_type": "System User",
+					"roles": ["Process Owner"],
+				}
+			],
+		)
+		self.assertEqual(out["counts"]["agent_users"], 1)
+
+	def test_a_missing_agent_user_is_created_with_its_roles_before_its_agent(self):
+		result = import_bpmn_config(json.dumps(self._payload_for_a_new_site()))
+
+		copy = f"copy_{self.email}"
+		self.assertEqual(names(result["created"], "User"), {copy})
+		self.assertIn(f"{self.n.AGENT} copy", names(result["created"], "AI Agent Configuration"))
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", f"{self.n.AGENT} copy", "agent_user"), copy)
+		self.assertIn("Process Owner", frappe.get_roles(copy))
+		self.assertEqual(result["failed"], [])
+
+	def test_an_agent_user_that_exists_is_neither_overwritten_nor_given_new_roles(self):
+		payload = export_bpmn_config(self.n.XML)
+		payload["agent_users"][0]["roles"] = ["System Manager"]
+		payload["agent_users"][0]["first_name"] = "Changed"
+
+		result = import_bpmn_config(json.dumps(payload))
+
+		self.assertEqual(names(result["skipped"], "User"), {self.email})
+		self.assertNotIn("System Manager", frappe.get_roles(self.email))
+		self.assertEqual(frappe.db.get_value("User", self.email, "first_name"), "Export Probe")
+
+	def test_only_a_system_manager_can_create_an_agent_user(self):
+		person = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"export-person-{self.n.SUFFIX}@example.com",
+				"first_name": "Person",
+				"roles": [{"role": "Process Owner"}],
+			}
+		).insert()
+		payload = self._payload_for_a_new_site()
+		frappe.set_user(person.name)
+
+		result = import_bpmn_config(json.dumps(payload))
+
+		frappe.set_user("Administrator")
+		self.assertEqual(names(result["failed"], "User"), {f"copy_{self.email}"})
+		self.assertFalse(frappe.db.exists("User", f"copy_{self.email}"))
+
+	def test_a_role_this_site_lacks_is_reported_and_the_user_is_still_created(self):
+		payload = self._payload_for_a_new_site()
+		payload["agent_users"][0]["roles"].append(f"No Such Role {self.n.SUFFIX}")
+
+		result = import_bpmn_config(json.dumps(payload))
+
+		copy = f"copy_{self.email}"
+		self.assertEqual(names(result["created"], "User"), {copy})
+		self.assertIn(f"No Such Role {self.n.SUFFIX}", next(f["reason"] for f in result["failed"] if f["type"] == "User roles"))
+		self.assertIn("Process Owner", frappe.get_roles(copy))
+
+	def test_administrator_is_never_granted_from_a_file(self):
+		payload = self._payload_for_a_new_site()
+		payload["agent_users"][0]["roles"].append("Administrator")
+
+		import_bpmn_config(json.dumps(payload))
+
+		self.assertNotIn("Administrator", frappe.get_roles(f"copy_{self.email}"))
