@@ -129,6 +129,7 @@ jinja = {
 	"methods": [
 		"processa.processa_engine.agent_runtime.turn_state.get_turn",
 		"processa.ai_agent_registry.definitions.docu.tools.compact_ir",
+		"processa.ai_agent_security.code_checks.script_validator.site_gate_rules",
 	]
 }
 

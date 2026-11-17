@@ -204,6 +204,24 @@ class ValidatorOptions:
 		self.binop_multiply_threshold = binop_multiply_threshold
 
 
+# ValidatorOptions switch -> the construct it refuses, as a script writer is told it.
+_SWITCHED_CONSTRUCTS = {
+	"block_while": "`while` loops",
+	"block_functiondef": "`def` functions",
+	"block_lambda": "`lambda`",
+	"block_all_imports": "`import` lines (a forbidden module is refused either way)",
+}
+
+
+def site_gate_rules() -> str:
+	"""Whether this site's gate refuses each construct Processa Settings can switch, one line each."""
+	options = _resolve_options()
+	return "\n".join(
+		f"- {construct}: {'refused' if getattr(options, switch) else 'accepted'} on this site."
+		for switch, construct in _SWITCHED_CONSTRUCTS.items()
+	)
+
+
 def _resolve_options() -> ValidatorOptions:
 	"""
 	Build :class:`ValidatorOptions` from the Processa Settings single doctype.
