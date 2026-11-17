@@ -240,7 +240,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if tool_shapes:
 		from processa.ai_agent_skills.tools.shape_tools import compile_shape_tools
 
-		tool_specs = compile_shape_tools(tool_shapes, instance) or []
+		tool_specs = compile_shape_tools(tool_shapes, instance, task.data if isinstance(getattr(task, "data", None), dict) else None) or []
 
 	from processa.ai_agent_skills.skill_tools import get_skill_tools
 
