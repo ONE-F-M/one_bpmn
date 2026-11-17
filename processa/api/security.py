@@ -147,7 +147,7 @@ def list_events(
 		"AI Security Event",
 		filters=filters,
 		or_filters=or_filters,
-		fields=["count(name) as total"],
+		fields=[{"COUNT": "name", "as": "total"}],
 	)
 	total = (count_row[0].get("total") if count_row else 0) or 0
 	return {"events": rows, "total": total, "start": start, "page_length": page_length}

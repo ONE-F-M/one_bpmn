@@ -48,7 +48,7 @@ class TestLegacyMigrationEdgeCases(IntegrationTestCase):
 				"email": NOBODY,
 				"first_name": "plm",
 				"send_welcome_email": 0,
-				"roles": [{"role": "Blogger"}],
+				"roles": [{"role": "Prepared Report User"}],
 			}
 		).insert()
 		cls.old_map = deploy("PLM Edge Old", OLD)

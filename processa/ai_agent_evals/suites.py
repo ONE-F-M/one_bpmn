@@ -48,7 +48,7 @@ def list_eval_suites() -> dict:
 		for row in frappe.get_all(
 			"AI Eval Case",
 			filters={"suite": ["in", names]},
-			fields=["suite", "count(name) as n"],
+			fields=["suite", {"COUNT": "name", "as": "n"}],
 			group_by="suite",
 		):
 			case_counts[row["suite"]] = row["n"]

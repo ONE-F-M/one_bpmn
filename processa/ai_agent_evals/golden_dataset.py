@@ -140,7 +140,7 @@ def _breakdown(case_names: list[str]) -> dict:
 	counts = {t: 0 for t in CASE_TYPES}
 	if case_names:
 		for row in frappe.get_all("AI Eval Case", filters={"name": ["in", case_names]},
-								  fields=["case_type", "count(name) as n"], group_by="case_type"):
+								  fields=["case_type", {"COUNT": "name", "as": "n"}], group_by="case_type"):
 			counts[row.case_type or "Output"] = counts.get(row.case_type or "Output", 0) + row.n
 	return counts
 

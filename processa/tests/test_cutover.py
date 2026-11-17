@@ -42,9 +42,14 @@ class TestCutover(IntegrationTestCase):
 		self.assertEqual(frappe.db.count("Patch Log", {"patch": OLD_LINES[old]}), 1)
 
 	def test_rename_app_drops_the_cached_app_list_and_module_map(self):
-		cached = ["defaults::__global", "app_modules", "installed_app_modules"]
-		for key in cached:
-			frappe.cache.set_value(key, {"one_bpmn": ["one_bpmn"]})
+		# The defaults entry keeps installed_apps, which rename_app reads back through it.
+		cached = {
+			"defaults::__global": {"installed_apps": frappe.db.get_global("installed_apps")},
+			"app_modules": {"one_bpmn": ["one_bpmn"]},
+			"installed_app_modules": {"one_bpmn": ["one_bpmn"]},
+		}
+		for key, value in cached.items():
+			frappe.cache.set_value(key, value)
 			self.addCleanup(frappe.cache.delete_value, key)
 		self.addCleanup(frappe.cache.delete_value, "app_hooks")
 
