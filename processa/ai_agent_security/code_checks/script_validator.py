@@ -479,7 +479,7 @@ def _inspect(
 	try:
 		tree = ast.parse(code)
 	except SyntaxError as exc:
-		return [(f"Syntax error in script: {exc}", exc.lineno)]
+		return [(f"Syntax error on line {exc.lineno}: {exc.msg}", exc.lineno)]
 
 	visitor = _SecurityVisitor(options, allowed)
 	visitor.visit(tree)

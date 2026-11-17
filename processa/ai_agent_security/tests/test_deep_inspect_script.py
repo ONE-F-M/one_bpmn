@@ -220,6 +220,9 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 		self.assertEqual(len(out), 1)
 		self.assertIn("Syntax error", out[0])
 
+	def test_a_syntax_error_names_its_line_and_reason_and_nothing_else(self):
+		self.assertEqual(_flags('x = 1\nprint(""'), ["Syntax error on line 2: '(' was never closed"])
+
 	def test_validate_script_wrapper(self):
 		self.assertEqual(
 			validate_script("doc = frappe.get_doc('X', 'y')"),
