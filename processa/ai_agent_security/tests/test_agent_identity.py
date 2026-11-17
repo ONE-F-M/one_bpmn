@@ -360,7 +360,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 
 		from processa.ai_agent_skills.tools import shape_tools
 
-		source = inspect.getsource(shape_tools.execute_shape)
+		source = inspect.getsource(shape_tools._execute_shape_body)
 		self.assertIn("frappe.PermissionError", source)
 		self.assertIn("retryable", source)
 
@@ -371,7 +371,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 
 		from processa.ai_agent_skills.tools import shape_tools
 
-		self.assertIn("frappe.ValidationError", inspect.getsource(shape_tools.execute_shape))
+		self.assertIn("frappe.ValidationError", inspect.getsource(shape_tools._execute_shape_body))
 
 
 class TestTheWorkItemTools(FrappeTestCase):

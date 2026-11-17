@@ -26,7 +26,7 @@ describe("currentIr", () => {
 		settings.dtModule.value = "";
 		const out = ir.currentIr();
 		expect(out.doctype_name).toBe("Vehicle");
-		expect(out.module).toBe("ONE BPMN");
+		expect(out.module).toBe("Processa Engine");
 		expect(out.is_child_table).toBe(false);
 		expect(out.is_submittable).toBe(0);
 		expect(out.editable_grid).toBe(1);
@@ -133,11 +133,11 @@ describe("module matching", () => {
 	it("accepts a module as given until the list has loaded", () => {
 		const { settings } = make();
 		expect(settings.sanitizeModule("Anything")).toBe("Anything");
-		expect(settings.sanitizeModule("")).toBe("ONE BPMN");
+		expect(settings.sanitizeModule("")).toBe("Processa Engine");
 	});
 
 	it("normalises a module to the spelling of the Module Def", async () => {
-		frappeRequest.mockResolvedValue(["ONE BPMN", "Stock"]);
+		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
 		const { settings } = make();
 		await settings.loadModules();
 		expect(settings.sanitizeModule("stock")).toBe("Stock");
@@ -145,15 +145,15 @@ describe("module matching", () => {
 
 	it("keeps the current module and warns when the name is not a module", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		frappeRequest.mockResolvedValue(["ONE BPMN", "Stock"]);
+		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
 		const { settings } = make();
 		await settings.loadModules();
-		expect(settings.sanitizeModule("Nope")).toBe("ONE BPMN");
+		expect(settings.sanitizeModule("Nope")).toBe("Processa Engine");
 		expect(warn).toHaveBeenCalledOnce();
 	});
 
 	it("normalises a module set before the list arrived", async () => {
-		frappeRequest.mockResolvedValue(["ONE BPMN", "Stock"]);
+		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
 		const { settings } = make();
 		settings.dtModule.value = "STOCK";
 		await settings.loadModules();
@@ -173,7 +173,7 @@ describe("module matching", () => {
 		const { settings } = make();
 		settings.modules.value = ["Stock"];
 		settings.dtModule.value = "Custom";
-		expect(settings.moduleOptions.value).toEqual(["ONE BPMN", "Custom", "Stock"]);
+		expect(settings.moduleOptions.value).toEqual(["Processa Engine", "Custom", "Stock"]);
 	});
 });
 

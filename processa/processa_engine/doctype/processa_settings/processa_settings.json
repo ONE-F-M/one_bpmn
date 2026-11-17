@@ -38,6 +38,8 @@
   "column_break_sandbox_jobs",
   "sandbox_job_max_parallel",
   "sandbox_job_processa_url",
+  "sandbox_reported_apps",
+  "sandbox_reported_apps_at",
   "section_break_google_chat",
   "google_chat_service_account_json",
   "google_directory_account",
@@ -868,11 +870,24 @@
    "fieldtype": "Data",
    "label": "Processa URL For The Job",
    "description": "The https address the container calls. Blank uses this site's own address."
+  },
+  {
+   "fieldname": "sandbox_reported_apps",
+   "fieldtype": "Long Text",
+   "label": "Apps the sandbox reported",
+   "read_only": 1,
+   "description": "The apps the sandbox image holds, with the repository each came from. The sandbox sends this when a session starts, and dispatch accepts these apps and these repository names. Do not edit it."
+  },
+  {
+   "fieldname": "sandbox_reported_apps_at",
+   "fieldtype": "Datetime",
+   "label": "Reported at",
+   "read_only": 1
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-11-08 16:00:00.000000",
+ "modified": "2026-11-17 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "Processa Engine",
  "name": "Processa Settings",

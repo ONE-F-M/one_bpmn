@@ -28,7 +28,7 @@ SECRET = "callback-secret-not-real"
 _real_get_cached_doc = frappe.get_cached_doc
 
 
-PR_URL = "https://github.com/ONE-F-M/one_bpmn/pull/1"
+PR_URL = "https://github.com/ONE-F-M/processa/pull/1"
 
 
 class CallbackCase(FrappeTestCase):

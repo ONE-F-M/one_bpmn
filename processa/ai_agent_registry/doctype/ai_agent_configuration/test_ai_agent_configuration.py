@@ -1,6 +1,8 @@
 # Copyright (c) 2026, Kartik Sharma and Contributors
 # See license.txt
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -52,6 +54,10 @@ class TestAIAgentConfiguration(FrappeTestCase):
 
 	def setUp(self):
 		"""Create a test agent configuration record."""
+		# A site's own agent-creation map would otherwise rewrite the record under the test.
+		engine_trigger = patch("processa.processa_engine.triggers.on_doc_event")
+		engine_trigger.start()
+		self.addCleanup(engine_trigger.stop)
 		self._cleanup_test_record()
 
 		self.test_doc = frappe.get_doc({
@@ -62,7 +68,6 @@ class TestAIAgentConfiguration(FrappeTestCase):
 			"enabled": 1,
 			"temperature": 0.5,
 			"max_tokens": 1000,
-			"llm_provider_override": "Use Global",
 			"system_prompt": "You are a test agent.",
 			"langsmith_project": "test-project",
 			"constants": [
@@ -111,7 +116,7 @@ class TestAIAgentConfiguration(FrappeTestCase):
 		self.assertEqual(config["system_prompt"], "You are a test agent.")
 		self.assertEqual(config["temperature"], 0.5)
 		self.assertEqual(config["max_tokens"], 1000)
-		self.assertEqual(config["llm_provider_override"], "Use Global")
+		self.assertEqual(config["agent_framework"], "LangGraph")
 		self.assertEqual(config["langsmith_project"], "test-project")
 
 	def test_get_agent_config_returns_none_for_missing(self):

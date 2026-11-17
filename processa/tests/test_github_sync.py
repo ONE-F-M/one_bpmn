@@ -20,13 +20,13 @@ def _page(items, status=200):
 class TestOrgRepos(FrappeTestCase):
 	def test_single_page_is_returned_as_name_description_url(self):
 		items = [
-			{"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/one_bpmn"},
+			{"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/processa"},
 			{"name": "frappe_agile", "description": None, "html_url": "https://github.com/ONE-F-M/frappe_agile"},
 		]
 		with patch("requests.request", return_value=_page(items)) as mock_request:
 			repos = logic.org_repos("gh-token", "ONE-F-M")
 		self.assertEqual(len(repos), 2)
-		self.assertEqual(repos[0], {"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/one_bpmn"})
+		self.assertEqual(repos[0], {"name": "processa", "description": "BPMN engine", "html_url": "https://github.com/ONE-F-M/processa"})
 		# None description normalised to "", never carried through as null.
 		self.assertEqual(repos[1]["description"], "")
 		mock_request.assert_called_once()

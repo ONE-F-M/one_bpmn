@@ -141,10 +141,10 @@ class TestArgumentMatchers(FrappeTestCase):
 	def test_regex_matches_a_pattern(self):
 		expected = [want(1, "get_pull_request", matcher("pr_url", "regex", r"/pull/\d+$"))]
 		self.assertTrue(_evaluate_tool_calls("EXACT", facts(
-			[call("get_pull_request", pr_url="https://github.com/ONE-F-M/one_bpmn/pull/724")],
+			[call("get_pull_request", pr_url="https://github.com/ONE-F-M/processa/pull/724")],
 			expected))["passed"])
 		self.assertFalse(_evaluate_tool_calls("EXACT", facts(
-			[call("get_pull_request", pr_url="https://github.com/ONE-F-M/one_bpmn/pulls")],
+			[call("get_pull_request", pr_url="https://github.com/ONE-F-M/processa/pulls")],
 			expected))["passed"])
 
 	def test_every_matcher_on_a_call_must_hold(self):

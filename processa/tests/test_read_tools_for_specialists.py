@@ -125,7 +125,7 @@ class TestReadPullRequest(FrappeTestCase):
 			raise AssertionError(url)
 		with patch("frappe.integrations.utils.make_get_request", side_effect=fake_get):
 			out = _run("GitHub Tool: Read Pull Request", context_doctype="Work Item", context_docname=self.item,
-			           args={"pr_url": "https://github.com/ONE-F-M/one_bpmn/pull/9"})
+			           args={"pr_url": "https://github.com/ONE-F-M/processa/pull/9"})
 		self.assertNotIn("error", out, out.get("error"))
 		self.assertEqual(out["number"], 9)
 		self.assertEqual(out["files"][0]["path"], "a.py")

@@ -729,8 +729,8 @@ class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
 		renewal away from breaking production.
 		"""
 		for permanent in (
-			"GitHub API error (401) on /repos/ONE-F-M/one_bpmn: Bad credentials",
-			"GitHub API error (403) on /repos/ONE-F-M/one_bpmn: Forbidden",
+			"GitHub API error (401) on /repos/ONE-F-M/processa: Bad credentials",
+			"GitHub API error (403) on /repos/ONE-F-M/processa: Forbidden",
 			"GitHub Access Token is not configured in Processa Settings.",
 		):
 			self.assertTrue(
@@ -740,7 +740,7 @@ class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
 
 		for transient in (
 			"('Connection aborted.', RemoteDisconnected('Remote end closed connection'))",
-			"GitHub API error (502) on /repos/ONE-F-M/one_bpmn: Bad gateway",
+			"GitHub API error (502) on /repos/ONE-F-M/processa: Bad gateway",
 			"HTTPSConnectionPool(host='api.github.com', port=443): Read timed out.",
 		):
 			self.assertFalse(
@@ -794,9 +794,9 @@ class TestBaseBranchResolution(FrappeTestCase):
 			return True
 
 		self._with_probe(probe)
-		self.assertEqual(H.resolve_base_branch("ONE-F-M/one_bpmn", "tok"), "staging")
+		self.assertEqual(H.resolve_base_branch("ONE-F-M/processa", "tok"), "staging")
 		self.assertEqual(seen["branch"], "staging")
-		self.assertEqual(seen["repo"], "ONE-F-M/one_bpmn")
+		self.assertEqual(seen["repo"], "ONE-F-M/processa")
 
 	def test_falls_back_to_the_repo_default_when_staging_is_absent(self):
 		"""None is not a failure — it means "you choose", and github_sync then
@@ -813,7 +813,7 @@ class TestBaseBranchResolution(FrappeTestCase):
 			raise RuntimeError("GitHub API error (403): rate limited")
 
 		self._with_probe(probe)
-		self.assertIsNone(H.resolve_base_branch("ONE-F-M/one_bpmn", "tok"))
+		self.assertIsNone(H.resolve_base_branch("ONE-F-M/processa", "tok"))
 
 	def test_an_explicit_base_branch_is_never_overridden(self):
 		"""A caller that names a base means it; the preference only fills a blank."""

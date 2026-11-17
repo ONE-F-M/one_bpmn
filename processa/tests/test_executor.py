@@ -23,8 +23,8 @@ from processa.processa_engine.agent_runtime.antigravity import AntigravityExecut
 def _make_config(**kwargs) -> ExecutorConfig:
     defaults = dict(
         backend="direct_api",
-        provider_name="test-openai",
-        model="gpt-4o",
+        provider_name="OpenAI",
+        model="_test_executor_model",
         system_prompt="You are helpful.",
         user_prompt="Hello",
         max_retries=2,
@@ -55,27 +55,18 @@ def _openai_response(content: str, prompt_tokens=10, completion_tokens=5) -> dic
     }
 
 
-def _mock_provider(enabled=True, endpoint="https://api.openai.com/v1"):
-    p = MagicMock()
-    p.enabled = enabled
-    p.api_endpoint = endpoint
-    p.default_model = "gpt-4o"
-    return p
-
-
 class TestDirectApiExecutor(FrappeTestCase):
 
     def _run(self, mock_response, config=None, **response_kw):
         cfg = config or _make_config()
         ctx = _make_context()
-        provider = _mock_provider()
 
         resp = MagicMock()
         resp.status_code = response_kw.get("status_code", 200)
         resp.json.return_value = mock_response
         resp.raise_for_status = MagicMock()
 
-        with patch("frappe.get_doc", return_value=provider), \
+        with patch("frappe.db.exists", return_value=True), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
              patch("requests.post", return_value=resp):
             return DirectApiExecutor().run(cfg, ctx)
@@ -100,14 +91,13 @@ class TestDirectApiExecutor(FrappeTestCase):
         content = json.dumps({"name": "missing age"})
         cfg = _make_config(response_format="json", response_schema=schema)
         ctx = _make_context()
-        provider = _mock_provider()
 
         resp = MagicMock()
         resp.status_code = 200
         resp.json.return_value = _openai_response(content)
         resp.raise_for_status = MagicMock()
 
-        with patch("frappe.get_doc", return_value=provider), \
+        with patch("frappe.db.exists", return_value=True), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
              patch("requests.post", return_value=resp), \
              patch("time.sleep"):
@@ -121,14 +111,13 @@ class TestDirectApiExecutor(FrappeTestCase):
     def test_http_429_exhausts_retries(self):
         cfg = _make_config(max_retries=2, retry_backoff_ms=0)
         ctx = _make_context()
-        provider = _mock_provider()
 
         resp = MagicMock()
         resp.status_code = 429
         resp.json.return_value = {}
         resp.raise_for_status = MagicMock()
 
-        with patch("frappe.get_doc", return_value=provider), \
+        with patch("frappe.db.exists", return_value=True), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
              patch("requests.post", return_value=resp), \
              patch("time.sleep"):
@@ -138,7 +127,6 @@ class TestDirectApiExecutor(FrappeTestCase):
     def test_retry_recovery(self):
         cfg = _make_config(max_retries=2, retry_backoff_ms=0)
         ctx = _make_context()
-        provider = _mock_provider()
 
         fail_resp = MagicMock()
         fail_resp.status_code = 429
@@ -148,7 +136,7 @@ class TestDirectApiExecutor(FrappeTestCase):
         ok_resp.json.return_value = _openai_response("recovered!")
         ok_resp.raise_for_status = MagicMock()
 
-        with patch("frappe.get_doc", return_value=provider), \
+        with patch("frappe.db.exists", return_value=True), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
              patch("requests.post", side_effect=[fail_resp, ok_resp]), \
              patch("time.sleep"):
@@ -160,9 +148,8 @@ class TestDirectApiExecutor(FrappeTestCase):
         import requests as req
         cfg = _make_config()
         ctx = _make_context()
-        provider = _mock_provider()
 
-        with patch("frappe.get_doc", return_value=provider), \
+        with patch("frappe.db.exists", return_value=True), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
              patch("requests.post", side_effect=req.Timeout), \
              patch("time.sleep"):
@@ -179,8 +166,7 @@ class TestDirectApiExecutor(FrappeTestCase):
     def test_provider_disabled(self):
         cfg = _make_config()
         ctx = _make_context()
-        provider = _mock_provider(enabled=False)
-        with patch("frappe.get_doc", return_value=provider):
+        with patch("frappe.db.exists", return_value=True):
             result = DirectApiExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.PROVIDER_DISABLED)
 
