@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.permissions import AUTOMATIC_ROLES
 from frappe.utils import now
 
 from processa.utils.session import as_user
@@ -124,13 +125,15 @@ def export_bpmn_config(xml_content: str) -> dict:
 def _agent_records(agent_names: set) -> dict:
 	"""The referenced agent configurations with their child tables, plus the skills and tools they link to."""
 	configurations, skills, tools = [], [], []
-	skill_names, tool_names = set(), set()
+	skill_names, tool_names, user_names = set(), set(), set()
 	for name in sorted(agent_names):
 		if not frappe.db.exists("AI Agent Configuration", name):
 			continue
 		doc = frappe.get_doc("AI Agent Configuration", name)
 		configurations.append(_record_payload(doc))
 		skill_names.update(row.skill for row in doc.enabled_skills if row.skill)
+		if doc.agent_user:
+			user_names.add(doc.agent_user)
 	for name in sorted(skill_names):
 		if not frappe.db.exists("AI Skill", name):
 			continue
@@ -140,7 +143,25 @@ def _agent_records(agent_names: set) -> dict:
 	for name in sorted(tool_names):
 		if frappe.db.exists("AI Agent Tool", name):
 			tools.append(_record_payload(frappe.get_doc("AI Agent Tool", name)))
-	return {"agent_configurations": configurations, "ai_skills": skills, "agent_tools": tools}
+	users = [_agent_user_payload(name) for name in sorted(user_names) if frappe.db.exists("User", name)]
+	return {
+		"agent_users": users,
+		"agent_configurations": configurations,
+		"ai_skills": skills,
+		"agent_tools": tools,
+	}
+
+
+def _agent_user_payload(email: str) -> dict:
+	"""The user an agent runs as and the roles it holds; no password, keys or other personal fields."""
+	user = frappe.get_doc("User", email)
+	return {
+		"name": user.name,
+		"first_name": user.first_name,
+		"last_name": user.last_name or "",
+		"user_type": user.user_type,
+		"roles": sorted({row.role for row in user.roles} - set(AUTOMATIC_ROLES)),
+	}
 
 
 def _record_payload(doc) -> dict:
@@ -150,7 +171,7 @@ def _record_payload(doc) -> dict:
 	return json.loads(frappe.as_json(data))
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def import_bpmn_config(config_json: str) -> dict:
 	"""
 	Import configuration records from a JSON payload.
@@ -260,6 +281,10 @@ def import_bpmn_config(config_json: str) -> dict:
 					"incoming_script": incoming_script,
 				})
 
+	# Agent users first: a configuration links to its user and cannot be saved without it.
+	for data in config.get("agent_users", []):
+		_import_agent_user(data, created, skipped, failed)
+
 	# Import agent tools, skills and configurations
 	for key, doctype in AGENT_RECORD_SETS:
 		for data in config.get(key, []):
@@ -273,6 +298,50 @@ def import_bpmn_config(config_json: str) -> dict:
 		"needs_confirmation": needs_confirmation,
 		"failed": failed,
 	}
+
+
+def _import_agent_user(data: dict, created: list, skipped: list, failed: list):
+	"""Create an agent's user with its roles when the site lacks it; a user that exists is left exactly as it is."""
+	email = data.get("name", "")
+	if not email:
+		return
+	if frappe.db.exists("User", email):
+		skipped.append({"name": email, "type": "User"})
+		return
+	if "System Manager" not in frappe.get_roles():
+		failed.append({"name": email, "type": "User", "reason": _("Only a System Manager can create an agent's user.")})
+		return
+	# Administrator and the roles every user gets by itself are never granted from a file.
+	roles = [role for role in data.get("roles") or [] if role not in AUTOMATIC_ROLES]
+	missing = [role for role in roles if not frappe.db.exists("Role", role)]
+	user = frappe.new_doc("User")
+	user.update({
+		"email": email,
+		"first_name": data.get("first_name") or email,
+		"last_name": data.get("last_name") or "",
+		"user_type": data.get("user_type") or "System User",
+		"enabled": 1,
+		"send_welcome_email": 0,
+		"allowed_in_mentions": 0,
+		"document_follow_notify": 0,
+		"thread_notify": 0,
+		"roles": [{"role": role} for role in roles if role not in missing],
+	})
+	user.flags.no_welcome_mail = True
+	frappe.db.savepoint("config_import_user")
+	try:
+		user.insert()
+	except frappe.ValidationError as exc:
+		frappe.db.rollback(save_point="config_import_user")
+		failed.append({"name": email, "type": "User", "reason": str(exc)})
+		return
+	created.append({"name": email, "type": "User"})
+	if missing:
+		failed.append({
+			"name": email,
+			"type": "User roles",
+			"reason": _("Created without these roles, which this site does not have: {0}").format(", ".join(missing)),
+		})
 
 
 def _import_agent_record(
