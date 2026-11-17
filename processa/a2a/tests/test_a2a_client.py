@@ -30,6 +30,8 @@ CARD = {
 	"defaultOutputModes": ["text/plain"],
 	"skills": [{"id": "remote_helper", "name": "Help", "description": "Helps", "tags": ["help"]}],
 }
+PROCESSA_ENDPOINT = "https://remote.example.com/api/method/processa.api.a2a.rpc?agent_id=remote_helper"
+PROCESSA_CARD_URL = "https://remote.example.com/api/method/processa.api.a2a.agent_card?agent_id=remote_helper"
 
 
 def make_remote(approve=True, **kwargs):
@@ -149,6 +151,36 @@ class TestRemoteRegistry(FrappeTestCase):
 		self.assertEqual(frappe.parse_json(remote.agent_card)["name"], "Remote Helper")
 		self.assertEqual(remote.card_name, "Remote Helper")
 		self.assertTrue(remote.card_fetched_at)
+
+	def test_processa_remote_card_comes_from_its_agent_card_method(self):
+		remote = make_remote(approve=False, endpoint_url=PROCESSA_ENDPOINT)
+		response = MagicMock()
+		response.json.return_value = {"message": CARD}
+		response.raise_for_status.return_value = None
+		session = MagicMock()
+		session.get.return_value = response
+		with allow_test_host(), patch.object(a2a_client, "session", return_value=session):
+			card = remote.fetch_card()
+		self.assertEqual([call.args[0] for call in session.get.call_args_list], [PROCESSA_CARD_URL])
+		self.assertEqual(card["name"], "Remote Helper")
+		remote.reload()
+		self.assertEqual(remote.card_name, "Remote Helper")
+
+	def test_processa_remote_without_a_card_reports_the_error_and_saves_nothing(self):
+		import requests
+
+		remote = make_remote(approve=False, endpoint_url=PROCESSA_ENDPOINT)
+		response = MagicMock()
+		response.raise_for_status.side_effect = requests.HTTPError("404 Client Error: NOT FOUND")
+		session = MagicMock()
+		session.get.return_value = response
+		with allow_test_host(), patch.object(a2a_client, "session", return_value=session):
+			with self.assertRaises(a2a_client.A2AClientError) as caught:
+				remote.fetch_card()
+		self.assertIn("404 Client Error", str(caught.exception))
+		self.assertEqual([call.args[0] for call in session.get.call_args_list], [PROCESSA_CARD_URL])
+		remote.reload()
+		self.assertFalse(remote.agent_card)
 
 	def test_unreachable_remote_reports_the_error_and_saves_nothing(self):
 		import requests
