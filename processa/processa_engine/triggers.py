@@ -69,7 +69,11 @@ def on_doc_event(doc, method: str):
 	for model_name in models:
 		try:
 			_maybe_start_instance(doc, model_name)
-		except Exception:
+		except Exception as exc:
+			from processa.processa_engine.runtime.failures import is_form_check
+
+			if is_form_check(exc):
+				raise
 			frappe.log_error(
 				title=f"BPMN trigger failed for {doc.doctype} / {model_name}",
 				message=frappe.get_traceback(),
@@ -87,7 +91,7 @@ def on_doc_event(doc, method: str):
 def maybe_send_message(doc, message_suffix: str):
 	"""
 	Deliver a BPMN message to active instances when a document is edited.
-	Builds message name as {DocType}_{suffix} and never blocks the save.
+	Builds message name as {DocType}_{suffix}; only a form check in a step it runs blocks the save.
 	"""
 
 	# An instance started in this request is still in its creation flow, not waiting for edits.
@@ -140,9 +144,12 @@ def maybe_send_message(doc, message_suffix: str):
 				payload=payload,
 			)
 			caught = caught or bool(instance.flags.get("bpmn_message_caught"))
-		except frappe.ValidationError:
-			# Raised when no task waits for this message, which is normal for an active instance.
-			pass
+		except frappe.ValidationError as exc:
+			from processa.processa_engine.runtime.failures import is_form_check
+
+			if is_form_check(exc):
+				raise
+			# Any other ValidationError here, such as an instance without a workflow state, lets the save go on.
 		except Exception:
 			# Never block the document save.
 			frappe.log_error(
@@ -362,7 +369,11 @@ def start_queued_instance(instance_name: str, run_as_user: str = None):
 				"trigger_docname": instance.context_docname,
 			}
 		)
-	except Exception:
+	except Exception as exc:
+		from processa.processa_engine.runtime.failures import is_form_check
+
+		if is_form_check(exc):
+			raise
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
 			title=f"BPMN queued start failed: {instance_name}",
@@ -386,7 +397,7 @@ def start_queued_instance(instance_name: str, run_as_user: str = None):
 def _maybe_advance_instances(doc, task_action: str):
 	"""Complete the Waiting User Task that accepts task_action on each Active instance of doc.
 
-	Runs when the document changes outside the engine; failures are logged and never block the save."""
+	Runs when the document changes outside the engine; a form check blocks the save, other failures are logged."""
 	# A save raised by the engine's own service task would advance the running instance a second time from its stale persisted state.
 	if frappe.flags.bpmn_engine_action:
 		return
@@ -406,7 +417,11 @@ def _maybe_advance_instances(doc, task_action: str):
 	for instance_name in active_instances:
 		try:
 			_advance_instance_on_doc_event(instance_name, task_action)
-		except Exception:
+		except Exception as exc:
+			from processa.processa_engine.runtime.failures import is_form_check
+
+			if is_form_check(exc):
+				raise
 			frappe.log_error(
 				title=f"BPMN auto-advance failed for instance {instance_name}",
 				message=frappe.get_traceback(),

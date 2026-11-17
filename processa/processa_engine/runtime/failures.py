@@ -31,15 +31,31 @@ def fail_runtime(instance, phase: str):
 				)
 			raise in_flight
 
+		# A form check names what the user must fix: show it and let the request roll back.
+		# A nested instance's halt is a ValidationError too, but it is a fault and halts this one as well.
+		is_halt = getattr(in_flight, "halted_by_processa", False)
+		if type(in_flight) in (frappe.ValidationError, frappe.MandatoryError) and not is_halt:
+			in_flight.refused_by_a_step = True
+			raise in_flight
+
 	ref_id = record_runtime_failure(instance, phase)
-	frappe.throw(
-		_(
-			"This process could not continue and has been halted due to an "
-			"internal error. Quote Reference ID {0} to your administrator for "
-			"assistance."
-		).format(ref_id),
-		title=_("Process Halted"),
-	)
+	try:
+		frappe.throw(
+			_(
+				"This process could not continue and has been halted due to an "
+				"internal error. Quote Reference ID {0} to your administrator for "
+				"assistance."
+			).format(ref_id),
+			title=_("Process Halted"),
+		)
+	except frappe.ValidationError as halt:
+		halt.halted_by_processa = True
+		raise
+
+
+def is_form_check(exc: BaseException) -> bool:
+	"""A form check a running step raised: frappe.throw's ValidationError or a missing mandatory field."""
+	return getattr(exc, "refused_by_a_step", False)
 
 
 def record_runtime_failure(instance, phase: str) -> str:
