@@ -1,13 +1,26 @@
 # Copyright (c) 2026, one-fm and contributors
 """Server Script that runs its document events through the Processa runner inside a map."""
 
+import ast
 import json
 
 import frappe
+from frappe import _
 from frappe.core.doctype.server_script.server_script import ServerScript
+
+from processa.ai_agent_security.code_checks.script_validator import syntax_error_message
 
 
 class ProcessaServerScript(ServerScript):
+	def check_if_compilable_in_restricted_context(self):
+		"""A syntax error is told as its line and reason; Frappe's own check prints the raw exception."""
+		try:
+			ast.parse(self.script)
+		except SyntaxError as exc:
+			frappe.msgprint(syntax_error_message(exc), title=_("Compilation warning"))
+			return
+		super().check_if_compilable_in_restricted_context()
+
 	def execute_doc(self, doc):
 		"""Inside a Processa script task or tool, validate and run with real imports; elsewhere use safe_exec."""
 		if not frappe.flags.in_processa_script:

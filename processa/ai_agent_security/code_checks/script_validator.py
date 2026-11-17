@@ -450,6 +450,11 @@ def _node_name(node: ast.expr) -> str | None:
 	return None
 
 
+def syntax_error_message(exc: SyntaxError) -> str:
+	"""The line and the reason of a syntax error, as one sentence a person can act on."""
+	return f"Syntax error on line {exc.lineno}: {exc.msg}"
+
+
 def deep_inspect_script(
 	script_text: str, options: "ValidatorOptions | None" = None, allowed: frozenset = frozenset()
 ) -> list[str]:
@@ -479,7 +484,7 @@ def _inspect(
 	try:
 		tree = ast.parse(code)
 	except SyntaxError as exc:
-		return [(f"Syntax error in script: {exc}", exc.lineno)]
+		return [(syntax_error_message(exc), exc.lineno)]
 
 	visitor = _SecurityVisitor(options, allowed)
 	visitor.visit(tree)
