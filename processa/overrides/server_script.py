@@ -7,19 +7,25 @@ import json
 import frappe
 from frappe import _
 from frappe.core.doctype.server_script.server_script import ServerScript
-
-from processa.ai_agent_security.code_checks.script_validator import syntax_error_message
+from frappe.utils.safe_exec import FrappeTransformer
+from RestrictedPython import compile_restricted
 
 
 class ProcessaServerScript(ServerScript):
 	def check_if_compilable_in_restricted_context(self):
-		"""A syntax error is told as its line and reason; Frappe's own check prints the raw exception."""
+		"""Compile warnings as plain sentences; Frappe's own check prints the raw exception."""
+		script = self.script or ""
 		try:
-			ast.parse(self.script)
+			ast.parse(script)
 		except SyntaxError as exc:
-			frappe.msgprint(syntax_error_message(exc), title=_("Compilation warning"))
+			frappe.msgprint(
+				_("Syntax error on line {0}: {1}").format(exc.lineno, exc.msg), title=_("Compilation warning")
+			)
 			return
-		super().check_if_compilable_in_restricted_context()
+		try:
+			compile_restricted(script, policy=FrappeTransformer)
+		except SyntaxError as exc:
+			frappe.msgprint("<br>".join(exc.msg), title=_("Compilation warning"))
 
 	def execute_doc(self, doc):
 		"""Inside a Processa script task or tool, validate and run with real imports; elsewhere use safe_exec."""
