@@ -60,6 +60,7 @@ import aiTaskConfigUnavailable from "@/bpmn/lint/rules/ai-task-config-unavailabl
 import aiTaskConfigIncomplete from "@/bpmn/lint/rules/ai-task-config-incomplete.js";
 import aiTaskConfigNotLive from "@/bpmn/lint/rules/ai-task-config-not-live.js";
 import workflowStateMissingEditRole from "@/bpmn/lint/rules/workflow-state-missing-edit-role.js";
+import workflowStateForbiddenDocStatus from "@/bpmn/lint/rules/workflow-state-forbidden-doc-status.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -112,6 +113,7 @@ const ruleMapping = {
 	"custom/ai-task-config-incomplete": aiTaskConfigIncomplete,
 	"custom/ai-task-config-not-live": aiTaskConfigNotLive,
 	"custom/workflow-state-missing-edit-role": workflowStateMissingEditRole,
+	"custom/workflow-state-forbidden-doc-status": workflowStateForbiddenDocStatus,
 };
 
 const config = {
@@ -187,6 +189,9 @@ const config = {
 
 		// OneFM custom rules: a workflow state update must name the role allowed to edit in that state
 		"custom/workflow-state-missing-edit-role": "error",
+
+		// OneFM custom rules: a document status change Frappe refuses, e.g. Draft to Cancelled
+		"custom/workflow-state-forbidden-doc-status": "error",
 	},
 };
 
