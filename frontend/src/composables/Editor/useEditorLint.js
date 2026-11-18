@@ -6,7 +6,7 @@ export { lintModule, bpmnlintConfig };
 
 import { nextTick } from "vue";
 import { watchAgentConfigLint } from "@/composables/AgentConfig/useAgentConfigLintState";
-import { flattenLintIssues } from "@/utils/lintIssues.js";
+import { flattenLintIssues, issuesOnPlane } from "@/utils/lintIssues.js";
 
 export function useEditorLint(ed) {
 	const { props, showProsAllyPanel, prosAllyPanel } = ed;
@@ -39,81 +39,8 @@ export function useEditorLint(ed) {
 		if (linting) {
 			const originalFormatIssues = linting._formatIssues;
 			linting._formatIssues = function (issues) {
-				let formattedIssues = originalFormatIssues.call(this, issues);
-
-				try {
-					const canvas = ed.modeler.get("canvas");
-					const rootElement = canvas.getRootElement();
-
-					// Implicit roots (empty canvas) have no businessObject -
-					// guard so the filter degrades to "no issues" instead of throwing.
-					const rootBo = rootElement.businessObject;
-					const flowEls = (rootBo && rootBo.flowElements) || [];
-					if (!flowEls.length) {
-						return {};
-					}
-
-					// Helper to collect all element IDs strictly contained within the given moddle object
-					const getModdleDescendants = (
-						bo,
-						descendants = new Set(),
-						visited = new Set(),
-					) => {
-						if (!bo || typeof bo !== "object") return descendants;
-						if (visited.has(bo)) return descendants;
-						visited.add(bo);
-
-						if (bo.id) descendants.add(bo.id);
-
-						const containmentKeys = [
-							"flowElements",
-							"laneSets",
-							"lanes",
-							"artifacts",
-							"eventDefinitions",
-							"participants",
-							"messageFlows",
-							"processRef",
-							"rootElements",
-						];
-
-						for (const key of containmentKeys) {
-							const val = bo[key];
-							if (Array.isArray(val)) {
-								val.forEach((child) =>
-									getModdleDescendants(child, descendants, visited),
-								);
-							} else if (val && typeof val === "object") {
-								getModdleDescendants(val, descendants, visited);
-							}
-						}
-						return descendants;
-					};
-
-					const validIds = getModdleDescendants(rootElement.businessObject);
-
-					for (const elementId in formattedIssues) {
-						const issueGroup = formattedIssues[elementId];
-						// Filter reports to ensure their actual element is a descendant
-						const filteredGroup = issueGroup.filter((report) => {
-							const actualId = report.actualElementId || report.id;
-							return validIds.has(actualId);
-						});
-
-						if (filteredGroup.length === 0) {
-							delete formattedIssues[elementId];
-						} else {
-							formattedIssues[elementId] = filteredGroup;
-						}
-					}
-				} catch (err) {
-					console.warn(
-						"[bpmnlint] _formatIssues filter failed, returning unfiltered issues:",
-						err,
-					);
-				}
-
-				return formattedIssues;
+				const rootBo = ed.modeler.get("canvas").getRootElement().businessObject;
+				return issuesOnPlane(originalFormatIssues.call(this, issues), rootBo);
 			};
 
 			const originalAddEntry = linting._addEntry;

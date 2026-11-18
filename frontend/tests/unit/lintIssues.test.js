@@ -1,6 +1,7 @@
 import { test } from "vitest"
 import assert from "node:assert/strict"
-import { flattenLintIssues, withLintErrors } from "@/utils/lintIssues.js"
+import { BpmnModdle } from "bpmn-moddle"
+import { flattenLintIssues, issuesOnPlane, withLintErrors } from "@/utils/lintIssues.js"
 
 test("each finding carries the element it is about, even when the editor showed it on the root", () => {
 	const shown = {
@@ -45,4 +46,48 @@ test("an error-level lint report blocks deploy", () => {
 test("warnings and a clean lint leave the checklist ready", () => {
 	assert.equal(withLintErrors(ready, { "bpmnlint/label-required": [{ id: "a", message: "m", category: "warn" }] }), ready)
 	assert.equal(withLintErrors(ready, {}), ready)
+})
+
+const POOLED = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d">
+  <bpmn:collaboration id="collab">
+    <bpmn:participant id="pool" processRef="proc" />
+  </bpmn:collaboration>
+  <bpmn:process id="proc" isExecutable="true">
+    <bpmn:task id="loose" />
+    <bpmn:subProcess id="sub"><bpmn:task id="inner" /></bpmn:subProcess>
+  </bpmn:process>
+</bpmn:definitions>`
+
+const report = (id) => [{ id, rule: "r", message: "m", category: "error" }]
+
+async function pooled() {
+	const { rootElement } = await new BpmnModdle().fromXML(POOLED)
+	const byId = (id) => rootElement.rootElements.find((element) => element.id === id)
+	return { collaboration: byId("collab"), process: byId("proc"), sub: byId("proc").flowElements.find((element) => element.id === "sub") }
+}
+
+test("a diagram with pools shows the findings inside its pools", async () => {
+	const { collaboration } = await pooled()
+	const issues = { loose: report("loose"), inner: report("inner"), proc: report("proc") }
+	assert.deepEqual(Object.keys(issuesOnPlane(issues, collaboration)).sort(), ["inner", "loose", "proc"])
+})
+
+test("a drilled-down subprocess shows only its own findings", async () => {
+	const { sub } = await pooled()
+	assert.deepEqual(Object.keys(issuesOnPlane({ loose: report("loose"), inner: report("inner") }, sub)), ["inner"])
+})
+
+test("a report shown on the root but about a hidden element is dropped", async () => {
+	const { sub } = await pooled()
+	const issues = { sub: [{ id: "sub", actualElementId: "loose", rule: "r", message: "m", category: "error" }] }
+	assert.deepEqual(issuesOnPlane(issues, sub), {})
+})
+
+test("an empty canvas shows no findings", async () => {
+	const { rootElement } = await new BpmnModdle().fromXML(
+		`<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d"><bpmn:process id="empty" /></bpmn:definitions>`
+	)
+	assert.deepEqual(issuesOnPlane({ empty: report("empty") }, rootElement.rootElements[0]), {})
+	assert.deepEqual(issuesOnPlane({ x: report("x") }, undefined), {})
 })
