@@ -16,18 +16,7 @@
 			<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
 			<template v-else-if="saveState === 'placement'">
 				{{ placementQuestion }}
-				<select
-					:value="dtApp"
-					class="dc-placement-select"
-					@change="pickApp($event.target.value)"
-				>
-					<option value="" disabled>App</option>
-					<option v-for="a in apps" :key="a" :value="a">{{ a }}</option>
-				</select>
-				<select v-model="dtModule" class="dc-placement-select" :disabled="!dtApp">
-					<option value="" disabled>Module</option>
-					<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
-				</select>
+				<button class="dc-option-btn" @click="view = 'settings'">Open Settings</button>
 			</template>
 			<template v-else-if="saveState === 'question'">
 				{{ listingQuestion }}
@@ -55,11 +44,7 @@ const {
 	saveError,
 	listingQuestion,
 	placementQuestion,
-	dtApp,
-	dtModule,
-	apps,
-	moduleOptions,
-	pickApp,
+	view,
 	pendingNotice,
 	pendingRequest,
 	pendingParts,

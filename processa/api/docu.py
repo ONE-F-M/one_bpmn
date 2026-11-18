@@ -334,7 +334,7 @@ def _placement_question(ir_dict: dict) -> str | None:
 	if not (app and module):
 		if frappe.db.exists("DocType", name):
 			return None
-		return _("Pick the app and the module “{0}” should be created in.").format(name)
+		return _("Open Settings and pick the app and module for “{0}” to create it.").format(name)
 	if app not in frappe.get_installed_apps():
 		frappe.throw(_("App {0} is not installed on this site.").format(app))
 	if frappe.db.get_value("Module Def", module, "app_name") != app:

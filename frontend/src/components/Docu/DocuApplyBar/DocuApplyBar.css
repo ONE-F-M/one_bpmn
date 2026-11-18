@@ -53,12 +53,3 @@
 .dc-save-status.st-placement {
 	color: var(--md-primary);
 }
-.dc-placement-select {
-	margin-left: 8px;
-	border: 1px solid var(--md-outline-variant);
-	border-radius: var(--md-corner-sm);
-	padding: 4px 8px;
-	font-size: 13px;
-	background: transparent;
-	color: var(--md-on-surface);
-}
