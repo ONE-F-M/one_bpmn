@@ -82,7 +82,7 @@ class TestLucrusherReadsEveryPage(FrappeTestCase):
 		super().setUp()
 		self.conversation = frappe.get_doc(
 			{"doctype": "Chat Conversation", "title": "_lucrusher every page test"}
-		).insert(ignore_permissions=True)
+		).insert()
 		self.addCleanup(self._drop)
 		self.instance = SimpleNamespace(
 			name="INST-LCR-PAGES",
@@ -100,7 +100,7 @@ class TestLucrusherReadsEveryPage(FrappeTestCase):
 			("Chat Conversation", self.conversation.name),
 		):
 			if frappe.db.exists(dt, name):
-				frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+				frappe.delete_doc(dt, name, force=True)
 		frappe.db.commit()
 
 	def _fetch(self, url: str, answers: dict) -> tuple[dict, _Lucid]:
@@ -140,6 +140,14 @@ class TestLucrusherReadsEveryPage(FrappeTestCase):
 		self.assertFalse(doc.get("error"))
 		self.assertEqual(doc["page_count"], 2)
 		self.assertTrue(lucid.posted[0].endswith(ACCEPT_PATH))
+
+	def test_a_share_link_limited_to_the_owners_account_says_so(self):
+		doc, lucid = self._fetch(PUBLIC_URL, {META_PATH: 403, ACCEPT_PATH: {"InvitationType": "document"}})
+
+		self.assertIn("I accepted the Lucidchart share link", doc["error"])
+		self.assertIn("platform@example.com", doc["error"])
+		self.assertNotIn("Copy link", doc["error"])
+		self.assertEqual(len(lucid.posted), 1)
 
 	def test_an_expired_share_link_says_to_copy_a_fresh_one(self):
 		doc, lucid = self._fetch(PUBLIC_URL, {META_PATH: 403, ACCEPT_PATH: 404})
