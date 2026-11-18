@@ -467,7 +467,10 @@ def _refused_type_changes(doctype: str, fields: list) -> list:
 			recreate.append((custom_field.name, field))
 			continue
 		frappe.throw(
-			_("{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}.").format(
+			_(
+				"{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}. "
+				"The nearest option is to add a new {3} field next to {0} and keep the old one, so its data stays."
+			).format(
 				current.label or current.fieldname,
 				current.fieldname,
 				current.fieldtype,

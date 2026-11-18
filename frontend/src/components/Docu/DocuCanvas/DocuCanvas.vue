@@ -23,6 +23,7 @@
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
 							@card-action="onDocuCardAction"
+							@turn-complete="ir.reloadIfChangedElsewhere(dtName)"
 						/>
 					</div>
 					<div class="dc-builder-panel" :inert="!canChange">

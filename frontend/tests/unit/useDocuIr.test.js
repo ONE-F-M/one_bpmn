@@ -270,4 +270,33 @@ describe("loadSchema", () => {
 		await ir.loadSchema("Fresh");
 		expect(settings.dtName.value).toBe("");
 	});
+
+	it("reloads after a turn only when the saved doctype changed on the server", async () => {
+		const schema = (modified, label) => ({
+			exists: true,
+			modified,
+			doctype_ir: {
+				doctype_name: "Vehicle",
+				fields: [{ fieldtype: "Data", label, fieldname: "plate" }],
+			},
+		});
+		const { ir } = make();
+		frappeRequest.mockResolvedValueOnce(schema("t1", "Plate"));
+		await ir.loadSchema("Vehicle");
+
+		frappeRequest.mockResolvedValueOnce(schema("t1", "Ignored"));
+		await ir.reloadIfChangedElsewhere("Vehicle");
+		expect(ir.currentIr().fields[0].label).toBe("Plate");
+
+		frappeRequest.mockResolvedValueOnce(schema("t2", "Plate No"));
+		await ir.reloadIfChangedElsewhere("Vehicle");
+		expect(ir.currentIr().fields[0].label).toBe("Plate No");
+		expect(ir.baseModified.value).toBe("t2");
+	});
+
+	it("does not reload a doctype that was never saved", async () => {
+		const { ir } = make();
+		await ir.reloadIfChangedElsewhere("Fresh");
+		expect(frappeRequest).not.toHaveBeenCalled();
+	});
 });
