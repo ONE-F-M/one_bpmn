@@ -13,6 +13,15 @@ test("every lint entry gets an Explain this error button that asks ProsAlly", ()
 	assert.match(editor, /explainLintFinding\(entry\)/)
 })
 
+test("lint details stay open on icon click and close on outside click", () => {
+	assert.match(editor, /get\("canvas"\)\._container\.addEventListener\("click"/)
+	assert.match(editor, /closest\?\.\("\.bjsl-icon"\)/)
+	assert.match(editor, /classList\.add\("open"\)/)
+	assert.match(editor, /classList\.remove\("open"\)/)
+	assert.match(editor, /document\.addEventListener\("click"/)
+	assert.match(editor, /closest\?\.\("\.bjsl-overlay"\)/)
+})
+
 test("the question avoids the fix-lint wording that routes to a diagram edit", () => {
 	const message = editor.match(/`(Diagnose this lint finding[^`]*)`/)[1]
 	assert.doesNotMatch(message, /\b(fix|resolve|clear|correct|repair)\b/i)
