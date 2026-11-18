@@ -58,13 +58,31 @@ function nextApplyWorkflows(node) {
 	return found;
 }
 
+/** Shapes that can run right after node: flows, boundary events, and entering or leaving a subprocess. */
 function successors(node) {
+	const starts = is(node, "bpmn:SubProcess")
+		? (node.flowElements || []).filter((element) => is(element, "bpmn:StartEvent"))
+		: [];
+	const nexts = starts.length ? starts : flowTargets(node);
+	nexts.push(...boundaryEvents(node));
+	const container = node.$parent;
+	if (is(container, "bpmn:SubProcess")) {
+		nexts.push(...boundaryEvents(container));
+		if (is(node, "bpmn:EndEvent")) {
+			nexts.push(...flowTargets(container));
+		}
+	}
+	return nexts.filter(Boolean);
+}
+
+function flowTargets(node) {
 	return node.$parent.flowElements
-		.map((element) => {
-			if (is(element, "bpmn:SequenceFlow") && element.sourceRef === node) {
-				return element.targetRef;
-			}
-			return is(element, "bpmn:BoundaryEvent") && element.attachedToRef === node ? element : null;
-		})
-		.filter(Boolean);
+		.filter((element) => is(element, "bpmn:SequenceFlow") && element.sourceRef === node)
+		.map((flow) => flow.targetRef);
+}
+
+function boundaryEvents(node) {
+	return node.$parent.flowElements.filter(
+		(element) => is(element, "bpmn:BoundaryEvent") && element.attachedToRef === node
+	);
 }

@@ -33,6 +33,7 @@ from processa.processa_engine.compiler.deploy_warnings import (
 	check_scripts_pending_review,
 	check_shape_config_drift,
 )
+from processa.processa_engine.compiler.doc_status import validate_doc_status_transitions
 from processa.processa_engine.compiler.extensions import (
 	extract_adhoc_selector_config,
 	extract_script_task_config,
@@ -214,6 +215,7 @@ def compile_model(model) -> dict:
 	populate_start_events(model, sanitized_xml)
 
 	validate_workflow_state_field(model, service_extensions)
+	validate_doc_status_transitions(sanitized_xml)
 
 	enforce_eval_pass_rate(model_name)
 

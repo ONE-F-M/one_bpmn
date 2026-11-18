@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { test } from "vitest"
 import assert from "node:assert/strict"
 
@@ -78,4 +79,25 @@ test("only the nearest update on the same doctype is compared", async () => {
 
 test("documentation-only processes are left alone", async () => {
 	assert.deepEqual(await reports(diagram(applyWorkflow("a", "0") + applyWorkflow("b", "2") + flow("a", "b"), "false")), [])
+})
+
+test("the shared cases model is judged the same as the deploy check", async () => {
+	const xml = readFileSync(new URL("../../../processa/processa_engine/tests/fixtures/doc_status_cases.bpmn", import.meta.url), "utf8")
+	const { rootElement } = await new BpmnModdle().fromXML(xml)
+	const names = new Map()
+	traverse(rootElement, { enter: (node) => node.id && names.set(node.id, node.name) })
+	const flagged = (await reports(xml)).map((report) => names.get(report.id)).sort()
+	assert.deepEqual(flagged, [
+		"Boundary path: then Draft",
+		"Cancelled to Cancelled: then Cancelled",
+		"Cancelled to Draft: then Draft",
+		"Cancelled to Submitted: then Submitted",
+		"Draft to Cancelled: then Cancelled",
+		"Gateway path: then Cancelled",
+		"Into subprocess: inside Cancelled",
+		"Out of subprocess: then Draft",
+		"Submitted to Draft: then Draft",
+		"Subprocess boundary: then Submitted",
+		"Through empty subprocess: then Cancelled",
+	])
 })
