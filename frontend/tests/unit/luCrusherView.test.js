@@ -25,3 +25,10 @@ test("newline-separated shapes are split and empty parts dropped", async () => {
 test("a missing shapes value becomes an empty array", async () => {
 	assert.deepEqual(await derive(undefined, false), [])
 })
+
+test("a non-object process entry still gets an empty shapes array", async () => {
+	globalThis.window = {}
+	const { deriveLuCrusherView } = await import("../../src/utils/luCrusherView.js")
+	const view = deriveLuCrusherView({ intent: "TOPOLOGY_PROPOSAL", topology: { processes: [null] } })
+	assert.deepEqual(view.processes[0].shapes, [])
+})

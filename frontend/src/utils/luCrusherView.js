@@ -91,8 +91,7 @@ export function deriveLuCrusherView(value) {
 	const topology = value.topology || {};
 	// shapes must always be an array: the model sometimes returns a comma/newline string.
 	const processes = (Array.isArray(topology.processes) ? topology.processes : []).map((proc) => {
-		if (!proc || typeof proc !== "object") return proc;
-		const raw = proc.shapes;
+		const raw = proc?.shapes;
 		const shapes = Array.isArray(raw)
 			? raw
 			: typeof raw === "string"

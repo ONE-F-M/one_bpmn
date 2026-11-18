@@ -70,10 +70,20 @@
 						<TextBlock v-if="p.reason" class="lcr-sub">{{ p.reason }}</TextBlock>
 						<Row v-if="p.shapes.length" :gap="4">
 							<span v-for="(s, si) in visibleShapes(p, i)" :key="si" class="lcr-chip">{{ s }}</span>
-							<button v-if="p.shapes.length > SHAPE_LIMIT && !expandedShapes[i]" type="button" class="lcr-more" @click="toggleShapes(i)">
+							<button
+								v-if="p.shapes.length > SHAPE_LIMIT && !expandedShapes[i]"
+								type="button"
+								class="lcr-more"
+								@click="toggleShapes(i)"
+							>
 								+{{ p.shapes.length - SHAPE_LIMIT }} {{ __("more") }}
 							</button>
-							<button v-else-if="p.shapes.length > SHAPE_LIMIT" type="button" class="lcr-more" @click="toggleShapes(i)">
+							<button
+								v-else-if="p.shapes.length > SHAPE_LIMIT"
+								type="button"
+								class="lcr-more"
+								@click="toggleShapes(i)"
+							>
 								{{ __("Show less") }}
 							</button>
 						</Row>
@@ -173,7 +183,6 @@ const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 const view = computed(() => deriveLuCrusherView(props.value));
 const copied = ref(-1);
 
-// Topology shape chips: first SHAPE_LIMIT, or all when that process is expanded.
 const SHAPE_LIMIT = 6;
 const expandedShapes = ref({});
 
@@ -222,4 +231,5 @@ function copy(text, i) {
 :global([data-theme="dark"]) .lcr-name { color: #d4d4d4; }
 :global([data-theme="dark"]) .lcr-num { background: #f8f8f8; color: #0f0f0f; }
 :global([data-theme="dark"]) .lcr-sub, :global([data-theme="dark"]) .lcr-code { color: #808080; }
+:global([data-theme="dark"]) .lcr-more { color: #999; }
 </style>
