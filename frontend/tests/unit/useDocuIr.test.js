@@ -294,6 +294,14 @@ describe("loadSchema", () => {
 		expect(ir.baseModified.value).toBe("t2");
 	});
 
+	it("passes a failed reload to the caller", async () => {
+		const { ir } = make();
+		frappeRequest.mockResolvedValueOnce({ exists: true, modified: "t1", doctype_ir: { fields: [] } });
+		await ir.loadSchema("Vehicle");
+		frappeRequest.mockRejectedValueOnce(new Error("offline"));
+		await expect(ir.reloadIfChangedElsewhere("Vehicle")).rejects.toThrow("offline");
+	});
+
 	it("does not reload a doctype that was never saved", async () => {
 		const { ir } = make();
 		await ir.reloadIfChangedElsewhere("Fresh");

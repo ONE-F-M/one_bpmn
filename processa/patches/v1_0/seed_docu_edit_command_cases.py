@@ -1,5 +1,7 @@
 """Docu's baseline suite gains the edit command cases: add a field, hide a section on a checkbox, remove fields, change a field's type, and a vague edit that is asked about.
 
+The existing add-a-field case moves to the probe too, since adding is now a direct edit and would otherwise change ToDo.
+
 The edits apply to a probe DocType that keeps the result between runs, so each check also accepts the reply a repeat run gives. Idempotent by suite and case title.
 """
 
@@ -31,6 +33,18 @@ CASES = [
 			DESIGNS_NOTHING,
 			NO_GREETING,
 			_regex(r"Added Phone|Phone is already on the form"),
+		],
+	},
+	{
+		"title": "A field added to an existing DocType lands where asked and the rest is kept",
+		"prompt": "Add a Reviewed By field, a link to Employee, right after the Office Address field.",
+		"context": ON_EDIT_PROBE,
+		"trace": PROPERTY_TRACE,
+		"assertions": [
+			IN_ORDER,
+			DESIGNS_NOTHING,
+			NO_GREETING,
+			_regex(r"Added Reviewed By \(Link\)|Reviewed By is already on the form"),
 		],
 	},
 	{
