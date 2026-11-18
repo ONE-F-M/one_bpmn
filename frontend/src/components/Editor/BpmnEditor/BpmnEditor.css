@@ -39,6 +39,21 @@
 	display: none;
 }
 
+/* Mandatory fields: red asterisk after the entry's label (the fields the linter requires). */
+
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-assigneeMode"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-assigneeUser"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-assigneeDocfield"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-assigneeUsers"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-assigneeTableField"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-taskActions"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-serverScript"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-notificationName"] .bio-properties-panel-label::after,
+.bio-properties-panel-entry[data-entry-id="spiffworkflow-serviceType"] .bio-properties-panel-label::after {
+	content: " *";
+	color: var(--red-500, #e53e3e);
+}
+
 /* Context Pad Styling */
 
 .djs-context-pad .entry:hover {
