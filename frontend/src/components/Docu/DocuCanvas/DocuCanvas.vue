@@ -128,7 +128,7 @@ const { view, tabs, selectForm, buildTree } = tree;
 const { canChange } = autosave;
 const { docuTurnContext, hostContextLine, onDocuCardAction } = chat;
 
-// A failed reload leaves a stale canvas, so the save bar says so instead of the next save failing later.
+// Show a failed reload in the save bar.
 async function reloadAfterTurn() {
 	try {
 		await ir.reloadIfChangedElsewhere(dtName.value);

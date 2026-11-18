@@ -1,6 +1,6 @@
 """Docu's baseline suite gains the edit command cases: add a field, hide a section on a checkbox, remove fields, change a field's type, and a vague edit that is asked about.
 
-The existing add-a-field case moves to the probe too, since adding is now a direct edit and would otherwise change ToDo.
+The add-a-field case runs on the probe too, since adding is a direct edit that would change ToDo.
 
 The edits apply to a probe DocType that keeps the result between runs, so each check also accepts the reply a repeat run gives. Idempotent by suite and case title.
 """
@@ -21,6 +21,7 @@ from processa.patches.v1_0.seed_docu_baseline_cases import (
 EDIT_PROBE = "Docu Eval Edit Probe"
 ON_EDIT_PROBE = {"doctype": EDIT_PROBE}
 NO_GREETING = _regex(r"^(?![\s\S]*I build DocTypes)")
+KEEPS_THE_REST = _regex(r"^(?![\s\S]*Removed)")
 
 CASES = [
 	{
@@ -32,7 +33,7 @@ CASES = [
 			IN_ORDER,
 			DESIGNS_NOTHING,
 			NO_GREETING,
-			_regex(r"Added Phone|Phone is already on the form"),
+			_regex(r"Added Phone \(Data\) after Office Address|Phone is already on the form"),
 		],
 	},
 	{
@@ -44,7 +45,10 @@ CASES = [
 			IN_ORDER,
 			DESIGNS_NOTHING,
 			NO_GREETING,
-			_regex(r"Added Reviewed By \(Link\)|Reviewed By is already on the form"),
+			KEEPS_THE_REST,
+			_regex(
+				r"Added Reviewed By \(Link to Employee\) after Office Address|Reviewed By is already on the form"
+			),
 		],
 	},
 	{
