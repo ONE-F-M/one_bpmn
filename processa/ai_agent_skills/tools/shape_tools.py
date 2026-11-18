@@ -595,9 +595,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			# Diagram-set spiffworkflow:aiAgentConfig override; empty when unset.
 			"ai_agent_config": (shape_config or {}).get("aiAgentConfig", ""),
 			# Same convention as the engine's FrappeScriptEngine: scripts may
-			# read their inputs bundled under `task_data` (the LLM-supplied
-			# arguments, here) instead of as bare locals.
-			"task_data": dict(task.data),
+			# read their inputs bundled under `task_data` instead of as bare
+			# locals. That is the calling task's variables with the LLM-supplied
+			# arguments on top, so a value the model passed wins.
+			"task_data": {**(getattr(task, "process_data", None) or {}), **dict(task.data)},
 			# WHICH shape is running. The tool name the LLM called IS the shape's
 			# bpmn_id, so a family of same-shaped tools can share ONE Server
 			# Script and dispatch on this instead of duplicating a body per tool
