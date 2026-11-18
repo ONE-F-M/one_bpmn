@@ -9,10 +9,12 @@ import {
 
 export function useDocuSettings({ doctype, onChange }) {
 	const dtName = ref(doctype || "");
-	const dtModule = ref("Processa Engine");
+	const dtApp = ref("");
+	const dtModule = ref("");
 	const dtAutoname = ref("");
 	const isChild = ref(false);
-	const modules = ref([]); // Module Def names for the module picker
+	const apps = ref([]); // installed apps that own modules, for the app picker
+	const modules = ref([]); // { name, app } for every Module Def
 
 	const dtSettings = reactive(defaultSettings());
 	const permissions = ref([]);
@@ -37,32 +39,30 @@ export function useDocuSettings({ doctype, onChange }) {
 		onChange();
 	}
 
-	// Always include the current module (e.g. an agent-supplied one) so it stays selectable.
-	const moduleOptions = computed(() => {
-		const list = modules.value.slice();
-		for (const m of [dtModule.value, "Processa Engine"]) {
-			if (m && !list.includes(m)) list.unshift(m);
-		}
-		return list;
-	});
+	// Only the picked app's modules, so a DocType cannot land in another app's module.
+	const moduleOptions = computed(() =>
+		modules.value.filter((m) => m.app === dtApp.value).map((m) => m.name),
+	);
+
+	// Switching app drops a module that belongs to the old one.
+	function pickApp(app) {
+		dtApp.value = app;
+		if (modules.value.find((m) => m.name === dtModule.value)?.app !== app) dtModule.value = "";
+		onChange();
+	}
 
 	const settingsSections = computed(() => buildSettingsSections(isChild.value));
 
-	// An IR module is accepted only when it names a real Module Def. The match is
-	// case-insensitive and is normalised to the Module Def's own spelling.
+	// An IR module is accepted only when it names a real Module Def inside the picked app,
+	// matched case-insensitively and normalised to the Module Def's own spelling.
 	function sanitizeModule(m) {
-		if (!m) return dtModule.value || "Processa Engine";
+		if (!m) return dtModule.value;
 		if (!modules.value.length) return m;
 		const match = modules.value.find(
-			(known) => String(known).toLowerCase() === String(m).toLowerCase(),
+			(known) => known.name.toLowerCase() === String(m).toLowerCase(),
 		);
-		if (match) return match;
-		// Genuinely not a module. Falling back is right, but say so - a silent
-		// substitution is how this went unnoticed for so long.
-		console.warn(
-			`Docu: "${m}" is not a Frappe module; keeping ${dtModule.value || "Processa Engine"}.`,
-		);
-		return dtModule.value || "Processa Engine";
+		if (!match || (dtApp.value && match.app !== dtApp.value)) return dtModule.value;
+		return match.name;
 	}
 
 	async function loadRoles() {
@@ -76,20 +76,26 @@ export function useDocuSettings({ doctype, onChange }) {
 
 	async function loadModules() {
 		try {
-			const res = await frappeRequest({ url: `${DOCU_API}list_modules` });
-			if (Array.isArray(res)) {
-				modules.value = res;
-				// Normalise a module set before the list loaded; replace only what does not match.
+			const [appList, moduleList] = await Promise.all([
+				frappeRequest({ url: `${DOCU_API}list_apps` }),
+				frappeRequest({ url: `${DOCU_API}list_modules` }),
+			]);
+			if (Array.isArray(appList)) apps.value = appList;
+			if (Array.isArray(moduleList)) {
+				modules.value = moduleList;
+				// Normalise a module set before the list loaded.
 				if (dtModule.value) dtModule.value = sanitizeModule(dtModule.value);
 			}
 		} catch {
-			/* fall back to the current module only */
+			/* the pickers stay empty and the server keeps asking for an app and module */
 		}
 	}
 
 	return {
 		dtName,
+		dtApp,
 		dtModule,
+		apps,
 		dtAutoname,
 		isChild,
 		modules,
@@ -100,6 +106,7 @@ export function useDocuSettings({ doctype, onChange }) {
 		addPermission,
 		removePermission,
 		moduleOptions,
+		pickApp,
 		settingsSections,
 		sanitizeModule,
 		loadRoles,

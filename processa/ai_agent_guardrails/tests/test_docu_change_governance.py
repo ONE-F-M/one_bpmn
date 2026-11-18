@@ -63,7 +63,9 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		fields = [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}]
 		if extra:
 			fields.append({"fieldname": "extra", "fieldtype": "Data", "label": "Extra"})
-		return json.dumps({"doctype_name": self.doctype, "module": "Processa Engine", "fields": fields})
+		return json.dumps(
+			{"doctype_name": self.doctype, "app": "processa", "module": "Processa Engine", "fields": fields}
+		)
 
 	def _process(self, key, owner, lists_doctype=True):
 		name = f"Zz Gov Process {key} {self.tag}"
@@ -199,7 +201,7 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		self.addCleanup(self._drop_doctype, new_name)
 		frappe.set_user(creator)
 		ir = json.dumps({
-			"doctype_name": new_name, "module": "Processa Engine",
+			"doctype_name": new_name, "app": "processa", "module": "Processa Engine",
 			"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
 		})
 

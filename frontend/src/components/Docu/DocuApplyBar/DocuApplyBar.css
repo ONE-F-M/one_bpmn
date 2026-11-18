@@ -50,3 +50,6 @@
 	font-size: 13px;
 	margin-right: auto;
 }
+.dc-save-status.st-placement {
+	color: var(--md-primary);
+}

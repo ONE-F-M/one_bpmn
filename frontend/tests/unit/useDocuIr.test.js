@@ -21,12 +21,12 @@ afterEach(() => {
 });
 
 describe("currentIr", () => {
-	it("falls back to the default module and writes settings as 0/1 and numbers", () => {
-		const { ir, settings } = make("  Vehicle ");
-		settings.dtModule.value = "";
+	it("sends no app or module until the user picks them, and writes settings as 0/1 and numbers", () => {
+		const { ir } = make("  Vehicle ");
 		const out = ir.currentIr();
 		expect(out.doctype_name).toBe("Vehicle");
-		expect(out.module).toBe("Processa Engine");
+		expect(out.app).toBe("");
+		expect(out.module).toBe("");
 		expect(out.is_child_table).toBe(false);
 		expect(out.is_submittable).toBe(0);
 		expect(out.editable_grid).toBe(1);
@@ -129,51 +129,83 @@ describe("loadIr", () => {
 	});
 });
 
-describe("module matching", () => {
+const MODULES = [
+	{ name: "Processa Engine", app: "processa" },
+	{ name: "Stock", app: "erpnext" },
+	{ name: "Selling", app: "erpnext" },
+];
+
+function withModules(settings) {
+	settings.apps.value = ["erpnext", "processa"];
+	settings.modules.value = MODULES;
+}
+
+describe("app and module", () => {
 	it("accepts a module as given until the list has loaded", () => {
 		const { settings } = make();
 		expect(settings.sanitizeModule("Anything")).toBe("Anything");
-		expect(settings.sanitizeModule("")).toBe("Processa Engine");
+		expect(settings.sanitizeModule("")).toBe("");
 	});
 
-	it("normalises a module to the spelling of the Module Def", async () => {
-		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
-		const { settings } = make();
-		await settings.loadModules();
-		expect(settings.sanitizeModule("stock")).toBe("Stock");
-	});
-
-	it("keeps the current module and warns when the name is not a module", async () => {
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
-		const { settings } = make();
-		await settings.loadModules();
-		expect(settings.sanitizeModule("Nope")).toBe("Processa Engine");
-		expect(warn).toHaveBeenCalledOnce();
-	});
-
-	it("normalises a module set before the list arrived", async () => {
-		frappeRequest.mockResolvedValue(["Processa Engine", "Stock"]);
+	it("loads the apps and every module with its app", async () => {
+		frappeRequest.mockImplementation(({ url }) =>
+			Promise.resolve(url.endsWith("list_apps") ? ["erpnext", "processa"] : MODULES),
+		);
 		const { settings } = make();
 		settings.dtModule.value = "STOCK";
 		await settings.loadModules();
+		expect(settings.apps.value).toEqual(["erpnext", "processa"]);
 		expect(settings.dtModule.value).toBe("Stock");
 	});
 
-	it("ignores a failed or malformed module list", async () => {
+	it("offers only the picked app's modules", () => {
+		const { settings } = make();
+		withModules(settings);
+		expect(settings.moduleOptions.value).toEqual([]);
+		settings.pickApp("erpnext");
+		expect(settings.moduleOptions.value).toEqual(["Stock", "Selling"]);
+	});
+
+	it("drops a module from another app when the app changes, and keeps one inside it", () => {
+		const { settings, onChange } = make();
+		withModules(settings);
+		settings.pickApp("erpnext");
+		settings.dtModule.value = "Stock";
+		settings.pickApp("erpnext");
+		expect(settings.dtModule.value).toBe("Stock");
+		settings.pickApp("processa");
+		expect(settings.dtModule.value).toBe("");
+		expect(onChange).toHaveBeenCalledTimes(3);
+	});
+
+	it("refuses an agent's module outside the picked app or not a module at all", () => {
+		const { settings } = make();
+		withModules(settings);
+		settings.pickApp("processa");
+		settings.dtModule.value = "Processa Engine";
+		expect(settings.sanitizeModule("stock")).toBe("Processa Engine");
+		expect(settings.sanitizeModule("Nope")).toBe("Processa Engine");
+		settings.pickApp("erpnext");
+		expect(settings.sanitizeModule("stock")).toBe("Stock");
+	});
+
+	it("takes the app from a saved doctype and keeps the picked app on an agent turn", () => {
+		const { ir, settings } = make();
+		withModules(settings);
+		ir.loadIr({ doctype_name: "Vehicle", app: "erpnext", module: "Stock", fields: [] });
+		expect(ir.currentIr()).toMatchObject({ app: "erpnext", module: "Stock" });
+		ir.loadIr({ doctype_name: "Vehicle", module: "Selling", fields: [] });
+		expect(ir.currentIr()).toMatchObject({ app: "erpnext", module: "Selling" });
+	});
+
+	it("ignores a failed or malformed list", async () => {
 		const { settings } = make();
 		frappeRequest.mockRejectedValueOnce(new Error("no"));
 		await settings.loadModules();
-		frappeRequest.mockResolvedValueOnce({ not: "a list" });
+		frappeRequest.mockResolvedValue({ not: "a list" });
 		await settings.loadModules();
 		expect(settings.modules.value).toEqual([]);
-	});
-
-	it("always offers the current module and the default one", () => {
-		const { settings } = make();
-		settings.modules.value = ["Stock"];
-		settings.dtModule.value = "Custom";
-		expect(settings.moduleOptions.value).toEqual(["Processa Engine", "Custom", "Stock"]);
+		expect(settings.apps.value).toEqual([]);
 	});
 });
 
