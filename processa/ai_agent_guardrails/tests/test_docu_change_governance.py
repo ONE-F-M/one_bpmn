@@ -101,6 +101,30 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		self.assertEqual(reqs[0].requested_by, self.users["b"])
 		self.assertEqual(out["request"], reqs[0].name)
 
+	def test_a_change_made_inside_a_tool_run_is_judged_for_the_person_in_the_chat(self):
+		self._process("one", "a")
+		frappe.set_user(self.users["b"])
+		frappe.flags.requesting_user = self.users["a"]
+		try:
+			out = apply_doctype(self._ir(extra=True), confirm=1)
+		finally:
+			frappe.flags.requesting_user = None
+
+		self.assertEqual(out["status"], "applied")
+		self.assertTrue(self._has_extra())
+		self.assertEqual(self._requests(), [])
+
+	def test_a_non_owner_in_the_chat_is_logged_under_their_own_name(self):
+		self._process("one", "a")
+		frappe.flags.requesting_user = self.users["b"]
+		try:
+			out = apply_doctype(self._ir(extra=True), confirm=1)
+		finally:
+			frappe.flags.requesting_user = None
+
+		self.assertEqual(out["status"], "pending_approval")
+		self.assertEqual(self._requests()[0].requested_by, self.users["b"])
+
 	def test_repeated_edits_keep_one_pending_request(self):
 		self._process("one", "a")
 		frappe.set_user(self.users["b"])
