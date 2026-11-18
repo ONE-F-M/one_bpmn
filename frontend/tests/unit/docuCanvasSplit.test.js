@@ -93,12 +93,13 @@ describe("endpoints the Docu canvas calls", () => {
 		.join("\n");
 	const called = [...new Set([...sources.matchAll(/\$\{DOCU_API\}(\w+)/g)].map((m) => m[1]))];
 
-	it("calls the seven endpoints the original screen called", () => {
+	it("calls the endpoints the screen needs", () => {
 		expect(called.sort()).toEqual([
 			"apply_client_script",
 			"apply_doctype",
 			"can_change_forms",
 			"get_doctype_schema",
+			"list_apps",
 			"list_modules",
 			"list_roles",
 			"preview_doctype",

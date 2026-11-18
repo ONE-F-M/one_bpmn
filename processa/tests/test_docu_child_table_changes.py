@@ -18,6 +18,8 @@ def _ir(columns, options=CHILD):
 	return json.dumps(
 		{
 			"doctype_name": PARENT,
+			"app": "processa",
+			"module": "Processa Engine",
 			"fields": [
 				{"fieldname": "title", "fieldtype": "Data", "label": "Title"},
 				{"fieldname": "rows", "fieldtype": "Table", "label": "Rows", "options": options, "child_fields": columns},

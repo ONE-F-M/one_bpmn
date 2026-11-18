@@ -112,6 +112,7 @@ const autosave = useDocuAutosave({
 const chat = useDocuChat({
 	props,
 	dtName: settings.dtName,
+	dtApp: settings.dtApp,
 	dtModule: settings.dtModule,
 	loadIr: ir.loadIr,
 	autosave,
@@ -119,7 +120,8 @@ const chat = useDocuChat({
 
 provide(DOCU_KEY, { ...settings, ...tree, ...ir, ...autosave, ...chat });
 
-const { dtName, dtModule, dtAutoname, isChild, dtSettings, loadRoles, loadModules } = settings;
+const { dtName, dtApp, dtModule, dtAutoname, isChild, dtSettings, loadRoles, loadModules } =
+	settings;
 const { view, tabs, selectForm, buildTree } = tree;
 const { canChange } = autosave;
 const { docuTurnContext, hostContextLine, onDocuCardAction } = chat;
@@ -153,7 +155,7 @@ onMounted(async () => {
 	document.body.classList.add("docu-open");
 	buildTree([]); // start with an empty tab/section/column so the canvas is usable
 	selectForm();
-	loadModules(); // populate the module picker (fire-and-forget)
+	loadModules(); // populate the app and module pickers (fire-and-forget)
 	loadRoles(); // populate the permission-rule role picker
 	await autosave.loadCanChange();
 	if (props.doctype) {
@@ -170,7 +172,7 @@ onMounted(async () => {
 		// Registered after an await, so it joins the component's scope to stop on unmount.
 		scope.run(() =>
 			watch(
-				[tabs, dtName, dtModule, dtAutoname, isChild, dtSettings],
+				[tabs, dtName, dtApp, dtModule, dtAutoname, isChild, dtSettings],
 				() => {
 					history.scheduleSnapshot();
 					autosave.scheduleAutosave();

@@ -11,7 +11,7 @@ import {
 
 export function useDocuIr({ tree, settings }) {
 	const { buildTree, flatten, selectForm } = tree;
-	const { dtName, dtModule, dtAutoname, isChild, dtSettings, permissions, sanitizeModule } =
+	const { dtName, dtApp, dtModule, dtAutoname, isChild, dtSettings, permissions, sanitizeModule } =
 		settings;
 
 	const applyError = ref("");
@@ -21,6 +21,8 @@ export function useDocuIr({ tree, settings }) {
 	function loadIr(ir) {
 		if (!ir) return;
 		if (ir.doctype_name) dtName.value = ir.doctype_name;
+		// Only a saved DocType's IR names its app; an agent turn keeps the app the user picked.
+		if (ir.app) dtApp.value = ir.app;
 		dtModule.value = sanitizeModule(ir.module);
 		dtAutoname.value = ir.autoname || "";
 		isChild.value = !!ir.is_child_table;
@@ -50,7 +52,8 @@ export function useDocuIr({ tree, settings }) {
 	function currentIr() {
 		return {
 			doctype_name: dtName.value.trim(),
-			module: dtModule.value || "Processa Engine",
+			app: dtApp.value,
+			module: dtModule.value,
 			is_child_table: isChild.value,
 			autoname: dtAutoname.value || "",
 			...settingsPayload(),

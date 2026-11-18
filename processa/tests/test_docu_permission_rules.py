@@ -20,6 +20,7 @@ DT = "Docu Permission Rules Probe"
 def _ir(**over):
 	ir = {
 		"doctype_name": DT,
+		"app": "processa",
 		"module": "Processa Engine",
 		"fields": [{"fieldname": "subject", "fieldtype": "Data", "label": "Subject"}],
 	}

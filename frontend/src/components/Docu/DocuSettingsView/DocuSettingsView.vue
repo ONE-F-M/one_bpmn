@@ -12,8 +12,20 @@
 						/>
 					</div>
 					<div class="dc-prop">
+						<label>App</label>
+						<select
+							:value="dtApp"
+							class="dc-prop-input"
+							@change="pickApp($event.target.value)"
+						>
+							<option value="" disabled>Pick an app</option>
+							<option v-for="a in apps" :key="a" :value="a">{{ a }}</option>
+						</select>
+					</div>
+					<div class="dc-prop">
 						<label>Module</label>
-						<select v-model="dtModule" class="dc-prop-input">
+						<select v-model="dtModule" class="dc-prop-input" :disabled="!dtApp">
+							<option value="" disabled>Pick a module</option>
 							<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
 						</select>
 					</div>
@@ -91,8 +103,18 @@
 import DocuPermissionRules from "@/components/Docu/DocuPermissionRules/DocuPermissionRules.vue";
 import { useDocu } from "@/composables/Docu/useDocu";
 
-const { dtName, dtModule, dtAutoname, isChild, dtSettings, moduleOptions, settingsSections } =
-	useDocu();
+const {
+	dtName,
+	dtApp,
+	dtModule,
+	apps,
+	pickApp,
+	dtAutoname,
+	isChild,
+	dtSettings,
+	moduleOptions,
+	settingsSections,
+} = useDocu();
 </script>
 
 <style scoped src="./DocuSettingsView.css"></style>
