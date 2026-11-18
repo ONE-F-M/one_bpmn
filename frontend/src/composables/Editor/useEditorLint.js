@@ -143,11 +143,15 @@ export function useEditorLint(ed) {
 				});
 				dropdown?.classList.add("open");
 			});
-			document.addEventListener("click", (event) => {
+			const closeLintDetails = (event) => {
 				if (event.target.closest?.(".bjsl-overlay")) return;
 				document
 					.querySelectorAll(".bjsl-dropdown.open")
 					.forEach((el) => el.classList.remove("open"));
+			};
+			document.addEventListener("click", closeLintDetails);
+			eventBus.on("diagram.destroy", () => {
+				document.removeEventListener("click", closeLintDetails);
 			});
 
 			// Rerun linting when drilling down/up so the panel stays relevant to current plane

@@ -22,6 +22,11 @@ test("lint details stay open on icon click and close on outside click", () => {
 	assert.match(editor, /closest\?\.\("\.bjsl-overlay"\)/)
 })
 
+test("the outside-click listener is removed when the diagram is destroyed", () => {
+	assert.match(editor, /document\.addEventListener\("click", closeLintDetails\)/)
+	assert.match(editor, /eventBus\.on\("diagram\.destroy"[\s\S]*?document\.removeEventListener\("click", closeLintDetails\)/)
+})
+
 test("the question avoids the fix-lint wording that routes to a diagram edit", () => {
 	const message = editor.match(/`(Diagnose this lint finding[^`]*)`/)[1]
 	assert.doesNotMatch(message, /\b(fix|resolve|clear|correct|repair)\b/i)
