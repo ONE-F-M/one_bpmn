@@ -132,6 +132,24 @@ export function useEditorLint(ed) {
 				$ul.lastElementChild?.appendChild(button);
 			};
 
+			// Keep details open after a click (the library only opens them on hover)
+			ed.modeler.get("canvas")._container.addEventListener("click", (event) => {
+				const icon = event.target.closest?.(".bjsl-icon");
+				if (!icon) return;
+				const overlay = icon.closest(".bjsl-overlay");
+				const dropdown = overlay?.querySelector(".bjsl-dropdown");
+				document.querySelectorAll(".bjsl-dropdown.open").forEach((el) => {
+					if (el !== dropdown) el.classList.remove("open");
+				});
+				dropdown?.classList.add("open");
+			});
+			document.addEventListener("click", (event) => {
+				if (event.target.closest?.(".bjsl-overlay")) return;
+				document
+					.querySelectorAll(".bjsl-dropdown.open")
+					.forEach((el) => el.classList.remove("open"));
+			});
+
 			// Rerun linting when drilling down/up so the panel stays relevant to current plane
 			eventBus.on("root.set", () => {
 				linting.update();
