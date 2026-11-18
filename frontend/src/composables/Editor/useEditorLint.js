@@ -134,17 +134,17 @@ export function useEditorLint(ed) {
 
 			// Keep details open after a click (the library only opens them on hover)
 			ed.modeler.get("canvas")._container.addEventListener("click", (event) => {
-				const icon = event.target.closest?.(".bjsl-icon");
+				const icon = event.target.closest(".bjsl-icon");
 				if (!icon) return;
 				const overlay = icon.closest(".bjsl-overlay");
-				const dropdown = overlay?.querySelector(".bjsl-dropdown");
+				const dropdown = overlay.querySelector(".bjsl-dropdown");
 				document.querySelectorAll(".bjsl-dropdown.open").forEach((el) => {
 					if (el !== dropdown) el.classList.remove("open");
 				});
-				dropdown?.classList.add("open");
+				dropdown.classList.add("open");
 			});
 			const closeLintDetails = (event) => {
-				if (event.target.closest?.(".bjsl-overlay")) return;
+				if (event.target.closest(".bjsl-overlay")) return;
 				document
 					.querySelectorAll(".bjsl-dropdown.open")
 					.forEach((el) => el.classList.remove("open"));
