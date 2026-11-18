@@ -96,3 +96,26 @@ class TestScriptToolTaskData(unittest.TestCase):
 	def test_no_process_data_behaves_as_before(self):
 		task = frappe._dict(data={"assertions": "x"})
 		self.assertEqual(_run_script(task)["task_data"], {"assertions": "x"})
+
+
+class TestEmptyArgumentsDoNotHideVariables(unittest.TestCase):
+	def test_an_empty_argument_keeps_the_process_value(self):
+		from processa.processa_engine.dispatch.common import merge_task_data
+
+		merged = merge_task_data({"criteria": ["AC1"], "run_id": "r1"}, {"criteria": "", "run_id": None, "file": "a.js"})
+		self.assertEqual(merged, {"criteria": ["AC1"], "run_id": "r1", "file": "a.js"})
+
+	def test_a_real_argument_still_wins_and_false_or_zero_count_as_real(self):
+		from processa.processa_engine.dispatch.common import merge_task_data
+
+		merged = merge_task_data({"a": 1, "b": True}, {"a": 0, "b": False})
+		self.assertEqual(merged, {"a": 0, "b": False})
+
+	def test_an_empty_argument_with_no_process_value_is_kept(self):
+		from processa.processa_engine.dispatch.common import merge_task_data
+
+		self.assertEqual(merge_task_data(None, {"x": ""}), {"x": ""})
+
+	def test_a_connector_step_ignores_an_empty_model_value(self):
+		task = frappe._dict(data={"target_app": ""}, process_data={"target_app": "frappe_agile"})
+		self.assertEqual(_dispatch(task)["task_data"]["target_app"], "frappe_agile")

@@ -50,3 +50,13 @@ def template_renderer(
 			return text
 
 	return render, jinja_ctx
+
+
+def merge_task_data(process_data, data) -> dict:
+	"""The calling task's variables with a tool call's own arguments on top. What the model passed wins, unless it passed
+	nothing for a name the process already holds (None, "", [] or {}): an empty argument must not hide that value."""
+	merged = dict(process_data or {})
+	for key, value in dict(data or {}).items():
+		if key not in merged or value not in (None, "", [], {}):
+			merged[key] = value
+	return merged

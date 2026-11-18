@@ -574,6 +574,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
+	from processa.processa_engine.dispatch.common import merge_task_data
 	from processa.processa_engine.engine import check_server_script
 
 	script_doc = frappe.get_doc("Server Script", script_name)
@@ -597,8 +598,8 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			# Same convention as the engine's FrappeScriptEngine: scripts may
 			# read their inputs bundled under `task_data` instead of as bare
 			# locals. That is the calling task's variables with the LLM-supplied
-			# arguments on top, so a value the model passed wins.
-			"task_data": {**(getattr(task, "process_data", None) or {}), **dict(task.data)},
+			# arguments on top, so a value the model passed wins unless it was empty.
+			"task_data": merge_task_data(getattr(task, "process_data", None), task.data),
 			# WHICH shape is running. The tool name the LLM called IS the shape's
 			# bpmn_id, so a family of same-shaped tools can share ONE Server
 			# Script and dispatch on this instead of duplicating a body per tool

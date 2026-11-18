@@ -6,7 +6,7 @@ import json
 
 import frappe
 
-from processa.processa_engine.dispatch.common import cfg_truthy
+from processa.processa_engine.dispatch.common import cfg_truthy, merge_task_data
 
 # Where dispatch_connector records what happened; the tool loop reads it and hides it from the model.
 CONNECTOR_OUTCOME_KEY = "_bpmn_connector_outcome"
@@ -79,8 +79,8 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		else frappe._dict()
 	)
 	# A tool call's task data is only what the model passed. The calling task's variables fill in the rest, so
-	# {{ task_data.target_app }} reads the same for a tool as for a step. What the model passed wins.
-	task_data = {**(getattr(task, "process_data", None) or {}), **task.data}
+	# {{ task_data.target_app }} reads the same for a tool as for a step. What the model passed wins, unless it was empty.
+	task_data = merge_task_data(getattr(task, "process_data", None), task.data)
 	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": task_data}
 	specs = _manifest.field_specs(connector_id, operation)
 	transforms = _manifest.field_transforms(connector_id, operation)
