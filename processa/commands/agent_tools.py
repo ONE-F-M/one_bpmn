@@ -152,7 +152,9 @@ def run_check() -> tuple[list[str], int, int]:
 				name="check-agent-tools",
 				context_doctype="",
 				context_docname="",
+				process_model=model.name,
 				_service_task_extensions=extensions,
+				_script_task_extensions=spec.get("script_task_extensions") or {},
 			)
 
 			seen_tools = set()

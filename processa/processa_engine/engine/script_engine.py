@@ -2,6 +2,7 @@
 """FrappeScriptEngine: runs BPMN Script Tasks and their Server Scripts."""
 
 from datetime import datetime
+from functools import cached_property
 
 from SpiffWorkflow.bpmn.script_engine import PythonScriptEngine, TaskDataEnvironment
 
@@ -163,6 +164,12 @@ class FrappeScriptEngine(PythonScriptEngine):
 			_frappe.flags.ignore_permissions = False
 			_frappe.flags.in_processa_script = saved_in_script
 
+	@cached_property
+	def _import_script(self):
+		from processa.processa_engine.engine.script_imports import make_import_script
+
+		return make_import_script(self._instance, self._script_task_extensions)
+
 	def _agent_for_script(self, script_name: str) -> str:
 		"""The agent whose map runs this Server Script, or "" for an ordinary process.
 
@@ -293,6 +300,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 				# - without resorting to locals()/globals() (blocked by the
 				# script-security validator).
 				"task_data": dict(task.data),
+				"import_script": self._import_script,
 			}
 		)
 		if self._context_doctype and self._context_docname:
