@@ -255,14 +255,9 @@ def _fold(doc: dict, schema: dict) -> list:
 
 	# Deleted on the site: the field must leave the file, or it comes back on every migrate.
 	for fieldname in schema.get("deleted_fields", []):
-		if fieldname not in by_name:
-			continue
-		rows[:] = [r for r in rows if r.get("fieldname") != fieldname]
-		by_name.pop(fieldname)
-		order = doc.get("field_order")
-		if isinstance(order, list) and fieldname in order:
-			order.remove(fieldname)
-		notes.append(_("removed field {0}").format(fieldname))
+		if fieldname in by_name:
+			_remove_field(doc, rows, by_name, fieldname)
+			notes.append(_("removed field {0}").format(fieldname))
 
 	# A DocType-level field_order Property Setter was folded above and decides the order.
 	if "field_order" not in schema["doctype_level"] and _reorder(doc, rows, schema["fields"]):
@@ -326,6 +321,15 @@ def _insert_field(doc: dict, rows: list, by_name: dict, field: dict, after: str 
 	order = doc.get("field_order")
 	if isinstance(order, list) and field["fieldname"] not in order:
 		order.insert(order.index(after) + 1 if after in order else len(order), field["fieldname"])
+
+
+def _remove_field(doc: dict, rows: list, by_name: dict, fieldname: str) -> None:
+	"""Remove a field from ``fields`` and ``field_order``."""
+	rows[:] = [r for r in rows if r.get("fieldname") != fieldname]
+	by_name.pop(fieldname)
+	order = doc.get("field_order")
+	if isinstance(order, list) and fieldname in order:
+		order.remove(fieldname)
 
 
 def _canonical_export(dt: str) -> dict:

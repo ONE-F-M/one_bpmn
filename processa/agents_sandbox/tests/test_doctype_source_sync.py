@@ -447,7 +447,7 @@ def _version(dt, removed=(), added=()):
     }
     frappe.get_doc({
         "doctype": "Version", "ref_doctype": "DocType", "docname": dt, "data": json.dumps(data),
-    }).insert(ignore_permissions=True)
+    }).insert()
 
 
 class TestAFieldDeletedOnTheSiteIsFound(FrappeTestCase):
@@ -466,8 +466,6 @@ class TestAFieldDeletedOnTheSiteIsFound(FrappeTestCase):
         self.assertEqual(source.deleted_fieldnames(self.GHOST), {"gone_field"})
 
     def test_a_field_the_doctype_has_today_is_not(self):
-        if not frappe.db.exists("DocType", OURS):
-            self.skipTest(f"{OURS} is not installed")
         present = frappe.get_all("DocField", filters={"parent": OURS}, pluck="fieldname")[0]
         _version(OURS, removed=[present])
 
@@ -478,8 +476,6 @@ class TestAFieldDeletedOnTheSiteIsFound(FrappeTestCase):
         self.assertEqual(source.deleted_fieldnames("ZZ Never Edited Demo"), set())
 
     def test_site_schema_carries_the_sorted_deleted_fields(self):
-        if not frappe.db.exists("DocType", OURS):
-            self.skipTest(f"{OURS} is not installed")
         _version(OURS, removed=["zz_gone_b", "zz_gone_a"])
 
         deleted = source.site_schema(OURS)["deleted_fields"]
