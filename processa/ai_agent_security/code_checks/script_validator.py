@@ -40,6 +40,7 @@ Public API:
 """
 
 import ast
+import builtins
 import re
 
 # ── Python modules that must never appear in a Frappe Server Script ──────────
@@ -540,3 +541,128 @@ def validate_script(code: str) -> dict:
 		"violations": [message for message, _line in found],
 		"findings": findings,
 	}
+
+
+# Names a BPMN Script Task receives without defining them; anything else must be defined or imported.
+INJECTED_NAMES = ("frappe", "doc", "task_data", "result", "context_doctype", "context_docname")
+_BUILTIN_NAMES = frozenset(dir(builtins))
+_CLIENT_SCRIPT_RE = re.compile(r"\b(client[\s-]?script|form script|javascript|js)\b", re.IGNORECASE)
+_SERVER_SCRIPT_RE = re.compile(r"\b(server[\s-]?script|python)\b", re.IGNORECASE)
+_REQUEST_NUMBER_RE = re.compile(r"(?<![\w.\-/:])\d+(?:\.\d+)?(?![\w.\-/:])")
+_REPLACED_NUMBER_RE = re.compile(r"\b(?:not|instead of|rather than|from)\s+(\d+(?:\.\d+)?)", re.IGNORECASE)
+_CODE_NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
+# Words that make a number in the request a value the script must use, not a count of things to change.
+_LIMIT_WORDS = frozenset(
+	"limit limits max maximum min minimum least most top latest last first oldest newest only exactly "
+	"days day hours hour minutes minute seconds weeks week months month years year records record rows row "
+	"items item results result entries times retries retry attempts percent threshold than over under above "
+	"below after before within every per not from instead rather".split()
+)
+
+
+def request_findings(code: str, request: str, language: str = "python") -> list[dict]:
+	"""Findings for a generated script that would not run or does not follow the request, as {"rule", "line", "code"}."""
+	findings = _script_type_findings(request, language)
+	if language == "python":
+		findings += undefined_name_findings(code)
+	return findings + _number_findings(code, request)
+
+
+def _script_type_findings(request: str, language: str) -> list[dict]:
+	from frappe import _
+
+	wants_client = bool(_CLIENT_SCRIPT_RE.search(request))
+	wants_server = bool(_SERVER_SCRIPT_RE.search(request))
+	if wants_client == wants_server:
+		return []
+	if wants_client and language == "python":
+		rule = _(
+			"The request asks for a client script (JavaScript that runs on the form), but this is a "
+			"server script in Python. Return the client script in a ```javascript block."
+		)
+		return [{"rule": rule, "line": 0, "code": ""}]
+	if wants_server and language == "javascript":
+		rule = _(
+			"The request asks for a server script, but this is JavaScript. Return the server script in a ```python block."
+		)
+		return [{"rule": rule, "line": 0, "code": ""}]
+	return []
+
+
+def undefined_name_findings(code: str) -> list[dict]:
+	"""One finding per name the script reads but never injects, defines or imports, at its first use."""
+	from frappe import _
+
+	try:
+		tree = ast.parse(code)
+	except SyntaxError:
+		return []
+	bound = set(INJECTED_NAMES) | _BUILTIN_NAMES
+	used = []
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Name):
+			if isinstance(node.ctx, ast.Load):
+				used.append(node)
+			else:
+				bound.add(node.id)
+		elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+			bound.add(node.name)
+		elif isinstance(node, ast.arg):
+			bound.add(node.arg)
+		elif isinstance(node, ast.alias):
+			bound.add((node.asname or node.name).split(".")[0])
+		elif isinstance(node, (ast.Global, ast.Nonlocal)):
+			bound.update(node.names)
+		elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+			bound.add(node.name)
+		elif isinstance(node, ast.MatchMapping) and node.rest:
+			bound.add(node.rest)
+
+	lines = code.splitlines()
+	findings = []
+	reported = set()
+	for node in sorted(used, key=lambda n: (n.lineno, n.col_offset)):
+		if node.id in bound or node.id in reported:
+			continue
+		reported.add(node.id)
+		findings.append(
+			{
+				"rule": _(
+					"`{0}` is used but never defined or imported, and a Script Task only receives {1}"
+				).format(node.id, ", ".join(INJECTED_NAMES)),
+				"line": node.lineno,
+				"code": lines[node.lineno - 1].strip(),
+			}
+		)
+	return findings
+
+
+def _number_findings(code: str, request: str) -> list[dict]:
+	"""A number the request asks for that the script replaced with a number of its own."""
+	from frappe import _
+
+	replaced = set(_REPLACED_NUMBER_RE.findall(request))
+	words = re.findall(r"[a-z]+|\d+(?:\.\d+)?|%", request.lower())
+	wanted = []
+	for i, word in enumerate(words):
+		if not _REQUEST_NUMBER_RE.fullmatch(word) or word in replaced:
+			continue
+		near = set(words[max(0, i - 3) : i + 4])
+		if near & _LIMIT_WORDS or "%" in near:
+			wanted.append(word)
+	wanted = list(dict.fromkeys(wanted))
+	in_code = set(_CODE_NUMBER_RE.findall(code))
+	own = sorted(in_code - set(wanted) - {"0", "1"}, key=float)
+	if not own:
+		return []
+	return [
+		{
+			"rule": _(
+				"The request says {0}, but the script uses {1} instead. Use the request's numbers exactly."
+			).format(n, ", ".join(own)),
+			"line": 0,
+			"code": "",
+		}
+		for n in wanted
+		if n not in in_code
+	]
