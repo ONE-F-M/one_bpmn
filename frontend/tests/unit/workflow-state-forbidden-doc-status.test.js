@@ -82,7 +82,7 @@ test("documentation-only processes are left alone", async () => {
 })
 
 test("the shared cases model is judged the same as the deploy check", async () => {
-	const xml = readFileSync(new URL("../../../processa/processa_engine/tests/fixtures/doc_status_cases.bpmn", import.meta.url), "utf8")
+	const xml = readFileSync(new URL("../../../processa/tests/fixtures/doc_status_cases.bpmn", import.meta.url), "utf8")
 	const { rootElement } = await new BpmnModdle().fromXML(xml)
 	const names = new Map()
 	traverse(rootElement, { enter: (node) => node.id && names.set(node.id, node.name) })
