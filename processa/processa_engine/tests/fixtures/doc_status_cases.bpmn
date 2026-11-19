@@ -1,0 +1,1141 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" id="Definitions_doc_status_cases" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="doc_status_cases" name="Document status lint cases" isExecutable="true">
+    <bpmn:startEvent id="case_start" name="Start">
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="F1_a" name="Draft to Cancelled: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_4</bpmn:incoming>
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="F1_b" name="Draft to Cancelled: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="F1_a" targetRef="F1_b" />
+    <bpmn:endEvent id="F1_end" name="Draft to Cancelled done">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="F1_b" targetRef="F1_end" />
+    <bpmn:parallelGateway id="Fork_F1" name="Run case F1">
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+      <bpmn:outgoing>Flow_7</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="case_start" targetRef="Fork_F1" />
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Fork_F1" targetRef="F1_a" />
+    <bpmn:serviceTask id="F2_a" name="Submitted to Draft: set Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_8</bpmn:incoming>
+      <bpmn:outgoing>Flow_5</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="F2_b" name="Submitted to Draft: then Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_5</bpmn:incoming>
+      <bpmn:outgoing>Flow_6</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="F2_a" targetRef="F2_b" />
+    <bpmn:endEvent id="F2_end" name="Submitted to Draft done">
+      <bpmn:incoming>Flow_6</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="F2_b" targetRef="F2_end" />
+    <bpmn:parallelGateway id="Fork_F2" name="Run case F2">
+      <bpmn:incoming>Flow_7</bpmn:incoming>
+      <bpmn:outgoing>Flow_8</bpmn:outgoing>
+      <bpmn:outgoing>Flow_11</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Fork_F1" targetRef="Fork_F2" />
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="Fork_F2" targetRef="F2_a" />
+    <bpmn:serviceTask id="F3_a" name="Cancelled to Submitted: set Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_9</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="F3_b" name="Cancelled to Submitted: then Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_9</bpmn:incoming>
+      <bpmn:outgoing>Flow_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="F3_a" targetRef="F3_b" />
+    <bpmn:endEvent id="F3_end" name="Cancelled to Submitted done">
+      <bpmn:incoming>Flow_10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="F3_b" targetRef="F3_end" />
+    <bpmn:parallelGateway id="Fork_F3" name="Run case F3">
+      <bpmn:incoming>Flow_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_12</bpmn:outgoing>
+      <bpmn:outgoing>Flow_15</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_11" sourceRef="Fork_F2" targetRef="Fork_F3" />
+    <bpmn:sequenceFlow id="Flow_12" sourceRef="Fork_F3" targetRef="F3_a" />
+    <bpmn:serviceTask id="F4_a" name="Cancelled to Draft: set Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_16</bpmn:incoming>
+      <bpmn:outgoing>Flow_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="F4_b" name="Cancelled to Draft: then Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_13" sourceRef="F4_a" targetRef="F4_b" />
+    <bpmn:endEvent id="F4_end" name="Cancelled to Draft done">
+      <bpmn:incoming>Flow_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_14" sourceRef="F4_b" targetRef="F4_end" />
+    <bpmn:parallelGateway id="Fork_F4" name="Run case F4">
+      <bpmn:incoming>Flow_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_16</bpmn:outgoing>
+      <bpmn:outgoing>Flow_19</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_15" sourceRef="Fork_F3" targetRef="Fork_F4" />
+    <bpmn:sequenceFlow id="Flow_16" sourceRef="Fork_F4" targetRef="F4_a" />
+    <bpmn:serviceTask id="F5_a" name="Cancelled to Cancelled: set Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_20</bpmn:incoming>
+      <bpmn:outgoing>Flow_17</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="F5_b" name="Cancelled to Cancelled: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_17</bpmn:incoming>
+      <bpmn:outgoing>Flow_18</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_17" sourceRef="F5_a" targetRef="F5_b" />
+    <bpmn:endEvent id="F5_end" name="Cancelled to Cancelled done">
+      <bpmn:incoming>Flow_18</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_18" sourceRef="F5_b" targetRef="F5_end" />
+    <bpmn:parallelGateway id="Fork_F5" name="Run case F5">
+      <bpmn:incoming>Flow_19</bpmn:incoming>
+      <bpmn:outgoing>Flow_20</bpmn:outgoing>
+      <bpmn:outgoing>Flow_23</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_19" sourceRef="Fork_F4" targetRef="Fork_F5" />
+    <bpmn:sequenceFlow id="Flow_20" sourceRef="Fork_F5" targetRef="F5_a" />
+    <bpmn:serviceTask id="A1_a" name="OK Draft to Draft: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_24</bpmn:incoming>
+      <bpmn:outgoing>Flow_21</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="A1_b" name="OK Draft to Draft: then Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_21</bpmn:incoming>
+      <bpmn:outgoing>Flow_22</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_21" sourceRef="A1_a" targetRef="A1_b" />
+    <bpmn:endEvent id="A1_end" name="OK Draft to Draft done">
+      <bpmn:incoming>Flow_22</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_22" sourceRef="A1_b" targetRef="A1_end" />
+    <bpmn:parallelGateway id="Fork_A1" name="Run case A1">
+      <bpmn:incoming>Flow_23</bpmn:incoming>
+      <bpmn:outgoing>Flow_24</bpmn:outgoing>
+      <bpmn:outgoing>Flow_27</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_23" sourceRef="Fork_F5" targetRef="Fork_A1" />
+    <bpmn:sequenceFlow id="Flow_24" sourceRef="Fork_A1" targetRef="A1_a" />
+    <bpmn:serviceTask id="A2_a" name="OK Draft to Submitted: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_28</bpmn:incoming>
+      <bpmn:outgoing>Flow_25</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="A2_b" name="OK Draft to Submitted: then Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_25</bpmn:incoming>
+      <bpmn:outgoing>Flow_26</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_25" sourceRef="A2_a" targetRef="A2_b" />
+    <bpmn:endEvent id="A2_end" name="OK Draft to Submitted done">
+      <bpmn:incoming>Flow_26</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_26" sourceRef="A2_b" targetRef="A2_end" />
+    <bpmn:parallelGateway id="Fork_A2" name="Run case A2">
+      <bpmn:incoming>Flow_27</bpmn:incoming>
+      <bpmn:outgoing>Flow_28</bpmn:outgoing>
+      <bpmn:outgoing>Flow_31</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_27" sourceRef="Fork_A1" targetRef="Fork_A2" />
+    <bpmn:sequenceFlow id="Flow_28" sourceRef="Fork_A2" targetRef="A2_a" />
+    <bpmn:serviceTask id="A3_a" name="OK Submitted to Submitted: set Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_32</bpmn:incoming>
+      <bpmn:outgoing>Flow_29</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="A3_b" name="OK Submitted to Submitted: then Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_29</bpmn:incoming>
+      <bpmn:outgoing>Flow_30</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_29" sourceRef="A3_a" targetRef="A3_b" />
+    <bpmn:endEvent id="A3_end" name="OK Submitted to Submitted done">
+      <bpmn:incoming>Flow_30</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_30" sourceRef="A3_b" targetRef="A3_end" />
+    <bpmn:parallelGateway id="Fork_A3" name="Run case A3">
+      <bpmn:incoming>Flow_31</bpmn:incoming>
+      <bpmn:outgoing>Flow_32</bpmn:outgoing>
+      <bpmn:outgoing>Flow_35</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_31" sourceRef="Fork_A2" targetRef="Fork_A3" />
+    <bpmn:sequenceFlow id="Flow_32" sourceRef="Fork_A3" targetRef="A3_a" />
+    <bpmn:serviceTask id="A4_a" name="OK Submitted to Cancelled: set Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_36</bpmn:incoming>
+      <bpmn:outgoing>Flow_33</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="A4_b" name="OK Submitted to Cancelled: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_33</bpmn:incoming>
+      <bpmn:outgoing>Flow_34</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_33" sourceRef="A4_a" targetRef="A4_b" />
+    <bpmn:endEvent id="A4_end" name="OK Submitted to Cancelled done">
+      <bpmn:incoming>Flow_34</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_34" sourceRef="A4_b" targetRef="A4_end" />
+    <bpmn:parallelGateway id="Fork_A4" name="Run case A4">
+      <bpmn:incoming>Flow_35</bpmn:incoming>
+      <bpmn:outgoing>Flow_36</bpmn:outgoing>
+      <bpmn:outgoing>Flow_42</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_35" sourceRef="Fork_A3" targetRef="Fork_A4" />
+    <bpmn:sequenceFlow id="Flow_36" sourceRef="Fork_A4" targetRef="A4_a" />
+    <bpmn:serviceTask id="G1_draft" name="Gateway path: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_43</bpmn:incoming>
+      <bpmn:outgoing>Flow_37</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateThrowEvent id="G1_note" name="Gateway path: notify">
+      <bpmn:incoming>Flow_37</bpmn:incoming>
+      <bpmn:outgoing>Flow_38</bpmn:outgoing>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:sequenceFlow id="Flow_37" sourceRef="G1_draft" targetRef="G1_note" />
+    <bpmn:exclusiveGateway id="G1_gw" name="Gateway path: approved?" default="G1_default">
+      <bpmn:incoming>Flow_38</bpmn:incoming>
+      <bpmn:outgoing>Flow_39</bpmn:outgoing>
+      <bpmn:outgoing>G1_default</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_38" sourceRef="G1_note" targetRef="G1_gw" />
+    <bpmn:serviceTask id="G1_submit" name="Gateway path: OK submit" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_39</bpmn:incoming>
+      <bpmn:outgoing>Flow_40</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_39" name="approved" sourceRef="G1_gw" targetRef="G1_submit">
+      <bpmn:conditionExpression>approved</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:endEvent id="G1_end1" name="Gateway path submitted">
+      <bpmn:incoming>Flow_40</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_40" sourceRef="G1_submit" targetRef="G1_end1" />
+    <bpmn:serviceTask id="G1_cancel" name="Gateway path: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>G1_default</bpmn:incoming>
+      <bpmn:outgoing>Flow_41</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="G1_default" sourceRef="G1_gw" targetRef="G1_cancel" />
+    <bpmn:endEvent id="G1_end2" name="Gateway path cancelled">
+      <bpmn:incoming>Flow_41</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_41" sourceRef="G1_cancel" targetRef="G1_end2" />
+    <bpmn:parallelGateway id="Fork_G1" name="Run case G1">
+      <bpmn:incoming>Flow_42</bpmn:incoming>
+      <bpmn:outgoing>Flow_43</bpmn:outgoing>
+      <bpmn:outgoing>Flow_47</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_42" sourceRef="Fork_A4" targetRef="Fork_G1" />
+    <bpmn:sequenceFlow id="Flow_43" sourceRef="Fork_G1" targetRef="G1_draft" />
+    <bpmn:serviceTask id="B1_submit" name="Boundary path: set Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_48</bpmn:incoming>
+      <bpmn:outgoing>Flow_44</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="B1_end1" name="Boundary path done">
+      <bpmn:incoming>Flow_44</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_44" sourceRef="B1_submit" targetRef="B1_end1" />
+    <bpmn:boundaryEvent id="B1_timer" name="Boundary path: 1 hour" attachedToRef="B1_submit">
+      <bpmn:outgoing>Flow_45</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration>"PT1H"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="B1_draft" name="Boundary path: then Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_45</bpmn:incoming>
+      <bpmn:outgoing>Flow_46</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_45" sourceRef="B1_timer" targetRef="B1_draft" />
+    <bpmn:endEvent id="B1_end2" name="Boundary path reopened">
+      <bpmn:incoming>Flow_46</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_46" sourceRef="B1_draft" targetRef="B1_end2" />
+    <bpmn:parallelGateway id="Fork_B1" name="Run case B1">
+      <bpmn:incoming>Flow_47</bpmn:incoming>
+      <bpmn:outgoing>Flow_48</bpmn:outgoing>
+      <bpmn:outgoing>Flow_52</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_47" sourceRef="Fork_G1" targetRef="Fork_B1" />
+    <bpmn:sequenceFlow id="Flow_48" sourceRef="Fork_B1" targetRef="B1_submit" />
+    <bpmn:serviceTask id="U1_a" name="Unknown status: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_53</bpmn:incoming>
+      <bpmn:outgoing>Flow_49</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="U1_mid" name="Unknown status: state only" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:workflowState="Approved">
+      <bpmn:incoming>Flow_49</bpmn:incoming>
+      <bpmn:outgoing>Flow_50</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_49" sourceRef="U1_a" targetRef="U1_mid" />
+    <bpmn:serviceTask id="U1_b" name="Unknown status: OK then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_50</bpmn:incoming>
+      <bpmn:outgoing>Flow_51</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_50" sourceRef="U1_mid" targetRef="U1_b" />
+    <bpmn:endEvent id="U1_end" name="Unknown status done">
+      <bpmn:incoming>Flow_51</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_51" sourceRef="U1_b" targetRef="U1_end" />
+    <bpmn:parallelGateway id="Fork_U1" name="Run case U1">
+      <bpmn:incoming>Flow_52</bpmn:incoming>
+      <bpmn:outgoing>Flow_53</bpmn:outgoing>
+      <bpmn:outgoing>Flow_56</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_52" sourceRef="Fork_B1" targetRef="Fork_U1" />
+    <bpmn:sequenceFlow id="Flow_53" sourceRef="Fork_U1" targetRef="U1_a" />
+    <bpmn:serviceTask id="D1_a" name="Other doctype: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_57</bpmn:incoming>
+      <bpmn:outgoing>Flow_54</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="D1_b" name="Other doctype: OK Cancelled on Employee Incentive" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Employee Incentive" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_54</bpmn:incoming>
+      <bpmn:outgoing>Flow_55</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_54" sourceRef="D1_a" targetRef="D1_b" />
+    <bpmn:endEvent id="D1_end" name="Other doctype done">
+      <bpmn:incoming>Flow_55</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_55" sourceRef="D1_b" targetRef="D1_end" />
+    <bpmn:parallelGateway id="Fork_D1" name="Run case D1">
+      <bpmn:incoming>Flow_56</bpmn:incoming>
+      <bpmn:outgoing>Flow_57</bpmn:outgoing>
+      <bpmn:outgoing>Flow_62</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_56" sourceRef="Fork_U1" targetRef="Fork_D1" />
+    <bpmn:sequenceFlow id="Flow_57" sourceRef="Fork_D1" targetRef="D1_a" />
+    <bpmn:serviceTask id="S1_before" name="Into subprocess: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_63</bpmn:incoming>
+      <bpmn:outgoing>Flow_60</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:subProcess id="S1_sub" name="Into subprocess: subprocess">
+      <bpmn:incoming>Flow_60</bpmn:incoming>
+      <bpmn:outgoing>Flow_61</bpmn:outgoing>
+      <bpmn:startEvent id="S1_s" name="Into subprocess: sub start">
+        <bpmn:outgoing>Flow_58</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="S1_in" name="Into subprocess: inside Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+        <bpmn:incoming>Flow_58</bpmn:incoming>
+        <bpmn:outgoing>Flow_59</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="S1_e" name="Into subprocess: sub end">
+        <bpmn:incoming>Flow_59</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_58" sourceRef="S1_s" targetRef="S1_in" />
+      <bpmn:sequenceFlow id="Flow_59" sourceRef="S1_in" targetRef="S1_e" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_60" sourceRef="S1_before" targetRef="S1_sub" />
+    <bpmn:endEvent id="S1_end" name="Into subprocess done">
+      <bpmn:incoming>Flow_61</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_61" sourceRef="S1_sub" targetRef="S1_end" />
+    <bpmn:parallelGateway id="Fork_S1" name="Run case S1">
+      <bpmn:incoming>Flow_62</bpmn:incoming>
+      <bpmn:outgoing>Flow_63</bpmn:outgoing>
+      <bpmn:outgoing>Flow_68</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_62" sourceRef="Fork_D1" targetRef="Fork_S1" />
+    <bpmn:sequenceFlow id="Flow_63" sourceRef="Fork_S1" targetRef="S1_before" />
+    <bpmn:subProcess id="S2_sub" name="Out of subprocess: subprocess">
+      <bpmn:incoming>Flow_69</bpmn:incoming>
+      <bpmn:outgoing>Flow_66</bpmn:outgoing>
+      <bpmn:startEvent id="S2_s" name="Out of subprocess: sub start">
+        <bpmn:outgoing>Flow_64</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="S2_in" name="Out of subprocess: inside Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+        <bpmn:incoming>Flow_64</bpmn:incoming>
+        <bpmn:outgoing>Flow_65</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="S2_e" name="Out of subprocess: sub end">
+        <bpmn:incoming>Flow_65</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_64" sourceRef="S2_s" targetRef="S2_in" />
+      <bpmn:sequenceFlow id="Flow_65" sourceRef="S2_in" targetRef="S2_e" />
+    </bpmn:subProcess>
+    <bpmn:serviceTask id="S2_after" name="Out of subprocess: then Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_66</bpmn:incoming>
+      <bpmn:outgoing>Flow_67</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_66" sourceRef="S2_sub" targetRef="S2_after" />
+    <bpmn:endEvent id="S2_end" name="Out of subprocess done">
+      <bpmn:incoming>Flow_67</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_67" sourceRef="S2_after" targetRef="S2_end" />
+    <bpmn:parallelGateway id="Fork_S2" name="Run case S2">
+      <bpmn:incoming>Flow_68</bpmn:incoming>
+      <bpmn:outgoing>Flow_69</bpmn:outgoing>
+      <bpmn:outgoing>Flow_75</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_68" sourceRef="Fork_S1" targetRef="Fork_S2" />
+    <bpmn:sequenceFlow id="Flow_69" sourceRef="Fork_S2" targetRef="S2_sub" />
+    <bpmn:serviceTask id="S3_before" name="Through empty subprocess: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_76</bpmn:incoming>
+      <bpmn:outgoing>Flow_72</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:subProcess id="S3_sub" name="Through empty subprocess: subprocess">
+      <bpmn:incoming>Flow_72</bpmn:incoming>
+      <bpmn:outgoing>Flow_73</bpmn:outgoing>
+      <bpmn:startEvent id="S3_s" name="Through empty subprocess: sub start">
+        <bpmn:outgoing>Flow_70</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:intermediateThrowEvent id="S3_in" name="Through empty subprocess: no status inside">
+        <bpmn:incoming>Flow_70</bpmn:incoming>
+        <bpmn:outgoing>Flow_71</bpmn:outgoing>
+      </bpmn:intermediateThrowEvent>
+      <bpmn:endEvent id="S3_e" name="Through empty subprocess: sub end">
+        <bpmn:incoming>Flow_71</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_70" sourceRef="S3_s" targetRef="S3_in" />
+      <bpmn:sequenceFlow id="Flow_71" sourceRef="S3_in" targetRef="S3_e" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_72" sourceRef="S3_before" targetRef="S3_sub" />
+    <bpmn:serviceTask id="S3_after" name="Through empty subprocess: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_73</bpmn:incoming>
+      <bpmn:outgoing>Flow_74</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_73" sourceRef="S3_sub" targetRef="S3_after" />
+    <bpmn:endEvent id="S3_end" name="Through empty subprocess done">
+      <bpmn:incoming>Flow_74</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_74" sourceRef="S3_after" targetRef="S3_end" />
+    <bpmn:parallelGateway id="Fork_S3" name="Run case S3">
+      <bpmn:incoming>Flow_75</bpmn:incoming>
+      <bpmn:outgoing>Flow_76</bpmn:outgoing>
+      <bpmn:outgoing>Flow_82</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_75" sourceRef="Fork_S2" targetRef="Fork_S3" />
+    <bpmn:sequenceFlow id="Flow_76" sourceRef="Fork_S3" targetRef="S3_before" />
+    <bpmn:serviceTask id="S4_before" name="OK subprocess submits: set Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_83</bpmn:incoming>
+      <bpmn:outgoing>Flow_79</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:subProcess id="S4_sub" name="OK subprocess submits: subprocess">
+      <bpmn:incoming>Flow_79</bpmn:incoming>
+      <bpmn:outgoing>Flow_80</bpmn:outgoing>
+      <bpmn:startEvent id="S4_s" name="OK subprocess submits: sub start">
+        <bpmn:outgoing>Flow_77</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="S4_in" name="OK subprocess submits: inside Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+        <bpmn:incoming>Flow_77</bpmn:incoming>
+        <bpmn:outgoing>Flow_78</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="S4_e" name="OK subprocess submits: sub end">
+        <bpmn:incoming>Flow_78</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_77" sourceRef="S4_s" targetRef="S4_in" />
+      <bpmn:sequenceFlow id="Flow_78" sourceRef="S4_in" targetRef="S4_e" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_79" sourceRef="S4_before" targetRef="S4_sub" />
+    <bpmn:serviceTask id="S4_after" name="OK subprocess submits: then Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+      <bpmn:incoming>Flow_80</bpmn:incoming>
+      <bpmn:outgoing>Flow_81</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_80" sourceRef="S4_sub" targetRef="S4_after" />
+    <bpmn:endEvent id="S4_end" name="OK subprocess submits done">
+      <bpmn:incoming>Flow_81</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_81" sourceRef="S4_after" targetRef="S4_end" />
+    <bpmn:parallelGateway id="Fork_S4" name="Run case S4">
+      <bpmn:incoming>Flow_82</bpmn:incoming>
+      <bpmn:outgoing>Flow_83</bpmn:outgoing>
+      <bpmn:outgoing>Flow_89</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:sequenceFlow id="Flow_82" sourceRef="Fork_S3" targetRef="Fork_S4" />
+    <bpmn:sequenceFlow id="Flow_83" sourceRef="Fork_S4" targetRef="S4_before" />
+    <bpmn:subProcess id="S5_sub" name="Subprocess boundary: subprocess">
+      <bpmn:incoming>Flow_89</bpmn:incoming>
+      <bpmn:outgoing>Flow_86</bpmn:outgoing>
+      <bpmn:startEvent id="S5_s" name="Subprocess boundary: sub start">
+        <bpmn:outgoing>Flow_84</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="S5_in" name="Subprocess boundary: inside Cancelled" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="2">
+        <bpmn:incoming>Flow_84</bpmn:incoming>
+        <bpmn:outgoing>Flow_85</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="S5_e" name="Subprocess boundary: sub end">
+        <bpmn:incoming>Flow_85</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_84" sourceRef="S5_s" targetRef="S5_in" />
+      <bpmn:sequenceFlow id="Flow_85" sourceRef="S5_in" targetRef="S5_e" />
+    </bpmn:subProcess>
+    <bpmn:endEvent id="S5_end" name="Subprocess boundary done">
+      <bpmn:incoming>Flow_86</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_86" sourceRef="S5_sub" targetRef="S5_end" />
+    <bpmn:boundaryEvent id="S5_timer" name="Subprocess boundary: 1 hour" attachedToRef="S5_sub">
+      <bpmn:outgoing>Flow_87</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration>"PT1H"</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S5_late" name="Subprocess boundary: then Submitted" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Bonus Request" spiffworkflow:onlyAllowEdit="System Manager" spiffworkflow:docStatus="1">
+      <bpmn:incoming>Flow_87</bpmn:incoming>
+      <bpmn:outgoing>Flow_88</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_87" sourceRef="S5_timer" targetRef="S5_late" />
+    <bpmn:endEvent id="S5_end2" name="Subprocess boundary timed out">
+      <bpmn:incoming>Flow_88</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_88" sourceRef="S5_late" targetRef="S5_end2" />
+    <bpmn:sequenceFlow id="Flow_89" sourceRef="Fork_S4" targetRef="S5_sub" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="doc_status_cases">
+      <bpmndi:BPMNShape id="case_start_di" bpmnElement="case_start">
+        <dc:Bounds x="60" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F1_a_di" bpmnElement="F1_a">
+        <dc:Bounds x="300" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F1_b_di" bpmnElement="F1_b">
+        <dc:Bounds x="470" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <di:waypoint x="420" y="120" />
+        <di:waypoint x="470" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F1_end_di" bpmnElement="F1_end">
+        <dc:Bounds x="640" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <di:waypoint x="590" y="120" />
+        <di:waypoint x="640" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_F1_di" bpmnElement="Fork_F1">
+        <dc:Bounds x="175" y="95" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <di:waypoint x="96" y="120" />
+        <di:waypoint x="175" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <di:waypoint x="225" y="120" />
+        <di:waypoint x="300" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F2_a_di" bpmnElement="F2_a">
+        <dc:Bounds x="300" y="240" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F2_b_di" bpmnElement="F2_b">
+        <dc:Bounds x="470" y="240" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <di:waypoint x="420" y="280" />
+        <di:waypoint x="470" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F2_end_di" bpmnElement="F2_end">
+        <dc:Bounds x="640" y="262" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <di:waypoint x="590" y="280" />
+        <di:waypoint x="640" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_F2_di" bpmnElement="Fork_F2">
+        <dc:Bounds x="175" y="255" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_7_di" bpmnElement="Flow_7">
+        <di:waypoint x="200" y="145" />
+        <di:waypoint x="200" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_8_di" bpmnElement="Flow_8">
+        <di:waypoint x="225" y="280" />
+        <di:waypoint x="300" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F3_a_di" bpmnElement="F3_a">
+        <dc:Bounds x="300" y="400" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F3_b_di" bpmnElement="F3_b">
+        <dc:Bounds x="470" y="400" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_9_di" bpmnElement="Flow_9">
+        <di:waypoint x="420" y="440" />
+        <di:waypoint x="470" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F3_end_di" bpmnElement="F3_end">
+        <dc:Bounds x="640" y="422" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_10_di" bpmnElement="Flow_10">
+        <di:waypoint x="590" y="440" />
+        <di:waypoint x="640" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_F3_di" bpmnElement="Fork_F3">
+        <dc:Bounds x="175" y="415" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_11_di" bpmnElement="Flow_11">
+        <di:waypoint x="200" y="305" />
+        <di:waypoint x="200" y="415" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_12_di" bpmnElement="Flow_12">
+        <di:waypoint x="225" y="440" />
+        <di:waypoint x="300" y="440" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F4_a_di" bpmnElement="F4_a">
+        <dc:Bounds x="300" y="560" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F4_b_di" bpmnElement="F4_b">
+        <dc:Bounds x="470" y="560" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_13_di" bpmnElement="Flow_13">
+        <di:waypoint x="420" y="600" />
+        <di:waypoint x="470" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F4_end_di" bpmnElement="F4_end">
+        <dc:Bounds x="640" y="582" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_14_di" bpmnElement="Flow_14">
+        <di:waypoint x="590" y="600" />
+        <di:waypoint x="640" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_F4_di" bpmnElement="Fork_F4">
+        <dc:Bounds x="175" y="575" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_15_di" bpmnElement="Flow_15">
+        <di:waypoint x="200" y="465" />
+        <di:waypoint x="200" y="575" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_16_di" bpmnElement="Flow_16">
+        <di:waypoint x="225" y="600" />
+        <di:waypoint x="300" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F5_a_di" bpmnElement="F5_a">
+        <dc:Bounds x="300" y="720" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="F5_b_di" bpmnElement="F5_b">
+        <dc:Bounds x="470" y="720" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_17_di" bpmnElement="Flow_17">
+        <di:waypoint x="420" y="760" />
+        <di:waypoint x="470" y="760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="F5_end_di" bpmnElement="F5_end">
+        <dc:Bounds x="640" y="742" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_18_di" bpmnElement="Flow_18">
+        <di:waypoint x="590" y="760" />
+        <di:waypoint x="640" y="760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_F5_di" bpmnElement="Fork_F5">
+        <dc:Bounds x="175" y="735" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_19_di" bpmnElement="Flow_19">
+        <di:waypoint x="200" y="625" />
+        <di:waypoint x="200" y="735" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_20_di" bpmnElement="Flow_20">
+        <di:waypoint x="225" y="760" />
+        <di:waypoint x="300" y="760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A1_a_di" bpmnElement="A1_a">
+        <dc:Bounds x="300" y="880" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A1_b_di" bpmnElement="A1_b">
+        <dc:Bounds x="470" y="880" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_21_di" bpmnElement="Flow_21">
+        <di:waypoint x="420" y="920" />
+        <di:waypoint x="470" y="920" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A1_end_di" bpmnElement="A1_end">
+        <dc:Bounds x="640" y="902" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_22_di" bpmnElement="Flow_22">
+        <di:waypoint x="590" y="920" />
+        <di:waypoint x="640" y="920" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_A1_di" bpmnElement="Fork_A1">
+        <dc:Bounds x="175" y="895" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_23_di" bpmnElement="Flow_23">
+        <di:waypoint x="200" y="785" />
+        <di:waypoint x="200" y="895" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_24_di" bpmnElement="Flow_24">
+        <di:waypoint x="225" y="920" />
+        <di:waypoint x="300" y="920" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A2_a_di" bpmnElement="A2_a">
+        <dc:Bounds x="300" y="1040" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A2_b_di" bpmnElement="A2_b">
+        <dc:Bounds x="470" y="1040" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_25_di" bpmnElement="Flow_25">
+        <di:waypoint x="420" y="1080" />
+        <di:waypoint x="470" y="1080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A2_end_di" bpmnElement="A2_end">
+        <dc:Bounds x="640" y="1062" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_26_di" bpmnElement="Flow_26">
+        <di:waypoint x="590" y="1080" />
+        <di:waypoint x="640" y="1080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_A2_di" bpmnElement="Fork_A2">
+        <dc:Bounds x="175" y="1055" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_27_di" bpmnElement="Flow_27">
+        <di:waypoint x="200" y="945" />
+        <di:waypoint x="200" y="1055" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_28_di" bpmnElement="Flow_28">
+        <di:waypoint x="225" y="1080" />
+        <di:waypoint x="300" y="1080" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A3_a_di" bpmnElement="A3_a">
+        <dc:Bounds x="300" y="1200" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A3_b_di" bpmnElement="A3_b">
+        <dc:Bounds x="470" y="1200" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_29_di" bpmnElement="Flow_29">
+        <di:waypoint x="420" y="1240" />
+        <di:waypoint x="470" y="1240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A3_end_di" bpmnElement="A3_end">
+        <dc:Bounds x="640" y="1222" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_30_di" bpmnElement="Flow_30">
+        <di:waypoint x="590" y="1240" />
+        <di:waypoint x="640" y="1240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_A3_di" bpmnElement="Fork_A3">
+        <dc:Bounds x="175" y="1215" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_31_di" bpmnElement="Flow_31">
+        <di:waypoint x="200" y="1105" />
+        <di:waypoint x="200" y="1215" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_32_di" bpmnElement="Flow_32">
+        <di:waypoint x="225" y="1240" />
+        <di:waypoint x="300" y="1240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A4_a_di" bpmnElement="A4_a">
+        <dc:Bounds x="300" y="1360" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A4_b_di" bpmnElement="A4_b">
+        <dc:Bounds x="470" y="1360" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_33_di" bpmnElement="Flow_33">
+        <di:waypoint x="420" y="1400" />
+        <di:waypoint x="470" y="1400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A4_end_di" bpmnElement="A4_end">
+        <dc:Bounds x="640" y="1382" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_34_di" bpmnElement="Flow_34">
+        <di:waypoint x="590" y="1400" />
+        <di:waypoint x="640" y="1400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_A4_di" bpmnElement="Fork_A4">
+        <dc:Bounds x="175" y="1375" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_35_di" bpmnElement="Flow_35">
+        <di:waypoint x="200" y="1265" />
+        <di:waypoint x="200" y="1375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_36_di" bpmnElement="Flow_36">
+        <di:waypoint x="225" y="1400" />
+        <di:waypoint x="300" y="1400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_draft_di" bpmnElement="G1_draft">
+        <dc:Bounds x="300" y="1520" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G1_note_di" bpmnElement="G1_note">
+        <dc:Bounds x="470" y="1542" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_37_di" bpmnElement="Flow_37">
+        <di:waypoint x="420" y="1560" />
+        <di:waypoint x="470" y="1560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_gw_di" bpmnElement="G1_gw">
+        <dc:Bounds x="556" y="1535" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_38_di" bpmnElement="Flow_38">
+        <di:waypoint x="506" y="1560" />
+        <di:waypoint x="556" y="1560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_submit_di" bpmnElement="G1_submit">
+        <dc:Bounds x="656" y="1520" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_39_di" bpmnElement="Flow_39">
+        <di:waypoint x="606" y="1560" />
+        <di:waypoint x="656" y="1560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_end1_di" bpmnElement="G1_end1">
+        <dc:Bounds x="826" y="1542" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_40_di" bpmnElement="Flow_40">
+        <di:waypoint x="776" y="1560" />
+        <di:waypoint x="826" y="1560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_cancel_di" bpmnElement="G1_cancel">
+        <dc:Bounds x="656" y="1630" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="G1_default_di" bpmnElement="G1_default">
+        <di:waypoint x="581" y="1585" />
+        <di:waypoint x="581" y="1670" />
+        <di:waypoint x="656" y="1670" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="G1_end2_di" bpmnElement="G1_end2">
+        <dc:Bounds x="826" y="1652" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_41_di" bpmnElement="Flow_41">
+        <di:waypoint x="776" y="1670" />
+        <di:waypoint x="826" y="1670" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_G1_di" bpmnElement="Fork_G1">
+        <dc:Bounds x="175" y="1535" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_42_di" bpmnElement="Flow_42">
+        <di:waypoint x="200" y="1425" />
+        <di:waypoint x="200" y="1535" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_43_di" bpmnElement="Flow_43">
+        <di:waypoint x="225" y="1560" />
+        <di:waypoint x="300" y="1560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="B1_submit_di" bpmnElement="B1_submit">
+        <dc:Bounds x="300" y="1790" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="B1_end1_di" bpmnElement="B1_end1">
+        <dc:Bounds x="470" y="1812" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_44_di" bpmnElement="Flow_44">
+        <di:waypoint x="420" y="1830" />
+        <di:waypoint x="470" y="1830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="B1_timer_di" bpmnElement="B1_timer">
+        <dc:Bounds x="342" y="1852" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="B1_draft_di" bpmnElement="B1_draft">
+        <dc:Bounds x="470" y="1900" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_45_di" bpmnElement="Flow_45">
+        <di:waypoint x="360" y="1888" />
+        <di:waypoint x="360" y="1940" />
+        <di:waypoint x="470" y="1940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="B1_end2_di" bpmnElement="B1_end2">
+        <dc:Bounds x="640" y="1922" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_46_di" bpmnElement="Flow_46">
+        <di:waypoint x="590" y="1940" />
+        <di:waypoint x="640" y="1940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_B1_di" bpmnElement="Fork_B1">
+        <dc:Bounds x="175" y="1805" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_47_di" bpmnElement="Flow_47">
+        <di:waypoint x="200" y="1585" />
+        <di:waypoint x="200" y="1805" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_48_di" bpmnElement="Flow_48">
+        <di:waypoint x="225" y="1830" />
+        <di:waypoint x="300" y="1830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="U1_a_di" bpmnElement="U1_a">
+        <dc:Bounds x="300" y="2060" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_mid_di" bpmnElement="U1_mid">
+        <dc:Bounds x="470" y="2060" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_49_di" bpmnElement="Flow_49">
+        <di:waypoint x="420" y="2100" />
+        <di:waypoint x="470" y="2100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="U1_b_di" bpmnElement="U1_b">
+        <dc:Bounds x="640" y="2060" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_50_di" bpmnElement="Flow_50">
+        <di:waypoint x="590" y="2100" />
+        <di:waypoint x="640" y="2100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="U1_end_di" bpmnElement="U1_end">
+        <dc:Bounds x="810" y="2082" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_51_di" bpmnElement="Flow_51">
+        <di:waypoint x="760" y="2100" />
+        <di:waypoint x="810" y="2100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_U1_di" bpmnElement="Fork_U1">
+        <dc:Bounds x="175" y="2075" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_52_di" bpmnElement="Flow_52">
+        <di:waypoint x="200" y="1855" />
+        <di:waypoint x="200" y="2075" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_53_di" bpmnElement="Flow_53">
+        <di:waypoint x="225" y="2100" />
+        <di:waypoint x="300" y="2100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="D1_a_di" bpmnElement="D1_a">
+        <dc:Bounds x="300" y="2220" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="D1_b_di" bpmnElement="D1_b">
+        <dc:Bounds x="470" y="2220" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_54_di" bpmnElement="Flow_54">
+        <di:waypoint x="420" y="2260" />
+        <di:waypoint x="470" y="2260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="D1_end_di" bpmnElement="D1_end">
+        <dc:Bounds x="640" y="2242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_55_di" bpmnElement="Flow_55">
+        <di:waypoint x="590" y="2260" />
+        <di:waypoint x="640" y="2260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_D1_di" bpmnElement="Fork_D1">
+        <dc:Bounds x="175" y="2235" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_56_di" bpmnElement="Flow_56">
+        <di:waypoint x="200" y="2125" />
+        <di:waypoint x="200" y="2235" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_57_di" bpmnElement="Flow_57">
+        <di:waypoint x="225" y="2260" />
+        <di:waypoint x="300" y="2260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S1_before_di" bpmnElement="S1_before">
+        <dc:Bounds x="300" y="2380" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_s_di" bpmnElement="S1_s">
+        <dc:Bounds x="500" y="2402" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_in_di" bpmnElement="S1_in">
+        <dc:Bounds x="580" y="2380" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_e_di" bpmnElement="S1_e">
+        <dc:Bounds x="740" y="2402" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_58_di" bpmnElement="Flow_58">
+        <di:waypoint x="536" y="2420" />
+        <di:waypoint x="580" y="2420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_59_di" bpmnElement="Flow_59">
+        <di:waypoint x="700" y="2420" />
+        <di:waypoint x="740" y="2420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S1_sub_di" bpmnElement="S1_sub" isExpanded="true">
+        <dc:Bounds x="470" y="2350" width="330" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_60_di" bpmnElement="Flow_60">
+        <di:waypoint x="420" y="2420" />
+        <di:waypoint x="470" y="2420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S1_end_di" bpmnElement="S1_end">
+        <dc:Bounds x="850" y="2402" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_61_di" bpmnElement="Flow_61">
+        <di:waypoint x="800" y="2420" />
+        <di:waypoint x="850" y="2420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_S1_di" bpmnElement="Fork_S1">
+        <dc:Bounds x="175" y="2395" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_62_di" bpmnElement="Flow_62">
+        <di:waypoint x="200" y="2285" />
+        <di:waypoint x="200" y="2395" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_63_di" bpmnElement="Flow_63">
+        <di:waypoint x="225" y="2420" />
+        <di:waypoint x="300" y="2420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S2_s_di" bpmnElement="S2_s">
+        <dc:Bounds x="330" y="2612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_in_di" bpmnElement="S2_in">
+        <dc:Bounds x="410" y="2590" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_e_di" bpmnElement="S2_e">
+        <dc:Bounds x="570" y="2612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_64_di" bpmnElement="Flow_64">
+        <di:waypoint x="366" y="2630" />
+        <di:waypoint x="410" y="2630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_65_di" bpmnElement="Flow_65">
+        <di:waypoint x="530" y="2630" />
+        <di:waypoint x="570" y="2630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S2_sub_di" bpmnElement="S2_sub" isExpanded="true">
+        <dc:Bounds x="300" y="2560" width="330" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_after_di" bpmnElement="S2_after">
+        <dc:Bounds x="680" y="2590" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_66_di" bpmnElement="Flow_66">
+        <di:waypoint x="630" y="2630" />
+        <di:waypoint x="680" y="2630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S2_end_di" bpmnElement="S2_end">
+        <dc:Bounds x="850" y="2612" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_67_di" bpmnElement="Flow_67">
+        <di:waypoint x="800" y="2630" />
+        <di:waypoint x="850" y="2630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_S2_di" bpmnElement="Fork_S2">
+        <dc:Bounds x="175" y="2605" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_68_di" bpmnElement="Flow_68">
+        <di:waypoint x="200" y="2445" />
+        <di:waypoint x="200" y="2605" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_69_di" bpmnElement="Flow_69">
+        <di:waypoint x="225" y="2630" />
+        <di:waypoint x="300" y="2630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_before_di" bpmnElement="S3_before">
+        <dc:Bounds x="300" y="2800" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_s_di" bpmnElement="S3_s">
+        <dc:Bounds x="500" y="2822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_in_di" bpmnElement="S3_in">
+        <dc:Bounds x="610" y="2822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_e_di" bpmnElement="S3_e">
+        <dc:Bounds x="740" y="2822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_70_di" bpmnElement="Flow_70">
+        <di:waypoint x="536" y="2840" />
+        <di:waypoint x="610" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_71_di" bpmnElement="Flow_71">
+        <di:waypoint x="646" y="2840" />
+        <di:waypoint x="740" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_sub_di" bpmnElement="S3_sub" isExpanded="true">
+        <dc:Bounds x="470" y="2770" width="330" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_72_di" bpmnElement="Flow_72">
+        <di:waypoint x="420" y="2840" />
+        <di:waypoint x="470" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_after_di" bpmnElement="S3_after">
+        <dc:Bounds x="850" y="2800" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_73_di" bpmnElement="Flow_73">
+        <di:waypoint x="800" y="2840" />
+        <di:waypoint x="850" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_end_di" bpmnElement="S3_end">
+        <dc:Bounds x="1020" y="2822" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_74_di" bpmnElement="Flow_74">
+        <di:waypoint x="970" y="2840" />
+        <di:waypoint x="1020" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_S3_di" bpmnElement="Fork_S3">
+        <dc:Bounds x="175" y="2815" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_75_di" bpmnElement="Flow_75">
+        <di:waypoint x="200" y="2655" />
+        <di:waypoint x="200" y="2815" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_76_di" bpmnElement="Flow_76">
+        <di:waypoint x="225" y="2840" />
+        <di:waypoint x="300" y="2840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S4_before_di" bpmnElement="S4_before">
+        <dc:Bounds x="300" y="3010" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_s_di" bpmnElement="S4_s">
+        <dc:Bounds x="500" y="3032" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_in_di" bpmnElement="S4_in">
+        <dc:Bounds x="580" y="3010" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_e_di" bpmnElement="S4_e">
+        <dc:Bounds x="740" y="3032" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_77_di" bpmnElement="Flow_77">
+        <di:waypoint x="536" y="3050" />
+        <di:waypoint x="580" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_78_di" bpmnElement="Flow_78">
+        <di:waypoint x="700" y="3050" />
+        <di:waypoint x="740" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S4_sub_di" bpmnElement="S4_sub" isExpanded="true">
+        <dc:Bounds x="470" y="2980" width="330" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_79_di" bpmnElement="Flow_79">
+        <di:waypoint x="420" y="3050" />
+        <di:waypoint x="470" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S4_after_di" bpmnElement="S4_after">
+        <dc:Bounds x="850" y="3010" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_80_di" bpmnElement="Flow_80">
+        <di:waypoint x="800" y="3050" />
+        <di:waypoint x="850" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S4_end_di" bpmnElement="S4_end">
+        <dc:Bounds x="1020" y="3032" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_81_di" bpmnElement="Flow_81">
+        <di:waypoint x="970" y="3050" />
+        <di:waypoint x="1020" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Fork_S4_di" bpmnElement="Fork_S4">
+        <dc:Bounds x="175" y="3025" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_82_di" bpmnElement="Flow_82">
+        <di:waypoint x="200" y="2865" />
+        <di:waypoint x="200" y="3025" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_83_di" bpmnElement="Flow_83">
+        <di:waypoint x="225" y="3050" />
+        <di:waypoint x="300" y="3050" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S5_s_di" bpmnElement="S5_s">
+        <dc:Bounds x="330" y="3242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S5_in_di" bpmnElement="S5_in">
+        <dc:Bounds x="410" y="3220" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S5_e_di" bpmnElement="S5_e">
+        <dc:Bounds x="570" y="3242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_84_di" bpmnElement="Flow_84">
+        <di:waypoint x="366" y="3260" />
+        <di:waypoint x="410" y="3260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_85_di" bpmnElement="Flow_85">
+        <di:waypoint x="530" y="3260" />
+        <di:waypoint x="570" y="3260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S5_sub_di" bpmnElement="S5_sub" isExpanded="true">
+        <dc:Bounds x="300" y="3190" width="330" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S5_end_di" bpmnElement="S5_end">
+        <dc:Bounds x="680" y="3242" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_86_di" bpmnElement="Flow_86">
+        <di:waypoint x="630" y="3260" />
+        <di:waypoint x="680" y="3260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S5_timer_di" bpmnElement="S5_timer">
+        <dc:Bounds x="360" y="3312" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S5_late_di" bpmnElement="S5_late">
+        <dc:Bounds x="450" y="3350" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_87_di" bpmnElement="Flow_87">
+        <di:waypoint x="378" y="3348" />
+        <di:waypoint x="378" y="3390" />
+        <di:waypoint x="450" y="3390" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S5_end2_di" bpmnElement="S5_end2">
+        <dc:Bounds x="620" y="3372" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_88_di" bpmnElement="Flow_88">
+        <di:waypoint x="570" y="3390" />
+        <di:waypoint x="620" y="3390" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_89_di" bpmnElement="Flow_89">
+        <di:waypoint x="200" y="3075" />
+        <di:waypoint x="200" y="3260" />
+        <di:waypoint x="300" y="3260" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
