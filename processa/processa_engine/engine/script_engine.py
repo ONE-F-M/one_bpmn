@@ -1,8 +1,10 @@
 # Copyright (c) 2026, one-fm and contributors
 """FrappeScriptEngine: runs BPMN Script Tasks and their Server Scripts."""
 
+from collections import namedtuple
 from datetime import datetime
 from functools import cached_property
+from types import FunctionType
 
 from SpiffWorkflow.bpmn.script_engine import PythonScriptEngine, TaskDataEnvironment
 
@@ -22,6 +24,51 @@ def check_server_script(script_doc) -> None:
 
 	_check_script_permissions(script_doc.script, script_doc.name, approved_names(script_doc))
 
+
+def make_import_script(instance, script_task_extensions: dict):
+	"""The import_script callable for one engine run; each library runs at most once."""
+	process_scripts = {cfg.get("serverScript") for cfg in script_task_extensions.values()}
+	loaded = {}
+
+	def import_script(script_name: str):
+		if script_name not in loaded:
+			loaded[script_name] = _load_library(instance, process_scripts, script_name)
+		return loaded[script_name]
+
+	return import_script
+
+
+def _load_library(instance, process_scripts: set, script_name: str):
+	import frappe
+	from frappe import _
+
+	if script_name not in process_scripts:
+		process_name = frappe.db.get_value("BPMN Process Model", instance.process_model, "process_name")
+		frappe.throw(_("Script '{0}' is not part of process '{1}'").format(script_name, process_name))
+	if not frappe.db.exists("Server Script", script_name) or frappe.db.get_value(
+		"Server Script", script_name, "disabled"
+	):
+		frappe.throw(_("Library script '{0}' is missing or disabled").format(script_name))
+
+	script_doc = frappe.get_doc("Server Script", script_name)
+	check_server_script(script_doc)
+
+	namespace = {"frappe": frappe, "__builtins__": __builtins__, "import_script": _refuse_nested_import}
+	exec(script_doc.script, namespace)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-codeinjection-eval
+
+	functions = {
+		name: value
+		for name, value in namespace.items()
+		if isinstance(value, FunctionType) and value is not _refuse_nested_import and not name.startswith("_")
+	}
+	return namedtuple("Library", functions)(**functions)
+
+
+def _refuse_nested_import(script_name: str):
+	import frappe
+	from frappe import _
+
+	frappe.throw(_("A library script cannot import another script ('{0}')").format(script_name))
 
 def _check_script_permissions(script_text: str, label: str, allowed: frozenset = frozenset()) -> None:
 	"""Run the save-time AST validator again right before exec() and throw on any violation.
@@ -166,8 +213,6 @@ class FrappeScriptEngine(PythonScriptEngine):
 
 	@cached_property
 	def _import_script(self):
-		from processa.processa_engine.engine.script_imports import make_import_script
-
 		return make_import_script(self._instance, self._script_task_extensions)
 
 	def _agent_for_script(self, script_name: str) -> str:

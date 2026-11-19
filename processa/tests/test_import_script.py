@@ -10,9 +10,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from processa.ai_agent_security.code_checks.script_validator import undefined_name_findings
 from processa.ai_agent_skills.tools import shape_tools
 from processa.api.deploy import compile_process_model
-from processa.processa_engine.engine import _make_script_engine, script_imports
+from processa.processa_engine.engine import _make_script_engine, script_engine
 
 LIBRARY = "Import Test: Lib Replies"
 CALLER = "Import Test: Finalize"
@@ -65,7 +66,7 @@ class TestImportScript(FrappeTestCase):
 
 	def _script(self, name, body, disabled=0):
 		if frappe.db.exists("Server Script", name):
-			frappe.delete_doc("Server Script", name, force=True, ignore_permissions=True)
+			frappe.delete_doc("Server Script", name, force=True)
 		frappe.get_doc(
 			{
 				"doctype": "Server Script",
@@ -75,7 +76,7 @@ class TestImportScript(FrappeTestCase):
 				"script": body,
 				"disabled": disabled,
 			}
-		).insert(ignore_permissions=True)
+		).insert()
 		return name
 
 	def _process_model(self):
@@ -87,14 +88,14 @@ class TestImportScript(FrappeTestCase):
 					"description": PROCESS,
 					"process_owner": "Administrator",
 				}
-			).insert(ignore_permissions=True)
+			).insert()
 		name = "Import Script Test Map"
 		if frappe.db.exists("BPMN Process Model", name):
-			frappe.delete_doc("BPMN Process Model", name, force=1, ignore_permissions=True)
+			frappe.delete_doc("BPMN Process Model", name, force=1)
 		doc = frappe.new_doc("BPMN Process Model")
 		doc.update({"name": name, "title": name, "process_id": "import_script_test", "version": 1})
 		doc.bpmn_xml = _map_xml("import_script_test", [])
-		doc.insert(ignore_permissions=True)
+		doc.insert()
 		frappe.db.set_value("BPMN Process Model", name, "process_name", PROCESS)
 		return name
 
@@ -132,7 +133,7 @@ class TestImportScript(FrappeTestCase):
 		self.assertNotIn("clean", data)
 
 	def test_missing_library_fails_the_step(self):
-		frappe.delete_doc("Server Script", LIBRARY, force=True, ignore_permissions=True)
+		frappe.delete_doc("Server Script", LIBRARY, force=True)
 		with self.assertRaises(frappe.ValidationError) as caught:
 			self._run_task(CALLER, {"raw": "x"})
 		self.assertIn(LIBRARY, str(caught.exception))
@@ -158,11 +159,15 @@ class TestImportScript(FrappeTestCase):
 		extensions = _extensions(LIBRARY, CALLER, second)
 		engine = _make_script_engine(script_task_extensions=extensions, instance=self.instance)
 		with patch.object(
-			script_imports, "check_server_script", wraps=script_imports.check_server_script
+			script_engine, "check_server_script", wraps=script_engine.check_server_script
 		) as library_checks:
 			engine._run_frappe_server_script(CALLER, _FakeTask({"raw": "a"}))
 			engine._run_frappe_server_script(second, _FakeTask({"raw": "b"}))
-		self.assertEqual(library_checks.call_count, 1)
+		library_loads = [c for c in library_checks.call_args_list if c.args[0].name == LIBRARY]
+		self.assertEqual(len(library_loads), 1)
+
+	def test_logix_does_not_report_import_script_as_undefined(self):
+		self.assertEqual(undefined_name_findings(CALLER_BODY), [])
 
 
 class TestImportScriptThroughCallActivity(FrappeTestCase):
@@ -173,7 +178,7 @@ class TestImportScriptThroughCallActivity(FrappeTestCase):
 		self._models = []
 		for name, body in ((LIBRARY, LIBRARY_BODY), (CALLER, CALLER_BODY)):
 			if frappe.db.exists("Server Script", name):
-				frappe.delete_doc("Server Script", name, force=True, ignore_permissions=True)
+				frappe.delete_doc("Server Script", name, force=True)
 			frappe.get_doc(
 				{
 					"doctype": "Server Script",
@@ -182,21 +187,21 @@ class TestImportScriptThroughCallActivity(FrappeTestCase):
 					"api_method": frappe.scrub(name).replace(":", ""),
 					"script": body,
 				}
-			).insert(ignore_permissions=True)
+			).insert()
 
 	def tearDown(self):
 		for name in self._models:
 			if frappe.db.exists("BPMN Process Model", name):
-				frappe.delete_doc("BPMN Process Model", name, force=1, ignore_permissions=True)
+				frappe.delete_doc("BPMN Process Model", name, force=1)
 		frappe.db.commit()
 		super().tearDown()
 
 	def _model(self, name, process_id, xml):
 		if frappe.db.exists("BPMN Process Model", name):
-			frappe.delete_doc("BPMN Process Model", name, force=1, ignore_permissions=True)
+			frappe.delete_doc("BPMN Process Model", name, force=1)
 		doc = frappe.new_doc("BPMN Process Model")
 		doc.update({"name": name, "title": name, "process_id": process_id, "version": 1, "bpmn_xml": xml})
-		doc.insert(ignore_permissions=True)
+		doc.insert()
 		self._models.append(name)
 		return doc
 
