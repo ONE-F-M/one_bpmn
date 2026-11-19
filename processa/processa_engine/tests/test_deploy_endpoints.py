@@ -11,7 +11,7 @@ from processa.api.deploy import compile_process_model, disable_process_model
 from processa.processa_engine.compiler.doc_status import doc_status_transition_errors
 
 MODEL = "Deploy Endpoints Test Model"
-DOC_STATUS_CASES = (Path(__file__).parents[2] / "tests" / "fixtures" / "doc_status_cases.bpmn").read_text()
+DOC_STATUS_CASES = (Path(__file__).parent / "fixtures" / "doc_status_cases.bpmn").read_text()
 
 # The Apply Workflow tasks the cases map must flag, by name.
 FORBIDDEN_STATUS_CHANGES = [
