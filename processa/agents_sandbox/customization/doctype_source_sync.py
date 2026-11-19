@@ -236,14 +236,9 @@ def _fold(doc: dict, schema: dict) -> list:
 
 
 def _reorder(doc: dict, rows: list, site_fields: list) -> bool:
-	"""Put the fields the site serves in the site's order; True when that changed anything.
+	"""Rewrite ``field_order`` and ``fields`` in the site's order; True when anything moved.
 
-	A direct move on the site lives only in DocField idx, so nothing else carries
-	it. Frappe rebuilds the order from ``field_order`` on import, so that list is
-	what is rewritten, and ``fields`` is reordered to match, as the exporter writes
-	them. A name the site does not serve (only in the JSON, or a Custom Field
-	placed by ``_insert_field``) is not moved on its own: it stays right after the
-	field it follows today.
+	A name the site does not serve stays right after the field it follows today.
 	"""
 	stored = doc.get("field_order")
 	current = list(stored) if isinstance(stored, list) else [
@@ -280,7 +275,7 @@ def _reorder(doc: dict, rows: list, site_fields: list) -> bool:
 	if isinstance(stored, list):
 		doc["field_order"] = ordered
 	position = {name: i for i, name in enumerate(ordered)}
-	# sorted() is stable, so a row with no place in the order keeps its relative spot at the end.
+	# list.sort is stable, so a row with no place in the order keeps its relative spot at the end.
 	rows.sort(key=lambda r: position.get(r.get("fieldname"), len(position)))
 	return True
 
