@@ -91,15 +91,15 @@ export function useDocuIr({ tree, settings }) {
 
 	// A turn that edited the saved DocType leaves the canvas behind; reload only when the server copy moved on.
 	async function reloadIfChangedElsewhere(dt) {
-		if (!dt || !baseModified.value) return;
+		if (!dt || !baseModified.value) return false;
 		const res = await frappeRequest({
 			url: `${DOCU_API}get_doctype_schema`,
 			params: { doctype: dt },
 		});
-		if (res?.exists && res.modified !== baseModified.value) {
-			loadIr(res.doctype_ir);
-			baseModified.value = res.modified;
-		}
+		if (!res?.exists || res.modified === baseModified.value) return false;
+		loadIr(res.doctype_ir);
+		baseModified.value = res.modified;
+		return true;
 	}
 
 	return {

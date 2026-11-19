@@ -519,11 +519,11 @@ def _reconciles_in_place(name: str) -> bool:
 	return owned_in_source(name)
 
 
-def _field_payloads(fields: list) -> list:
+def _field_payloads(fields: list, live: list = ()) -> list:
 	"""Project the IR's fields onto DocField rows, numbered in IR order."""
 	payloads = []
 	idx = 0
-	for f in _uniquify_fieldnames(fields):
+	for f in _uniquify_fieldnames(fields, live):
 		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
 		if not is_layout and not (f.get("fieldname") or "").strip():
 			continue
@@ -663,17 +663,16 @@ def _apply_doctype_settings(doc, settings: dict) -> None:
 			setattr(doc, k, val.strip() if isinstance(val, str) else (val or ""))
 
 
-def _uniquify_fieldnames(fields: list) -> list:
-	"""Give every field a unique, non-empty fieldname before it reaches Frappe.
+def _uniquify_fieldnames(fields: list, live: list = ()) -> list:
+	"""Give every field a unique, non-empty fieldname before it reaches Frappe; returns copies.
 
-	Layout breaks (Section/Column/Tab Break) in the IR carry no fieldname (or a
-	generic one). Frappe's own auto-naming derives from the label, so several
-	breaks that share a label collide (``Fieldname section_break_section appears
-	multiple times``). We assign each break a unique ``section_break_<hash>`` up
-	front — the same shape Frappe uses — and defensively de-duplicate any repeated
-	data fieldname too. Returns copies; the input dicts are not mutated.
+	A layout break without a fieldname takes the name of the live break with the same type and label.
 	"""
-	seen: set[str] = set()
+	live_breaks = {}
+	for d in live:
+		if d.fieldtype in _LAYOUT_FIELDTYPES and d.fieldname:
+			live_breaks.setdefault((d.fieldtype, d.label or ""), []).append(d.fieldname)
+	taken = set()
 	out = []
 	for f in fields:
 		if not isinstance(f, dict):
@@ -682,22 +681,24 @@ def _uniquify_fieldnames(fields: list) -> list:
 		ft = (f.get("fieldtype") or "").strip()
 		fn = (f.get("fieldname") or "").strip()
 		if ft in _LAYOUT_FIELDTYPES:
-			base = frappe.scrub(ft)  # section_break / column_break / tab_break
-			if not fn or fn in seen:
-				fn = f"{base}_{frappe.generate_hash(length=6)}"
-				while fn in seen:
-					fn = f"{base}_{frappe.generate_hash(length=6)}"
-			f["fieldname"] = fn
-		elif fn and fn in seen:
-			new = f"{fn}_{frappe.generate_hash(length=4)}"
-			while new in seen:
-				new = f"{fn}_{frappe.generate_hash(length=4)}"
-			fn = new
+			if not fn or fn in taken:
+				fn = _break_fieldname(ft, f.get("label") or "", live_breaks, taken)
 			f["fieldname"] = fn
 		if fn:
-			seen.add(fn)
+			taken.add(fn)
 		out.append(f)
 	return out
+
+
+def _break_fieldname(fieldtype: str, label: str, live_breaks: dict, taken: set) -> str:
+	"""The next unused live name for this break, else a new section_break_<hash> style name."""
+	for name in live_breaks.get((fieldtype, label), []):
+		if name not in taken:
+			return name
+	name = f"{frappe.scrub(fieldtype)}_{frappe.generate_hash(length=6)}"
+	while name in taken:
+		name = f"{frappe.scrub(fieldtype)}_{frappe.generate_hash(length=6)}"
+	return name
 
 
 import re as _re
@@ -845,7 +846,7 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	doc = frappe.get_doc("DocType", name)
 	if module and doc.module != module:
 		doc.module = module
-	doc.set("fields", _field_payloads(fields))
+	doc.set("fields", _field_payloads(fields, doc.fields))
 	_apply_doctype_settings(doc, settings)
 	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.istable = is_child
@@ -869,7 +870,7 @@ def _reconcile_owned_doctype(name: str, fields: list, settings: dict = None, per
 		# earlier edit would beat the file we are about to write.
 		frappe.db.delete("Custom DocPerm", {"parent": name})
 	doc = frappe.get_doc("DocType", name)
-	doc.set("fields", _field_payloads(fields))
+	doc.set("fields", _field_payloads(fields, doc.fields))
 	_apply_doctype_settings(doc, settings)
 	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
 	doc.save(ignore_permissions=True)
@@ -1069,7 +1070,7 @@ def _norm_prop(prop: str, value, prop_types: dict):
 	return "" if value in (None, "") else value
 
 
-FIELD_PROPERTY_TYPES = {"depends_on": "Code", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
+FIELD_PROPERTY_TYPES = {"depends_on": "Code", "label": "Data", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
 _FLAG_WORDS = {
 	"hidden": ("{0} is now hidden.", "{0} is now visible."),
 	"reqd": ("{0} is now mandatory.", "{0} is now optional."),
@@ -1078,7 +1079,7 @@ _FLAG_WORDS = {
 
 
 def apply_field_properties(doctype: str, changes: list) -> list:
-	"""Set depends_on, hidden, reqd or read_only on existing fields and return one plain line per change.
+	"""Set depends_on, label, hidden, reqd or read_only on existing fields and return one plain line per change.
 
 	A custom DocType is edited in place; any other DocType gets a Property Setter.
 	"""
@@ -1090,7 +1091,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 	meta = frappe.get_meta(doctype)
 	for change in changes:
 		if change.get("property") not in FIELD_PROPERTY_TYPES:
-			frappe.throw(_("I can only show, hide, require or lock a field, not set {0}.").format(change.get("property")))
+			frappe.throw(_("I can only show, hide, rename, require or lock a field, not set {0}.").format(change.get("property")))
 		if not meta.get_field(change.get("fieldname")):
 			frappe.throw(_("{0} has no field named {1}.").format(doctype, change.get("fieldname")))
 
@@ -1100,7 +1101,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 		for change in changes:
 			fieldname, prop = change["fieldname"], change["property"]
 			value = change.get("value")
-			value = (value or "").strip() if prop == "depends_on" else int(bool(frappe.utils.sbool(value)))
+			value = (value or "").strip() if prop in ("depends_on", "label") else int(bool(frappe.utils.sbool(value)))
 			if doc:
 				doc.get("fields", {"fieldname": fieldname})[0].set(prop, value)
 			else:
@@ -1114,6 +1115,8 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 
 def _describe_property(meta, fieldname: str, prop: str, value) -> str:
 	label = meta.get_field(fieldname).label or fieldname
+	if prop == "label":
+		return _("{0} is now labelled {1}.").format(label, value)
 	if prop != "depends_on":
 		return _(_FLAG_WORDS[prop][0 if value else 1]).format(label)
 	if not value:

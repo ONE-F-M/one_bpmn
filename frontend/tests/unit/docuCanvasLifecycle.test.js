@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 vi.mock("@iconify/vue", () => ({ Icon: { render: () => null } }));
 vi.mock("@/components/Chat/AgentChatPanel/AgentChatPanel.vue", () => ({
-	default: { render: () => null },
+	default: {
+		setup(_, { attrs }) {
+			globalThis.__chatAttrs = attrs;
+			return () => null;
+		},
+	},
 }));
 vi.mock("@/utils/cardRegistry", () => ({ cardRegistry: {} }));
 vi.mock("@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue", () => ({
@@ -94,6 +99,7 @@ afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	globalThis.__docuState = undefined;
+	globalThis.__chatAttrs = undefined;
 });
 
 describe("DocuCanvas lifecycle", () => {
@@ -114,6 +120,32 @@ describe("DocuCanvas lifecycle", () => {
 		await flush();
 		await vi.advanceTimersByTimeAsync(5000);
 		expect(saves()).toHaveLength(0);
+	});
+
+	it("does not save the form it reloaded after a turn, so the save cannot collide with the next request", async () => {
+		frappeRequest.mockImplementation(async ({ url }) => {
+			if (url.endsWith("can_change_forms")) return true;
+			if (url.endsWith("apply_doctype")) return { name: "Vehicle", modified: "t1" };
+			if (url.endsWith("get_doctype_schema"))
+				return {
+					exists: true,
+					modified: "t2",
+					doctype_ir: { doctype_name: "Vehicle", fields: PLATE },
+				};
+			return [];
+		});
+		const { state } = await mountCanvas();
+		state.dtName.value = "Vehicle";
+		state.buildTree(PLATE);
+		await flush();
+		await vi.advanceTimersByTimeAsync(1500);
+		expect(saves()).toHaveLength(1);
+
+		await globalThis.__chatAttrs.onTurnComplete();
+		await flush();
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(state.baseModified.value).toBe("t2");
+		expect(saves()).toHaveLength(1);
 	});
 
 	it("takes its shortcuts and page class away when it unmounts", async () => {

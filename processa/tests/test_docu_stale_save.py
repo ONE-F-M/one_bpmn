@@ -51,3 +51,40 @@ class TestDocuStaleSave(FrappeTestCase):
 		self._edit_in_desk()
 		apply_doctype(self._ir(), confirm=1)
 		self.assertFalse(self._has_extra())
+
+
+class TestDocuEditsBuildOnEachOther(TestDocuStaleSave):
+	def _live(self) -> dict:
+		return get_doctype_schema(self.doctype)["doctype_ir"]
+
+	def _add(self, ir: dict, *fields) -> str:
+		return json.dumps({**ir, "fields": ir["fields"] + list(fields)})
+
+	def _fieldnames(self) -> list:
+		return [f.fieldname for f in frappe.get_meta(self.doctype, cached=False).fields]
+
+	def test_a_second_request_keeps_what_the_first_added(self):
+		apply_doctype(
+			self._add(self._live(), {"fieldname": "phone", "fieldtype": "Data", "label": "Phone"}), confirm=1
+		)
+		apply_doctype(
+			self._add(self._live(), {"fieldname": "email", "fieldtype": "Data", "label": "Email"}), confirm=1
+		)
+
+		self.assertEqual(self._fieldnames(), ["title", "phone", "email"])
+
+	def test_a_section_keeps_its_name_when_a_later_save_sends_it_without_one(self):
+		section = {"fieldname": "", "fieldtype": "Section Break", "label": "Contact"}
+		apply_doctype(
+			self._add(self._live(), section, {"fieldname": "phone", "fieldtype": "Data", "label": "Phone"}),
+			confirm=1,
+		)
+		first = self._fieldnames()[1]
+
+		ir = self._live()
+		for field in ir["fields"]:
+			if field["fieldtype"] == "Section Break":
+				field["fieldname"] = ""
+		apply_doctype(self._add(ir, {"fieldname": "email", "fieldtype": "Data", "label": "Email"}), confirm=1)
+
+		self.assertEqual(self._fieldnames(), ["title", first, "phone", "email"])

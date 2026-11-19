@@ -16,6 +16,7 @@ function make(overrides = {}) {
 		contentCount: ref(1),
 		currentIr: () => IR,
 		appliedName: ref(""),
+		baseModified: ref(""),
 		loadIr: vi.fn(),
 		isRestoring: () => false,
 		getProcessContext: () => ({ process: "Fleet Check" }),
@@ -223,6 +224,45 @@ describe("saving", () => {
 		expect(saves()).toHaveLength(1);
 		await vi.advanceTimersByTimeAsync(1500);
 		expect(saves()).toHaveLength(2);
+	});
+});
+
+describe("before a chat request", () => {
+	it("saves a waiting change at once, so the request starts from the saved form", async () => {
+		const { autosave } = make();
+		autosave.scheduleAutosave();
+		await autosave.flushAutosave();
+		expect(saves()).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1500);
+		expect(saves()).toHaveLength(1);
+	});
+
+	it("waits for a save already running before the request goes out", async () => {
+		let finish;
+		frappeRequest.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				}),
+		);
+		const { autosave } = make();
+		autosave.scheduleAutosave();
+		await vi.advanceTimersByTimeAsync(1500);
+		let flushed = false;
+		autosave.flushAutosave().then(() => {
+			flushed = true;
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(flushed).toBe(false);
+		finish({ name: "Vehicle" });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(flushed).toBe(true);
+	});
+
+	it("sends nothing when no change is waiting", async () => {
+		const { autosave } = make();
+		await autosave.flushAutosave();
+		expect(saves()).toHaveLength(0);
 	});
 });
 

@@ -20,6 +20,7 @@
 							layout="conversation"
 							:apply-targets="['apply-schema', 'apply-script']"
 							:context="docuTurnContext"
+							:context-provider="autosave.flushAutosave"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
 							@card-action="onDocuCardAction"
@@ -117,6 +118,7 @@ const chat = useDocuChat({
 	dtApp: settings.dtApp,
 	dtModule: settings.dtModule,
 	loadIr: ir.loadIr,
+	baseModified: ir.baseModified,
 	autosave,
 });
 
@@ -131,7 +133,11 @@ const { docuTurnContext, hostContextLine, onDocuCardAction } = chat;
 // Show a failed reload in the save bar.
 async function reloadAfterTurn() {
 	try {
-		await ir.reloadIfChangedElsewhere(dtName.value);
+		// The reloaded form is the saved one; saving it again could collide with the next request's edit.
+		if (await ir.reloadIfChangedElsewhere(dtName.value)) {
+			await nextTick();
+			autosave.stopTimers();
+		}
 	} catch (e) {
 		autosave.saveError.value = serverMessage(e);
 		autosave.saveState.value = "error";

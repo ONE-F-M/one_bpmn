@@ -41,6 +41,7 @@ export function useDocuAutosave({
 	let autosaveTimer = null;
 	let autosaveInFlight = false;
 	let autosaveQueued = false;
+	let currentSave = null;
 
 	async function loadCanChange() {
 		try {
@@ -56,13 +57,26 @@ export function useDocuAutosave({
 		if (autosaveTimer) clearTimeout(autosaveTimer);
 		autosaveTimer = setTimeout(runAutosave, 1500);
 	}
-	async function runAutosave() {
-		// Only save a valid design (a name + at least one real field).
-		if (!canChange.value || !dtName.value.trim() || !contentCount.value) return;
+	function runAutosave() {
 		if (autosaveInFlight) {
 			autosaveQueued = true;
-			return;
+			return currentSave;
 		}
+		currentSave = saveDesign();
+		return currentSave;
+	}
+	// Save any design still waiting, so the next chat request starts from the form as it now is.
+	async function flushAutosave() {
+		await currentSave;
+		if (!autosaveTimer && !autosaveQueued) return;
+		clearTimeout(autosaveTimer);
+		autosaveTimer = null;
+		autosaveQueued = false;
+		await runAutosave();
+	}
+	async function saveDesign() {
+		// Only save a valid design (a name + at least one real field).
+		if (!canChange.value || !dtName.value.trim() || !contentCount.value) return;
 		autosaveInFlight = true;
 		saveState.value = "saving";
 		saveError.value = "";
@@ -170,6 +184,7 @@ export function useDocuAutosave({
 		unsavedDesign,
 		loadCanChange,
 		scheduleAutosave,
+		flushAutosave,
 		answerListing,
 		restoreUnsavedDesign,
 		readUnsaved,

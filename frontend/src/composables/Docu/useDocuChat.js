@@ -3,7 +3,7 @@ import { frappeRequest } from "frappe-ui";
 import { serverMessage } from "@/utils/serverMessage.js";
 import { DOCU_API } from "@/utils/docuApi";
 
-export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, autosave }) {
+export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, baseModified, autosave }) {
 	const { saveNotes, childChanges, saveError, saveState } = autosave;
 
 	const docuTurnContext = computed(() => ({
@@ -21,6 +21,8 @@ export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, autosave }
 
 	function onDocuCardAction({ name, action, value, fail }) {
 		if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
+			// A card built on an older copy of the form must not save over a newer one.
+			if (value.base_modified) baseModified.value = value.base_modified;
 			loadIr(value.doctype_ir);
 			loadChildChanges(value.doctype_ir);
 		}
