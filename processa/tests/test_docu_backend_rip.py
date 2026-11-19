@@ -39,6 +39,7 @@ REQUIRED_CALLABLES = (
 	"validate_doctype_json",
 	"diff_ir",
 	"get_doctype_fields",
+	"keep_unrequested_fields",
 )
 REQUIRED_TUPLES = (
 	"DOCFIELD_FLAGS",
@@ -218,3 +219,77 @@ def _parent_importable(dotted: str) -> bool:
 		return importlib.util.find_spec(parent) is not None
 	except ModuleNotFoundError:
 		return False
+
+
+def _submittable_ir(count: int = 89) -> dict:
+	"""A DocType with count fields, amended_from among them, and a phone field added in an earlier turn."""
+	fields = [
+		{"fieldname": f"field_{n}", "label": f"Field {n}", "fieldtype": "Data"} for n in range(count - 3)
+	]
+	fields += [
+		{"fieldname": "phone", "label": "Phone", "fieldtype": "Data"},
+		{"fieldname": "fax", "label": "Fax", "fieldtype": "Data"},
+		{"fieldname": "amended_from", "label": "Amended From", "fieldtype": "Link", "options": "Probe"},
+	]
+	return {"doctype_name": "Probe", "fields": fields}
+
+
+def _without(ir: dict, *fieldnames) -> dict:
+	return {**ir, "fields": [dict(f) for f in ir["fields"] if f["fieldname"] not in fieldnames]}
+
+
+class TestKeepUnrequestedFields(FrappeTestCase):
+	def test_a_proposal_that_omits_amended_from_keeps_all_89_fields(self):
+		current = _submittable_ir()
+		proposed = _without(current, "amended_from")
+		reply = tools.keep_unrequested_fields(current, proposed, "Make Field 1 mandatory.")
+		self.assertEqual(len(proposed["fields"]), 89)
+		self.assertEqual(proposed["fields"][-1]["fieldname"], "amended_from")
+		self.assertIn("Amended From", reply)
+
+	def test_amended_from_is_kept_even_when_the_request_names_it(self):
+		current = _submittable_ir()
+		proposed = _without(current, "amended_from")
+		tools.keep_unrequested_fields(current, proposed, "Remove the Amended From field.")
+		self.assertIn("amended_from", [f["fieldname"] for f in proposed["fields"]])
+
+	def test_a_field_added_earlier_comes_back_in_its_place(self):
+		current = _submittable_ir()
+		proposed = _without(current, "phone")
+		reply = tools.keep_unrequested_fields(current, proposed, "Add a Notes field.")
+		names = [f["fieldname"] for f in proposed["fields"]]
+		self.assertEqual(names.index("phone") + 1, names.index("fax"))
+		self.assertEqual(tools.diff_ir(current, proposed)["removed"], [])
+		self.assertIn("Phone", reply)
+
+	def test_only_the_field_the_request_removes_is_left_out_for_the_confirm_step(self):
+		current = _submittable_ir()
+		proposed = _without(current, "fax", "phone")
+		tools.keep_unrequested_fields(current, proposed, "Remove the Fax field.")
+		self.assertEqual([f["fieldname"] for f in tools.diff_ir(current, proposed)["removed"]], ["fax"])
+
+	def test_a_proposal_that_drops_nothing_is_left_as_it_is_and_says_nothing(self):
+		current = _submittable_ir()
+		proposed = _without(current)
+		self.assertEqual(tools.keep_unrequested_fields(current, proposed, "Rename Field 1."), "")
+		self.assertEqual(proposed, current)
+
+	def test_a_child_table_column_the_request_did_not_remove_comes_back(self):
+		columns = tools.read_doctype_definition("Has Role")["fields"]
+		dropped = columns[0]
+		proposed = {
+			"fields": [
+				{
+					"fieldname": "roles",
+					"fieldtype": "Table",
+					"options": "Has Role",
+					"child_fields": columns[1:]
+					or [{"fieldname": "note", "label": "Note", "fieldtype": "Data"}],
+				}
+			]
+		}
+		reply = tools.keep_unrequested_fields(
+			{"fields": []}, proposed, "Add a Note column to the roles table."
+		)
+		self.assertIn(dropped["fieldname"], [c["fieldname"] for c in proposed["fields"][0]["child_fields"]])
+		self.assertIn(dropped["label"], reply)

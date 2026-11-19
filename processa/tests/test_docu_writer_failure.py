@@ -122,3 +122,31 @@ class TestDocuSaveResponseMarksTheRunAsError(DocuTurnFixture):
 		self._save_response()
 
 		self.assertEqual(frappe.db.get_value("AI Agent Run", run, "status"), "Success")
+
+
+class TestDocuReviewKeepsWhatTheRequestDidNotRemove(DocuTurnFixture):
+	def test_a_draft_that_drops_amended_from_and_an_earlier_field_is_previewed_with_both(self):
+		fields = [{"fieldname": f"field_{n}", "label": f"Field {n}", "fieldtype": "Data"} for n in range(87)]
+		fields += [
+			{"fieldname": "phone", "label": "Phone", "fieldtype": "Data"},
+			{"fieldname": "amended_from", "label": "Amended From", "fieldtype": "Link", "options": "Docu Keep Probe"},
+		]
+		current = {"doctype_name": "Docu Keep Probe", "module": "Processa Engine", "fields": fields}
+		draft = {**current, "fields": [dict(f, reqd=1) if f["fieldname"] == "field_0" else f for f in fields[:87]]}
+		set_turn(
+			self.conversation.name,
+			{
+				"intent": "MODIFY",
+				"user_text": "Make Field 0 mandatory.",
+				"current_ir": current,
+				"draft_ir": draft,
+				"draft_text": "Field 0 is now mandatory.",
+			},
+		)
+
+		self._exec(_site_script("Docu – Tool Review Schema"))
+		output = self._finalize()
+
+		self.assertEqual(len(output["doctype_ir"]["fields"]), 89)
+		self.assertEqual(output["diff"]["removed"], [])
+		self.assertIn("I kept Phone, Amended From", output["response"])
