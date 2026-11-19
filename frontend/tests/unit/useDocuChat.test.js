@@ -13,6 +13,7 @@ function make(props = {}, names = {}) {
 	const autosave = {
 		saveNotes: ref(""),
 		childChanges: ref([]),
+		childTables: ref([]),
 		saveError: ref(""),
 		saveState: ref("idle"),
 	};
@@ -104,6 +105,18 @@ describe("schema cards", () => {
 			value: { doctype_ir: IR },
 		});
 		expect(baseModified.value).toBe("2026-11-19 09:00:00");
+	});
+
+	it("keeps the columns of each child table from the preview", async () => {
+		const table = {
+			fieldname: "items",
+			table: "Vehicle Item",
+			columns: [{ label: "Part", change: "added" }],
+		};
+		frappeRequest.mockResolvedValue({ child_tables_preview: [table] });
+		const { chat, autosave } = make();
+		await chat.loadChildChanges(IR);
+		expect(autosave.childTables.value).toEqual([table]);
 	});
 
 	it("shows an error when the preview fails", async () => {

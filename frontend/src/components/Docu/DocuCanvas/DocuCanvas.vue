@@ -179,6 +179,7 @@ onMounted(async () => {
 	if (props.doctype) {
 		// A doctype is already selected on the shape: load its form builder view.
 		await ir.loadSchema(props.doctype);
+		chat.loadChildChanges(ir.currentIr()); // the columns of each child table on the saved form
 		const stored = autosave.readUnsaved();
 		if (stored && stored !== JSON.stringify(ir.currentIr()))
 			autosave.unsavedDesign.value = stored;

@@ -252,6 +252,9 @@ def preview_doctype(ir: str) -> dict:
 
 	changes = _child_table_changes(name, fields)
 	out["child_changes"] = [{"table": c["table"], "lines": _describe_child_change(c["diff"])} for c in changes]
+	out["child_tables_preview"] = _child_table_previews(
+		name, fields, {c["table"]: c["diff"] for c in changes}
+	)
 	out["destructive"] = out["destructive"] or any(c["diff"]["removed"] for c in changes)
 	out["warnings"] += verdict["warnings"]
 	return out
@@ -778,6 +781,59 @@ def _child_table_changes(parent: str, fields: list) -> list:
 		if diff["added"] or diff["removed"] or diff["changed"]:
 			changes.append({"table": table, "diff": diff})
 	return changes
+
+
+def _child_table_previews(parent: str, fields: list, diffs: dict) -> list:
+	"""Each table field's columns as the change leaves them, marked from diffs, the column changes per table."""
+	previews = []
+	for f in fields:
+		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
+			continue
+		table = (f.get("options") or "").strip() or _child_doctype_name(parent, f)
+		wanted = f.get("child_fields") or []
+		exists = bool(frappe.db.exists("DocType", table))
+		editable = not exists or child_table_is_editable(table)
+		if not exists:
+			columns = [_preview_column(c, "added") for c in wanted]
+		elif editable and wanted:
+			columns = _marked_columns(wanted, diffs.get(table))
+		else:
+			columns = [_preview_column(c, "") for c in _read_doctype_ir(table)["fields"]]
+		note = (
+			"" if editable else _("{0} is a standard table, so Docu cannot change its columns.").format(table)
+		)
+		previews.append(
+			{
+				"fieldname": f.get("fieldname") or "",
+				"table": table,
+				"new": not exists,
+				"editable": editable,
+				"note": note,
+				"columns": [c for c in columns if c["fieldtype"] not in _LAYOUT_FIELDTYPES],
+			}
+		)
+	return previews
+
+
+def _marked_columns(wanted: list, diff: dict | None) -> list:
+	"""The wanted columns in order, marked added or changed, then the columns diff removes, marked removed."""
+	if not diff:
+		return [_preview_column(c, "") for c in wanted]
+	marks = {c["fieldname"]: "added" for c in diff["added"]}
+	marks.update({c["fieldname"]: "changed" for c in diff["changed"]})
+	columns = [_preview_column(c, marks.get(c.get("fieldname"), "")) for c in wanted]
+	return columns + [_preview_column(c, "removed") for c in diff["removed"]]
+
+
+def _preview_column(column: dict, change: str) -> dict:
+	return {
+		"fieldname": column.get("fieldname") or "",
+		"label": column.get("label") or column.get("fieldname") or "",
+		"fieldtype": column.get("fieldtype") or "Data",
+		"reqd": int(bool(column.get("reqd"))),
+		"options": column.get("options") or "",
+		"change": change,
+	}
 
 
 def _describe_child_change(diff: dict) -> list:

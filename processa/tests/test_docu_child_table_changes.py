@@ -95,3 +95,69 @@ class TestReplyWarnsAboutStandardTable(FrappeTestCase):
 		scope = {"final_text": "Done.", "turn": {}}
 		exec(line, scope)
 		self.assertEqual(scope["final_text"], "Done.")
+
+
+class TestPreviewShowsChildColumns(FrappeTestCase):
+	setUp = TestChildTableChanges.setUp
+	tearDown = TestChildTableChanges.tearDown
+
+	def _table(self, ir):
+		return preview_doctype(ir)["child_tables_preview"][0]
+
+	def test_a_new_child_table_lists_every_column_as_added(self):
+		new = json.dumps(
+			{
+				**json.loads(_ir([NOTE, AMOUNT])),
+				"fields": [
+					{"fieldname": "title", "fieldtype": "Data", "label": "Title"},
+					{
+						"fieldname": "parts",
+						"fieldtype": "Table",
+						"label": "Parts",
+						"child_fields": [{**NOTE, "reqd": 1}],
+					},
+				],
+			}
+		)
+		table = self._table(new)
+		self.assertTrue(table["new"])
+		self.assertEqual(
+			table["columns"],
+			[
+				{
+					"fieldname": "note",
+					"label": "Note",
+					"fieldtype": "Data",
+					"reqd": 1,
+					"options": "",
+					"change": "added",
+				}
+			],
+		)
+
+	def test_an_edit_to_an_existing_child_table_marks_each_column(self):
+		changed = [
+			{**NOTE, "label": "Remark"},
+			{"fieldname": "apply", "fieldtype": "Check", "label": "Apply"},
+		]
+		table = self._table(_ir(changed))
+		self.assertFalse(table["new"])
+		self.assertTrue(table["editable"])
+		self.assertEqual(
+			[(c["fieldname"], c["change"]) for c in table["columns"]],
+			[("note", "changed"), ("apply", "added"), ("amount", "removed")],
+		)
+
+	def test_a_table_without_inline_columns_shows_its_live_columns_unmarked(self):
+		table = self._table(_ir([]))
+		self.assertEqual(
+			[(c["fieldname"], c["change"]) for c in table["columns"]], [("note", ""), ("amount", "")]
+		)
+
+	def test_a_standard_child_table_is_read_only_with_a_note(self):
+		columns = [{"fieldname": "role", "fieldtype": "Link", "label": "Renamed Role", "options": "Role"}]
+		table = self._table(_ir(columns, options=STANDARD_CHILD))
+		self.assertFalse(table["editable"])
+		self.assertIn("standard table", table["note"])
+		self.assertEqual(table["columns"][0]["label"], "Role")
+		self.assertEqual(table["columns"][0]["change"], "")

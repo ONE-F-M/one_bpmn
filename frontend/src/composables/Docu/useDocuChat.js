@@ -4,7 +4,7 @@ import { serverMessage } from "@/utils/serverMessage.js";
 import { DOCU_API } from "@/utils/docuApi";
 
 export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, baseModified, autosave }) {
-	const { saveNotes, childChanges, saveError, saveState } = autosave;
+	const { saveNotes, childChanges, childTables, saveError, saveState } = autosave;
 
 	const docuTurnContext = computed(() => ({
 		doctype: dtName.value || props.doctype || "",
@@ -53,11 +53,12 @@ export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, baseModifi
 				...(res?.child_changes || []).map((c) => `${c.table}: ${c.lines.join(" ")}`),
 				...(res?.warnings || []),
 			];
+			childTables.value = res?.child_tables_preview || [];
 		} catch (e) {
 			saveError.value = serverMessage(e);
 			saveState.value = "error";
 		}
 	}
 
-	return { docuTurnContext, hostContextLine, onDocuCardAction };
+	return { docuTurnContext, hostContextLine, onDocuCardAction, loadChildChanges };
 }

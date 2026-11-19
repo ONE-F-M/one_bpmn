@@ -36,6 +36,8 @@ export function useDocuAutosave({
 	);
 	const saveNotes = ref("");
 	const childChanges = ref([]);
+	// Each table field's columns from the last preview, marked added, removed or changed.
+	const childTables = ref([]);
 	// A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
 	const unsavedDesign = ref("");
 	let autosaveTimer = null;
@@ -181,6 +183,7 @@ export function useDocuAutosave({
 		pendingUrl,
 		saveNotes,
 		childChanges,
+		childTables,
 		unsavedDesign,
 		loadCanChange,
 		scheduleAutosave,
