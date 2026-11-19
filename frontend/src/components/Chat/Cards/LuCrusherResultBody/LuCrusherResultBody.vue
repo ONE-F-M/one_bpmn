@@ -35,7 +35,7 @@
 			<details v-if="view.doctypes.length" class="lcr-details">
 				<summary>{{ __("DocTypes") }} ({{ view.doctypes.length }})</summary>
 				<Stack :gap="2" :class="['lcr-scroll', { 'lcr-scroll-capped': capped }]">
-					<Row v-for="(d, i) in view.doctypes.slice(0, 20)" :key="i" :gap="6">
+					<Row v-for="(d, i) in view.doctypes" :key="i" :gap="6">
 						<span class="lcr-name">{{ d.name }}</span>
 						<span v-if="d.note" class="lcr-sub">{{ d.note }}</span>
 					</Row>
@@ -44,13 +44,13 @@
 			<details v-if="view.hooks.length" class="lcr-details">
 				<summary>{{ __("Hooks / doc_events") }} ({{ view.hooks.length }})</summary>
 				<Stack :gap="2" :class="['lcr-scroll', { 'lcr-scroll-capped': capped }]">
-					<code v-for="(h, i) in view.hooks.slice(0, 12)" :key="i" class="lcr-code">{{ h }}</code>
+					<code v-for="(h, i) in view.hooks" :key="i" class="lcr-code">{{ h }}</code>
 				</Stack>
 			</details>
 			<details v-if="view.files.length" class="lcr-details">
 				<summary>{{ __("Controller files") }} ({{ view.files.length }})</summary>
 				<Stack :gap="2" :class="['lcr-scroll', { 'lcr-scroll-capped': capped }]">
-					<Row v-for="(f, i) in view.files.slice(0, 10)" :key="i" :gap="6">
+					<Row v-for="(f, i) in view.files" :key="i" :gap="6">
 						<code class="lcr-code">{{ f.path }}</code>
 						<span v-if="f.note" class="lcr-sub">{{ f.note }}</span>
 					</Row>
@@ -68,11 +68,24 @@
 						<Heading :text="p.name || p.process_name || `Process ${i + 1}`" />
 						<TextBlock v-if="p.type" class="lcr-type">{{ p.type }}</TextBlock>
 						<TextBlock v-if="p.reason" class="lcr-sub">{{ p.reason }}</TextBlock>
-						<Row v-if="(p.shapes || []).length" :gap="4">
-							<span v-for="(s, si) in (p.shapes || []).slice(0, 6)" :key="si" class="lcr-chip">{{ s }}</span>
-							<span v-if="(p.shapes || []).length > 6" class="lcr-sub">
-								+{{ (p.shapes || []).length - 6 }} {{ __("more") }}
-							</span>
+						<Row v-if="p.shapes.length" :gap="4">
+							<span v-for="(s, si) in visibleShapes(p, i)" :key="si" class="lcr-chip">{{ s }}</span>
+							<button
+								v-if="p.shapes.length > SHAPE_LIMIT && !expandedShapes[i]"
+								type="button"
+								class="lcr-more"
+								@click="toggleShapes(i)"
+							>
+								+{{ p.shapes.length - SHAPE_LIMIT }} {{ __("more") }}
+							</button>
+							<button
+								v-else-if="p.shapes.length > SHAPE_LIMIT"
+								type="button"
+								class="lcr-more"
+								@click="toggleShapes(i)"
+							>
+								{{ __("Show less") }}
+							</button>
 						</Row>
 					</Stack>
 				</Row>
@@ -170,6 +183,17 @@ const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 const view = computed(() => deriveLuCrusherView(props.value));
 const copied = ref(-1);
 
+const SHAPE_LIMIT = 6;
+const expandedShapes = ref({});
+
+function toggleShapes(i) {
+	expandedShapes.value = { ...expandedShapes.value, [i]: !expandedShapes.value[i] };
+}
+
+function visibleShapes(p, i) {
+	return expandedShapes.value[i] ? p.shapes : p.shapes.slice(0, SHAPE_LIMIT);
+}
+
 function quickSend(message) {
 	emit("action", "quick-send", { message });
 }
@@ -185,6 +209,7 @@ function copy(text, i) {
 .lcr-grow { flex: 1; min-width: 0; }
 .lcr-row { border: 1px solid #ededed; border-radius: 8px; padding: 6px 8px; }
 .lcr-sub { font-size: 11.5px; color: #7c7c7c; }
+.lcr-more { font-size: 11.5px; color: #525252; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; }
 .lcr-type { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #7c7c7c; }
 .lcr-summary { font-size: 12.5px; color: #525252; }
 .lcr-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #7c7c7c; }
@@ -206,4 +231,5 @@ function copy(text, i) {
 :global([data-theme="dark"]) .lcr-name { color: #d4d4d4; }
 :global([data-theme="dark"]) .lcr-num { background: #f8f8f8; color: #0f0f0f; }
 :global([data-theme="dark"]) .lcr-sub, :global([data-theme="dark"]) .lcr-code { color: #808080; }
+:global([data-theme="dark"]) .lcr-more { color: #999; }
 </style>
