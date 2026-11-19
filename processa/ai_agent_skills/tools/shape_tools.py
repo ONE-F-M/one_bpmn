@@ -576,6 +576,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	"""
 	from processa.processa_engine.dispatch.common import merge_task_data
 	from processa.processa_engine.engine import check_server_script
+	from processa.processa_engine.engine.script_engine import make_import_script
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:
@@ -609,6 +610,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			# A tool whose limits came from its arguments would be a tool with no
 			# limits — the model would simply widen them.
 			"shape_config": dict(shape_config or {}),
+			"import_script": make_import_script(instance, getattr(instance, "_script_task_extensions", None) or {}),
 		}
 	)
 	if getattr(instance, "context_doctype", None) and getattr(instance, "context_docname", None):
