@@ -123,7 +123,32 @@ def site_schema(dt: str) -> dict:
 		field = {k: v for k, v in row.items() if k not in _VOLATILE and k not in _PLACEMENT}
 		added.append({"after": row.get("insert_after"), "field": field})
 
-	return {"doctype_level": doc_level, "fields": fields, "added_fields": added}
+	return {
+		"doctype_level": doc_level, "fields": fields, "added_fields": added,
+		"deleted_fields": sorted(deleted_fieldnames(dt)),
+	}
+
+
+def deleted_fieldnames(dt: str) -> set:
+	"""Fieldnames a Version on this site removed from the DocType and that it does not carry today.
+
+	Migrate imports DocTypes with ignore_version, so only edits made on the site write these Versions.
+	"""
+
+	def fieldnames(rows) -> set:
+		return {row.get("fieldname") for table, row in rows or [] if table == "fields"} - {None}
+
+	deleted = set()
+	for version in frappe.get_all(
+		"Version", filters={"ref_doctype": "DocType", "docname": dt}, fields=["data"]
+	):
+		data = json.loads(version.data)
+		deleted |= fieldnames(data.get("removed")) - fieldnames(data.get("added"))
+
+	if not deleted:
+		return set()
+	present = set(frappe.get_all("DocField", filters={"parent": dt}, pluck="fieldname"))
+	return deleted - present
 
 
 def _set(value) -> bool:
@@ -228,6 +253,12 @@ def _fold(doc: dict, schema: dict) -> list:
 		_insert_field(doc, rows, by_name, field, entry["after"])
 		notes.append(_("added field {0}").format(fieldname))
 
+	# Deleted on the site: the field must leave the file, or it comes back on every migrate.
+	for fieldname in schema.get("deleted_fields", []):
+		if fieldname in by_name:
+			_remove_field(doc, rows, by_name, fieldname)
+			notes.append(_("removed field {0}").format(fieldname))
+
 	# A DocType-level field_order Property Setter was folded above and decides the order.
 	if "field_order" not in schema["doctype_level"] and _reorder(doc, rows, schema["fields"]):
 		notes.append(_("field order"))
@@ -290,6 +321,15 @@ def _insert_field(doc: dict, rows: list, by_name: dict, field: dict, after: str 
 	order = doc.get("field_order")
 	if isinstance(order, list) and field["fieldname"] not in order:
 		order.insert(order.index(after) + 1 if after in order else len(order), field["fieldname"])
+
+
+def _remove_field(doc: dict, rows: list, by_name: dict, fieldname: str) -> None:
+	"""Remove a field from ``fields`` and ``field_order``."""
+	rows[:] = [r for r in rows if r.get("fieldname") != fieldname]
+	by_name.pop(fieldname)
+	order = doc.get("field_order")
+	if isinstance(order, list) and fieldname in order:
+		order.remove(fieldname)
 
 
 def _canonical_export(dt: str) -> dict:

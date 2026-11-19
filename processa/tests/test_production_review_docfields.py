@@ -31,7 +31,7 @@ def _snap(link_filters=None, extra_fields=None):
 	                             "options": "Process", "link_filters": link_filters}}
 	fields.update(extra_fields or {})
 	return {"Demo DT": {"exists": True, "custom": 0, "custom_fields": {},
-	                    "property_setters": {}, "docfields": fields}}
+	                    "property_setters": {}, "docfields": fields, "deleted_fields": []}}
 
 
 class TestDocFieldDriftIsVisible(FrappeTestCase):
@@ -106,7 +106,7 @@ def _ordered_snap(names):
 	"""A snapshot whose docfields keep the given order, as the idx-ordered query yields them."""
 	fields = {n: {"fieldname": n, "fieldtype": "Data"} for n in names}
 	return {"Demo DT": {"exists": True, "custom": 0, "custom_fields": {},
-	                    "property_setters": {}, "docfields": fields}}
+	                    "property_setters": {}, "docfields": fields, "deleted_fields": []}}
 
 
 class TestFieldMovesAreVisible(FrappeTestCase):
@@ -141,3 +141,39 @@ class TestFieldMovesAreVisible(FrappeTestCase):
 		changes = self._diff(_ordered_snap(["a", "new", "b"]), _ordered_snap(["a", "b"]), self.OWNED)
 
 		self.assertEqual([c["action"] for c in changes], ["Create"])
+
+
+class TestAFieldDeletedOnBaIsReported(FrappeTestCase):
+	"""AC1, AC3. On Production, missing on BA: a deletion only when a Version says so."""
+
+	OWNED = "processa/processa_engine/doctype/demo_dt/demo_dt.json"
+
+	def _diff(self, local, remote, destination):
+		from unittest import mock
+
+		with mock.patch("processa.api.production_review._sync_destination", return_value=destination):
+			return _diff_doctypes(local, remote)
+
+	def _local(self, deleted):
+		local = _ordered_snap(["a"])
+		if deleted is not None:
+			local["Demo DT"]["deleted_fields"] = deleted
+		return local
+
+	def test_a_listed_deleted_field_is_one_delete_change(self):
+		changes = self._diff(self._local(["b"]), _ordered_snap(["a", "b"]), self.OWNED)
+
+		self.assertEqual(changes, [{
+			"object_type": "Field", "name": "Demo DT \u2192 b", "doctype": "Demo DT",
+			"action": "Delete", "detail": "Deleted on BA", "destination": self.OWNED,
+		}])
+
+	def test_a_field_missing_on_ba_without_deleted_fields_is_not_a_change(self):
+		self.assertEqual(self._diff(self._local(None), _ordered_snap(["a", "b"]), self.OWNED), [])
+		self.assertEqual(self._diff(self._local([]), _ordered_snap(["a", "b"]), self.OWNED), [])
+
+	def test_a_doctype_we_do_not_own_reports_no_deletion(self):
+		self.assertEqual(self._diff(self._local(["b"]), _ordered_snap(["a", "b"]), ""), [])
+
+	def test_a_deleted_field_production_no_longer_has_is_not_a_change(self):
+		self.assertEqual(self._diff(self._local(["b"]), _ordered_snap(["a"]), self.OWNED), [])
