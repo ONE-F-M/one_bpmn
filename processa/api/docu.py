@@ -1070,7 +1070,7 @@ def _norm_prop(prop: str, value, prop_types: dict):
 	return "" if value in (None, "") else value
 
 
-FIELD_PROPERTY_TYPES = {"depends_on": "Code", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
+FIELD_PROPERTY_TYPES = {"depends_on": "Code", "label": "Data", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
 _FLAG_WORDS = {
 	"hidden": ("{0} is now hidden.", "{0} is now visible."),
 	"reqd": ("{0} is now mandatory.", "{0} is now optional."),
@@ -1079,7 +1079,7 @@ _FLAG_WORDS = {
 
 
 def apply_field_properties(doctype: str, changes: list) -> list:
-	"""Set depends_on, hidden, reqd or read_only on existing fields and return one plain line per change.
+	"""Set depends_on, label, hidden, reqd or read_only on existing fields and return one plain line per change.
 
 	A custom DocType is edited in place; any other DocType gets a Property Setter.
 	"""
@@ -1091,7 +1091,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 	meta = frappe.get_meta(doctype)
 	for change in changes:
 		if change.get("property") not in FIELD_PROPERTY_TYPES:
-			frappe.throw(_("I can only show, hide, require or lock a field, not set {0}.").format(change.get("property")))
+			frappe.throw(_("I can only show, hide, rename, require or lock a field, not set {0}.").format(change.get("property")))
 		if not meta.get_field(change.get("fieldname")):
 			frappe.throw(_("{0} has no field named {1}.").format(doctype, change.get("fieldname")))
 
@@ -1101,7 +1101,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 		for change in changes:
 			fieldname, prop = change["fieldname"], change["property"]
 			value = change.get("value")
-			value = (value or "").strip() if prop == "depends_on" else int(bool(frappe.utils.sbool(value)))
+			value = (value or "").strip() if prop in ("depends_on", "label") else int(bool(frappe.utils.sbool(value)))
 			if doc:
 				doc.get("fields", {"fieldname": fieldname})[0].set(prop, value)
 			else:
@@ -1115,6 +1115,8 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 
 def _describe_property(meta, fieldname: str, prop: str, value) -> str:
 	label = meta.get_field(fieldname).label or fieldname
+	if prop == "label":
+		return _("{0} is now labelled {1}.").format(label, value)
 	if prop != "depends_on":
 		return _(_FLAG_WORDS[prop][0 if value else 1]).format(label)
 	if not value:

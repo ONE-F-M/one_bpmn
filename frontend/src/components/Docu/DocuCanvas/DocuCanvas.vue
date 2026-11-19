@@ -133,7 +133,11 @@ const { docuTurnContext, hostContextLine, onDocuCardAction } = chat;
 // Show a failed reload in the save bar.
 async function reloadAfterTurn() {
 	try {
-		await ir.reloadIfChangedElsewhere(dtName.value);
+		// The reloaded form is the saved one; saving it again could collide with the next request's edit.
+		if (await ir.reloadIfChangedElsewhere(dtName.value)) {
+			await nextTick();
+			autosave.stopTimers();
+		}
 	} catch (e) {
 		autosave.saveError.value = serverMessage(e);
 		autosave.saveState.value = "error";

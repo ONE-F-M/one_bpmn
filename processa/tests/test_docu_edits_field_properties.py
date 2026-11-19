@@ -118,6 +118,13 @@ class TestCustomDocTypeIsEditedInPlace(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("Property Setter", {"doc_type": CUSTOM_DT}))
 		self.assertEqual(lines, ["Cover shows only when Needs Cover is ticked."])
 
+	def test_a_field_is_relabelled_in_place_with_its_fieldname_kept(self):
+		lines = apply_field_properties(
+			CUSTOM_DT, [{"fieldname": "cover_by", "property": "label", "value": "Covered By"}]
+		)
+		self.assertEqual(frappe.get_meta(CUSTOM_DT).get_field("cover_by").label, "Covered By")
+		self.assertEqual(lines, ["Cover By is now labelled Covered By."])
+
 
 class TestWritePermissionOnTheTarget(FrappeTestCase):
 	"""The requester needs write on the DocType, and a refusal leaves it untouched."""
