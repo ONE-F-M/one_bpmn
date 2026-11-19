@@ -370,7 +370,7 @@ processa.patches.v1_0.add_agent_sandbox_spec_operations #16-11-2026 the agent_sa
 processa.patches.v1_0.add_testing_agent_sandbox_tools #16-11-2026 the Sandbox Tool scripts the Testing Agent uses to write a spec, look at a page and run a scheduled job
 processa.patches.v1_0.seed_prosally_layout_regression_cases
 processa.patches.v1_0.fix_browser_snapshot_screenshot_save #16-11-2026 the Browser Snapshot script saves its screenshot with save_file, so the security gate lets it be linked to a map
-processa.patches.v1_0.seed_logix_refusal_regression_cases
+processa.patches.v1_0.seed_logix_refusal_regression_cases #19-11-2026 Logix Baseline gains a script that must import what it uses, a request for 5 that must not return 10, and a client script request
 processa.patches.v1_0.add_agent_sandbox_upload_videos_operation #16-11-2026 the agent_sandbox connector gets the upload_videos operation the Testing Agent map calls
 processa.patches.v1_0.seed_prosally_confirmed_brief_cases
 processa.patches.v1_0.seed_logix_pagination_case
@@ -385,3 +385,5 @@ processa.patches.v15_0.processa_sync_doctype_sync___v1_0f7e7c #2026-11-16 Proces
 processa.patches.v1_0.docu_defaults_to_processa_engine #16-11-2026 Docu's scripts, prompt and map default to the Processa Engine module
 processa.patches.v1_0.rename_on_cancel_request_trigger #17-11-2026 cancellation maps start On Cancel instead of On Cancel Request
 processa.patches.v1_0.sandbox_tools_fall_back_to_base_branch #18-11-2026 sandbox tool scripts fall back to the map's base_branch when the model passes no git_branch
+processa.patches.v1_0.submit_assertions_reads_one_review #18-11-2026 Submit Assertions reads the checker's one review variable, so approved lines are no longer duplicated and rejected
+processa.patches.v1_0.seed_docu_edit_command_cases

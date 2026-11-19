@@ -14,6 +14,10 @@
 				>{{ pendingParts.after }}</template
 			>
 			<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
+			<template v-else-if="saveState === 'placement'">
+				{{ placementQuestion }}
+				<button class="dc-option-btn" @click="view = 'settings'">Open Settings</button>
+			</template>
 			<template v-else-if="saveState === 'question'">
 				{{ listingQuestion }}
 				<button class="dc-option-btn" @click="answerListing(true)">Yes</button>
@@ -39,6 +43,8 @@ const {
 	canChange,
 	saveError,
 	listingQuestion,
+	placementQuestion,
+	view,
 	pendingNotice,
 	pendingRequest,
 	pendingParts,

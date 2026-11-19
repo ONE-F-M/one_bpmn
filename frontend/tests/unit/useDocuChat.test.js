@@ -20,6 +20,7 @@ function make(props = {}, names = {}) {
 	const chat = useDocuChat({
 		props: { doctype: "", processContext: null, ...props },
 		dtName: ref(names.dtName || ""),
+		dtApp: ref(names.dtApp || ""),
 		dtModule: ref(names.dtModule || ""),
 		loadIr,
 		autosave,
@@ -48,11 +49,12 @@ describe("turn context", () => {
 		expect(make().chat.docuTurnContext.value.doctype).toBe("");
 	});
 
-	it("carries the target module and the process context", () => {
+	it("carries the target app, module and the process context", () => {
 		const processContext = { process: "Fleet Check" };
-		const { chat } = make({ processContext }, { dtModule: "Stock" });
+		const { chat } = make({ processContext }, { dtApp: "erpnext", dtModule: "Stock" });
 		expect(chat.docuTurnContext.value).toEqual({
 			doctype: "",
+			target_app: "erpnext",
 			target_module: "Stock",
 			process_context: processContext,
 		});

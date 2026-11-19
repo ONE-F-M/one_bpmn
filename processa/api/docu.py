@@ -29,7 +29,6 @@ from frappe import _
 from frappe.utils import get_datetime
 
 from processa.ai_agent_registry.definitions.docu.tools import (
-	DEFAULT_MODULE,
 	diff_ir,
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
@@ -59,10 +58,11 @@ def _may_change_forms() -> bool:
 	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
 	from processa.api.a2a import allowed_roles_for
 
-	roles = set(frappe.get_roles())
+	user = _requesting_user()
+	roles = set(frappe.get_roles(user))
 	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
 		return True
-	return bool(frappe.db.exists("Process", {"process_owner": frappe.session.user}))
+	return bool(frappe.db.exists("Process", {"process_owner": user}))
 
 
 def _docu_user() -> str:
@@ -105,11 +105,23 @@ def check_doctype_exists(doctype: str) -> dict:
 
 
 @frappe.whitelist()
-def list_modules() -> list:
-	"""Module Def names — for the DocType-settings module picker."""
+def list_apps() -> list:
+	"""Installed apps that own at least one module, for the app picker a new DocType needs."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
-	return frappe.get_all("Module Def", pluck="name", order_by="name asc")
+	owning = set(frappe.get_list("Module Def", pluck="app_name"))
+	return [app for app in frappe.get_installed_apps() if app in owning]
+
+
+@frappe.whitelist()
+def list_modules(app: str | None = None) -> list:
+	"""Module Defs with the app that owns each, only that app's when ``app`` is given."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	filters = {"app_name": app} if app else {}
+	return frappe.get_list(
+		"Module Def", filters=filters, fields=["name", "app_name as app"], order_by="name asc"
+	)
 
 
 @frappe.whitelist()
@@ -140,6 +152,7 @@ def get_doctype_schema(doctype: str) -> dict:
 		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)
 	with as_user(_docu_user()):
 		ir = _read_doctype_ir(doctype)
+	ir["app"] = frappe.db.get_value("Module Def", ir.get("module"), "app_name") or ""
 	return {"exists": True, "doctype_ir": ir, "modified": str(frappe.db.get_value("DocType", doctype, "modified"))}
 
 
@@ -284,6 +297,11 @@ def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
+	# 1a) A new DocType goes only into the app and module the user picked.
+	placement = _placement_question(ir_dict)
+	if placement:
+		return {"status": "needs_placement", "doctype": _name, "message": placement}
+
 	# 1b) Process-ownership routing from the Process Doctypes tables: an owner
 	#     applies at once, anyone else is logged as a Doctype Change Request,
 	#     and an unlisted DocType asks "list it in the current process?".
@@ -309,6 +327,22 @@ def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in
 	return result
 
 
+def _placement_question(ir_dict: dict) -> str | None:
+	"""The question to ask when a new DocType has no app and module yet; throws when the module is not in the app."""
+	name = (ir_dict.get("doctype_name") or "").strip()
+	app = (ir_dict.get("app") or "").strip()
+	module = (ir_dict.get("module") or "").strip()
+	if not (app and module):
+		if frappe.db.exists("DocType", name):
+			return None
+		return _("Open Settings and pick the app and module for “{0}” to create it.").format(name)
+	if app not in frappe.get_installed_apps():
+		frappe.throw(_("App {0} is not installed on this site.").format(app))
+	if frappe.db.get_value("Module Def", module, "app_name") != app:
+		frappe.throw(_("Module {0} is not part of the {1} app.").format(module, app))
+	return None
+
+
 def _refuse_stale_save(name: str, base_modified: str | None) -> None:
 	"""Throw when the DocType was edited after the client read it, so a stale copy cannot overwrite the edit."""
 	if not base_modified:
@@ -324,10 +358,13 @@ def _refuse_stale_save(name: str, base_modified: str | None) -> None:
 def _apply_ir_now(ir_dict: dict, warnings: list, confirm=0) -> dict:
 	"""Apply an already-validated, already-authorised Docu IR (no routing)."""
 	name = ir_dict["doctype_name"].strip()
-	module = (ir_dict.get("module") or DEFAULT_MODULE).strip()
-	# The agent can name the business process instead of a real module, so fall back to the default.
-	if not module or not frappe.db.exists("Module Def", module):
-		module = DEFAULT_MODULE
+	placement = _placement_question(ir_dict)
+	if placement:
+		frappe.throw(placement)
+	module = (ir_dict.get("module") or "").strip()
+	# An update that names no real module keeps the DocType where it is.
+	if not frappe.db.exists("Module Def", module):
+		module = frappe.db.get_value("DocType", name, "module")
 	is_child = int(bool(ir_dict.get("is_child_table")))
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
@@ -431,7 +468,10 @@ def _refused_type_changes(doctype: str, fields: list) -> list:
 			recreate.append((custom_field.name, field))
 			continue
 		frappe.throw(
-			_("{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}.").format(
+			_(
+				"{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}. "
+				"The nearest option is to add a new {3} field next to {0} and keep the old one, so its data stays."
+			).format(
 				current.label or current.fieldname,
 				current.fieldname,
 				current.fieldtype,
@@ -1328,7 +1368,7 @@ def _may_decide(rows: list, user: str) -> bool:
 
 def _gate_unlisted(name: str, ir_dict: dict):
 	"""A DocType no process lists is changed directly only by a fallback approver, or when new."""
-	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), frappe.session.user):
+	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), _requesting_user()):
 		return None
 	return _log_change_request(name, ir_dict)
 
@@ -1345,7 +1385,7 @@ def _route_change(ir_dict: dict, process, list_in_process):
 	- listed nowhere and not listed now -> a new DocType is applied; an existing one is
 	  logged for the fallback approvers unless the user is one.
 	"""
-	user = frappe.session.user
+	user = _requesting_user()
 	if user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 	name = (ir_dict.get("doctype_name") or "").strip()
@@ -1386,7 +1426,7 @@ def _log_change_request(name: str, ir_dict: dict) -> dict:
 	processes = [r["process_name"] for r in approvers if r.get("process_name")]
 	values = {
 		"target_doctype": name,
-		"requested_by": frappe.session.user,
+		"requested_by": _requesting_user(),
 		"status": "Pending",
 		"destructive": int(bool(d.get("removed"))),
 		"change_summary": d.get("summary") or _("No field changes"),
@@ -1395,7 +1435,7 @@ def _log_change_request(name: str, ir_dict: dict) -> dict:
 	}
 	# Autosave re-sends every edit; keep one Pending request per requester and doctype.
 	pending = frappe.db.get_value(_CHANGE_REQUEST, {
-		"target_doctype": name, "requested_by": frappe.session.user, "status": "Pending"})
+		"target_doctype": name, "requested_by": _requesting_user(), "status": "Pending"})
 	if pending:
 		doc = frappe.get_doc(_CHANGE_REQUEST, pending)
 		doc.update(values)

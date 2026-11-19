@@ -89,7 +89,16 @@ export function deriveLuCrusherView(value) {
 	const doc = value.document || {};
 	const scan = value.codebase_scan || {};
 	const topology = value.topology || {};
-	const processes = topology.processes || [];
+	// shapes must always be an array: the model sometimes returns a comma/newline string.
+	const processes = (Array.isArray(topology.processes) ? topology.processes : []).map((proc) => {
+		const raw = proc?.shapes;
+		const shapes = Array.isArray(raw)
+			? raw
+			: typeof raw === "string"
+				? raw.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
+				: [];
+		return { ...proc, shapes };
+	});
 
 	const swimlanes = [];
 	for (const page of doc.pages || []) {

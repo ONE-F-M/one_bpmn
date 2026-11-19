@@ -65,9 +65,10 @@ def on_doc_event(doc, method: str):
 		return
 
 	models = _find_matching_models(doc.doctype, trigger_event)
+	started = False
 	for model_name in models:
 		try:
-			_maybe_start_instance(doc, model_name)
+			started = _maybe_start_instance(doc, model_name) or started
 		except Exception as exc:
 			from processa.processa_engine.runtime.failures import is_form_check
 
@@ -77,6 +78,10 @@ def on_doc_event(doc, method: str):
 				title=f"BPMN trigger failed for {doc.doctype} / {model_name}",
 				message=frappe.get_traceback(),
 			)
+
+	# The first engine pass saves its own copy of the doc; reload so the response shows what it wrote.
+	if started and frappe.db.exists(doc.doctype, doc.name):
+		doc.reload()
 
 	task_action = _FRAPPE_EVENT_TO_TASK_ACTION.get(method)
 	if task_action:
@@ -269,7 +274,7 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	return active_models
 
 
-def _maybe_start_instance(doc, model_name: str):
+def _maybe_start_instance(doc, model_name: str) -> bool:
 	"""
 	Evaluate conditions for one model against the current document.
 	Starts a new BPMN Process Instance only if all checks pass.
@@ -277,7 +282,7 @@ def _maybe_start_instance(doc, model_name: str):
 	model = frappe.get_doc("BPMN Process Model", model_name)
 
 	if not model.serialized_spec:
-		return
+		return False
 
 	triggers = parse_start_triggers(model.bpmn_xml)
 
@@ -286,7 +291,7 @@ def _maybe_start_instance(doc, model_name: str):
 	if required_state:
 		doc_state = getattr(doc, "workflow_state", None) or getattr(doc, "status", None)
 		if doc_state != required_state:
-			return
+			return False
 
 	# Same expression SpiffWorkflow evaluates at start; a condition that cannot be evaluated still spawns.
 	start_condition = triggers["conditional_start"]
@@ -297,7 +302,7 @@ def _maybe_start_instance(doc, model_name: str):
 		eval_locals = json_safe_doc_fields(doc)
 		try:
 			if not evaluate_condition(start_condition, eval_locals):
-				return
+				return False
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN trigger: start-condition eval failed ({model_name})",
@@ -308,7 +313,7 @@ def _maybe_start_instance(doc, model_name: str):
 	if field_cond:
 		field_name, field_value = field_cond
 		if str(getattr(doc, field_name, None) or "") != str(field_value):
-			return
+			return False
 
 	existing = frappe.db.exists(
 		"BPMN Process Instance",
@@ -320,7 +325,7 @@ def _maybe_start_instance(doc, model_name: str):
 		},
 	)
 	if existing:
-		return
+		return False
 
 	# The first engine pass runs inline; AI tasks it reaches are parked so the save never waits on an LLM.
 	instance = frappe.new_doc("BPMN Process Instance")
@@ -339,6 +344,7 @@ def _maybe_start_instance(doc, model_name: str):
 	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
 
 	start_queued_instance(instance.name, run_as_user=frappe.session.user)
+	return True
 
 
 def start_queued_instance(instance_name: str, run_as_user: str = None):

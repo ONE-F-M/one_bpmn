@@ -32,3 +32,49 @@ export function withLintErrors(checklist, issuesByRule) {
 		all_ready: false,
 	};
 }
+
+const CONTAINMENT_KEYS = [
+	"flowElements",
+	"laneSets",
+	"lanes",
+	"artifacts",
+	"eventDefinitions",
+	"participants",
+	"messageFlows",
+	"processRef",
+	"rootElements",
+];
+
+function descendantIds(bo, ids = new Set(), visited = new Set()) {
+	if (!bo || typeof bo !== "object" || visited.has(bo)) {
+		return ids;
+	}
+	visited.add(bo);
+	if (bo.id) {
+		ids.add(bo.id);
+	}
+	for (const key of CONTAINMENT_KEYS) {
+		const value = bo[key];
+		for (const child of Array.isArray(value) ? value : [value]) {
+			descendantIds(child, ids, visited);
+		}
+	}
+	return ids;
+}
+
+/** The lint reports about elements on the plane the canvas shows: a process, a collaboration's pools, or a drilled-down subprocess. */
+export function issuesOnPlane(issuesByElement, rootBo) {
+	const ids = descendantIds(rootBo);
+	// An empty canvas has only its root, which the linter would flag for a missing start and end event.
+	if (ids.size <= 1) {
+		return {};
+	}
+	const shown = {};
+	for (const [elementId, reports] of Object.entries(issuesByElement)) {
+		const kept = reports.filter((report) => ids.has(report.actualElementId || report.id));
+		if (kept.length) {
+			shown[elementId] = kept;
+		}
+	}
+	return shown;
+}

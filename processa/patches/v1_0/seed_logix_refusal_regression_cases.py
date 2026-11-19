@@ -1,4 +1,4 @@
-"""Seeds four Baseline cases: three ordinary messages that must not be refused and one revert.
+"""Seeds Baseline cases: ordinary messages that must not be refused, a revert, and scripts that must run and follow the request.
 
 Idempotent by suite and case title; a site without Logix is left alone.
 """
@@ -77,7 +77,61 @@ BARE_SHAPE = {
 	"process_context": script_task("task_generate_invoice", "Generate Invoice", "subcontract_attendance"),
 }
 
+WRITE_TRACE = [
+	call(1, "classify_intent"),
+	call(2, "write_script"),
+	call(3, "review_script"),
+	call(4, "finalize"),
+]
+PAYLOAD_SHAPE = {
+	"element_name": "Count Payload Items",
+	"process_context": script_task("task_count_items", "Count Payload Items", "payload_intake"),
+}
+TODO_SHAPE = {
+	"element_name": "Collect Open ToDos",
+	"process_context": script_task("task_collect_todos", "Collect Open ToDos", "todo_follow_up"),
+}
+
 CASES = [
+	{
+		"title": "A script that reads JSON imports what it uses before it is returned",
+		"prompt": (
+			"The step receives a JSON text in task_data under payload_json. Parse it and put the "
+			"number of items it holds in result as item_count."
+		),
+		"context": PAYLOAD_SHAPE,
+		"calls": WRITE_TRACE,
+		"assertions": [
+			final_output("modified_script", "regex", r"(?s)^(?!.*\bjson\.)|import json"),
+			final_output("modified_script", "regex", r"item_count"),
+			NOT_REFUSED,
+		],
+	},
+	{
+		"title": "A request for 5 records returns a script that takes 5, not 10",
+		"prompt": (
+			"List the 5 most recent open ToDo records allocated to the current user and put their "
+			"names in result as todos. Only 5, not 10."
+		),
+		"context": TODO_SHAPE,
+		"calls": WRITE_TRACE,
+		"assertions": [
+			final_output("modified_script", "regex", r"(?<![\w.])5(?![\w.])"),
+			final_output("modified_script", "regex", r"^(?![\s\S]*(?<![\w.])10(?![\w.]))"),
+			NOT_REFUSED,
+		],
+	},
+	{
+		"title": "A client script request never gets a server script back",
+		"prompt": "Write a client script for the ToDo form that hides the Description field when Status is Closed.",
+		"context": TODO_SHAPE,
+		"calls": [call(1, "classify_intent"), call(2, "finalize")],
+		"assertions": [
+			final_output("response", "regex", r"^(?![\s\S]*```python)"),
+			final_output("response", "regex", r"(?i)client script"),
+			NOT_REFUSED,
+		],
+	},
 	{
 		"title": "A request with no subject gets a question, not the safety refusal",
 		"prompt": "prepare a perfect server script",

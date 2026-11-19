@@ -3,11 +3,12 @@ import { frappeRequest } from "frappe-ui";
 import { serverMessage } from "@/utils/serverMessage.js";
 import { DOCU_API } from "@/utils/docuApi";
 
-export function useDocuChat({ props, dtName, dtModule, loadIr, autosave }) {
+export function useDocuChat({ props, dtName, dtApp, dtModule, loadIr, autosave }) {
 	const { saveNotes, childChanges, saveError, saveState } = autosave;
 
 	const docuTurnContext = computed(() => ({
 		doctype: dtName.value || props.doctype || "",
+		target_app: dtApp.value || "",
 		target_module: dtModule.value || "",
 		process_context: props.processContext || null,
 	}));

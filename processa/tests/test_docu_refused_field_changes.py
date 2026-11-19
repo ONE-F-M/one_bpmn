@@ -59,6 +59,7 @@ class TestRefusedTypeChange(FrappeTestCase):
 
 		message = str(refused.exception)
 		self.assertIn("is a Data field and cannot become Date", message)
+		self.assertIn("The nearest option is to add a new Date field", message)
 		self.assertIn("Select", message)
 		self.assertNotIn("Traceback", message)
 		self.assertEqual(frappe.get_meta(DOCTYPE).get_field(FIELDNAME).fieldtype, "Data")

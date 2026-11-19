@@ -19,6 +19,7 @@ export function useDocuAutosave({
 	const canChange = ref(false);
 	const saveError = ref("");
 	const listingQuestion = ref("");
+	const placementQuestion = ref("");
 	const listingAnswer = ref(null);
 	const pendingNotice = ref("");
 	const pendingRequest = ref("");
@@ -79,6 +80,12 @@ export function useDocuAutosave({
 					base_modified: baseModified.value || undefined,
 				},
 			});
+			placementQuestion.value = "";
+			if (res?.status === "needs_placement") {
+				placementQuestion.value = res.message;
+				saveState.value = "placement";
+				return;
+			}
 			if (res?.status === "needs_listing_decision") {
 				listingQuestion.value = res.message;
 				saveState.value = "question";
@@ -153,6 +160,7 @@ export function useDocuAutosave({
 		canChange,
 		saveError,
 		listingQuestion,
+		placementQuestion,
 		pendingNotice,
 		pendingRequest,
 		pendingParts,
