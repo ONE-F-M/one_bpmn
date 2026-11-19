@@ -58,10 +58,11 @@ def _may_change_forms() -> bool:
 	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
 	from processa.api.a2a import allowed_roles_for
 
-	roles = set(frappe.get_roles())
+	user = _requesting_user()
+	roles = set(frappe.get_roles(user))
 	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
 		return True
-	return bool(frappe.db.exists("Process", {"process_owner": frappe.session.user}))
+	return bool(frappe.db.exists("Process", {"process_owner": user}))
 
 
 def _docu_user() -> str:
@@ -467,7 +468,10 @@ def _refused_type_changes(doctype: str, fields: list) -> list:
 			recreate.append((custom_field.name, field))
 			continue
 		frappe.throw(
-			_("{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}.").format(
+			_(
+				"{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}. "
+				"The nearest option is to add a new {3} field next to {0} and keep the old one, so its data stays."
+			).format(
 				current.label or current.fieldname,
 				current.fieldname,
 				current.fieldtype,
@@ -1364,7 +1368,7 @@ def _may_decide(rows: list, user: str) -> bool:
 
 def _gate_unlisted(name: str, ir_dict: dict):
 	"""A DocType no process lists is changed directly only by a fallback approver, or when new."""
-	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), frappe.session.user):
+	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), _requesting_user()):
 		return None
 	return _log_change_request(name, ir_dict)
 
@@ -1381,7 +1385,7 @@ def _route_change(ir_dict: dict, process, list_in_process):
 	- listed nowhere and not listed now -> a new DocType is applied; an existing one is
 	  logged for the fallback approvers unless the user is one.
 	"""
-	user = frappe.session.user
+	user = _requesting_user()
 	if user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 	name = (ir_dict.get("doctype_name") or "").strip()
@@ -1422,7 +1426,7 @@ def _log_change_request(name: str, ir_dict: dict) -> dict:
 	processes = [r["process_name"] for r in approvers if r.get("process_name")]
 	values = {
 		"target_doctype": name,
-		"requested_by": frappe.session.user,
+		"requested_by": _requesting_user(),
 		"status": "Pending",
 		"destructive": int(bool(d.get("removed"))),
 		"change_summary": d.get("summary") or _("No field changes"),
@@ -1431,7 +1435,7 @@ def _log_change_request(name: str, ir_dict: dict) -> dict:
 	}
 	# Autosave re-sends every edit; keep one Pending request per requester and doctype.
 	pending = frappe.db.get_value(_CHANGE_REQUEST, {
-		"target_doctype": name, "requested_by": frappe.session.user, "status": "Pending"})
+		"target_doctype": name, "requested_by": _requesting_user(), "status": "Pending"})
 	if pending:
 		doc = frappe.get_doc(_CHANGE_REQUEST, pending)
 		doc.update(values)

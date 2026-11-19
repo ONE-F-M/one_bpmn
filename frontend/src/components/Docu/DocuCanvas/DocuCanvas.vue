@@ -23,6 +23,7 @@
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
 							@card-action="onDocuCardAction"
+							@turn-complete="reloadAfterTurn"
 						/>
 					</div>
 					<div class="dc-builder-panel" :inert="!canChange">
@@ -83,6 +84,7 @@ import { useDocuIr } from "@/composables/Docu/useDocuIr";
 import { useDocuSettings } from "@/composables/Docu/useDocuSettings";
 import { useDocuTree } from "@/composables/Docu/useDocuTree";
 import { cardRegistry } from "@/utils/cardRegistry";
+import { serverMessage } from "@/utils/serverMessage.js";
 
 const props = defineProps({
 	element: { type: Object, default: null },
@@ -125,6 +127,16 @@ const { dtName, dtApp, dtModule, dtAutoname, isChild, dtSettings, loadRoles, loa
 const { view, tabs, selectForm, buildTree } = tree;
 const { canChange } = autosave;
 const { docuTurnContext, hostContextLine, onDocuCardAction } = chat;
+
+// Show a failed reload in the save bar.
+async function reloadAfterTurn() {
+	try {
+		await ir.reloadIfChangedElsewhere(dtName.value);
+	} catch (e) {
+		autosave.saveError.value = serverMessage(e);
+		autosave.saveState.value = "error";
+	}
+}
 
 function onChange() {
 	history.scheduleSnapshot();
