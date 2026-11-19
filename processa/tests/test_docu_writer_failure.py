@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import now_datetime
@@ -122,3 +124,70 @@ class TestDocuSaveResponseMarksTheRunAsError(DocuTurnFixture):
 		self._save_response()
 
 		self.assertEqual(frappe.db.get_value("AI Agent Run", run, "status"), "Success")
+
+
+class TestDocuReviewKeepsWhatTheRequestDidNotRemove(DocuTurnFixture):
+	def test_a_draft_that_drops_amended_from_and_an_earlier_field_is_previewed_with_both(self):
+		fields = [{"fieldname": f"field_{n}", "label": f"Field {n}", "fieldtype": "Data"} for n in range(87)]
+		fields += [
+			{"fieldname": "phone", "label": "Phone", "fieldtype": "Data"},
+			{"fieldname": "amended_from", "label": "Amended From", "fieldtype": "Link", "options": "Docu Keep Probe"},
+		]
+		current = {"doctype_name": "Docu Keep Probe", "module": "Processa Engine", "fields": fields}
+		draft = {**current, "fields": [dict(f, reqd=1) if f["fieldname"] == "field_0" else f for f in fields[:87]]}
+		set_turn(
+			self.conversation.name,
+			{
+				"intent": "MODIFY",
+				"user_text": "Make Field 0 mandatory.",
+				"current_ir": current,
+				"draft_ir": draft,
+				"draft_text": "Field 0 is now mandatory.",
+			},
+		)
+
+		self._exec(_site_script("Docu – Tool Review Schema"))
+		output = self._finalize()
+
+		self.assertEqual(len(output["doctype_ir"]["fields"]), 89)
+		self.assertEqual(output["diff"]["removed"], [])
+		self.assertIn("I kept Phone, Amended From", output["response"])
+
+
+class TestDocuDirectEditKeepsReservedFields(DocuTurnFixture):
+	PROBE = "Docu Reserved Field Probe"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		# A submittable probe, kept between runs, so Frappe gives it amended_from.
+		if not frappe.db.exists("DocType", cls.PROBE):
+			frappe.get_doc(
+				{
+					"doctype": "DocType",
+					"name": cls.PROBE,
+					"module": "Processa Engine",
+					"custom": 1,
+					"is_submittable": 1,
+					"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
+					"permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1, "submit": 1}],
+				}
+			).insert(ignore_permissions=True)
+
+	def test_a_request_to_remove_amended_from_keeps_it_and_says_so(self):
+		reply = json.dumps({"operations": [{"op": "remove_field", "fieldname": "amended_from"}]})
+
+		class Model:
+			async def complete(self, **kwargs):
+				return SimpleNamespace(text=reply)
+
+		set_turn(self.conversation.name, {"user_text": "Remove the Amended From field", "doctype": self.PROBE})
+		with patch(
+			"processa.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=Model()
+		):
+			self._exec(_site_script("Docu – Tool Edit Field Property"))
+
+		output = get_turn(self.conversation.name)["output"]
+		self.assertIn("amended_from", [f.fieldname for f in frappe.get_meta(self.PROBE).fields])
+		self.assertIn("I kept Amended From", output["response"])
+		self.assertNotIn("Removed", output["response"])

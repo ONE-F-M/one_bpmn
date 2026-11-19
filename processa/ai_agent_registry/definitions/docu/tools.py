@@ -4,13 +4,16 @@ docu's form builder reads and diffs through the same functions.
 """
 
 import json
+import re
 import time
 from contextlib import contextmanager
 
 import frappe
+from frappe import _
+from frappe.model import table_fields
 from frappe.utils import now_datetime
 
-from processa.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
+from processa.ai_agent_registry.definitions.docu.validators import RESERVED_FIELDNAMES, validate_doctype_ir
 from processa.ai_agent_registry.definitions.shared.helpers import tool_envelope
 
 
@@ -259,3 +262,54 @@ def diff_ir(original: dict, modified: dict) -> dict:
 		lines.append(f"~ change '{c['fieldname']}' ({attrs})")
 
 	return {"added": added, "removed": removed, "changed": changed, "summary": "\n".join(lines)}
+
+
+REMOVAL_WORDS = re.compile(r"\b(?:remove|delete|drop|get\s+rid\s+of|take\s+out|replace|without)\b", re.I)
+
+
+def keep_unrequested_fields(current_ir: dict, proposed_ir: dict, request: str) -> str:
+	"""Put back into proposed_ir each field and child table column the request did not ask to remove.
+
+	Reserved fields such as amended_from always come back. Returns the line the reply adds, or "".
+	"""
+	kept = _restore_fields(current_ir.get("fields") or [], proposed_ir.setdefault("fields", []), request)
+	for field in proposed_ir["fields"]:
+		if field.get("fieldtype") not in table_fields or not field.get("child_fields"):
+			continue
+		live = read_doctype_definition((field.get("options") or "").strip())
+		if live:
+			kept += _restore_fields(live["fields"], field["child_fields"], request)
+	if not kept:
+		return ""
+	return _("I kept {0}, which your request did not ask to remove.").format(", ".join(kept))
+
+
+def _restore_fields(current: list, proposed: list, request: str) -> list[str]:
+	"""Insert into proposed, after the field they followed, the current fields it lost without being asked; their labels."""
+	present = {f.get("fieldname") for f in proposed}
+	kept = []
+	for position, field in enumerate(current):
+		fieldname = field.get("fieldname")
+		if not fieldname or fieldname in present:
+			continue
+		if _asked_to_remove(field, request):
+			continue
+		before = next(
+			(f.get("fieldname") for f in reversed(current[:position]) if f.get("fieldname") in present), None
+		)
+		at = next((i + 1 for i, f in enumerate(proposed) if f.get("fieldname") == before), 0)
+		proposed.insert(at, field)
+		present.add(fieldname)
+		kept.append(field.get("label") or fieldname)
+	return kept
+
+
+def _asked_to_remove(field: dict, request: str) -> bool:
+	"""Whether request asks to remove field by its label or fieldname; never for a reserved field."""
+	if field["fieldname"] in RESERVED_FIELDNAMES:
+		return False
+	if not REMOVAL_WORDS.search(request):
+		return False
+	names = {(field.get("label") or "").strip(), field["fieldname"].replace("_", " ")}
+	names.discard("")
+	return any(re.search(r"\b" + re.escape(name) + r"\b", request, re.I) for name in names)
