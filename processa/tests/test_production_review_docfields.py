@@ -100,3 +100,44 @@ class TestSnapshotShape(FrappeTestCase):
 
 		self.assertFalse(only["exists"])
 		self.assertEqual(only["docfields"], {})
+
+
+def _ordered_snap(names):
+	"""A snapshot whose docfields keep the given order, as the idx-ordered query yields them."""
+	fields = {n: {"fieldname": n, "fieldtype": "Data"} for n in names}
+	return {"Demo DT": {"exists": True, "custom": 0, "custom_fields": {},
+	                    "property_setters": {}, "docfields": fields}}
+
+
+class TestFieldMovesAreVisible(FrappeTestCase):
+	"""idx is not part of a cleaned DocField, so a move needs its own comparison."""
+
+	OWNED = "processa/processa_engine/doctype/demo_dt/demo_dt.json"
+
+	def _diff(self, local, remote, destination):
+		from unittest import mock
+
+		with mock.patch("processa.api.production_review._sync_destination", return_value=destination):
+			return _diff_doctypes(local, remote)
+
+	def test_the_same_fields_in_a_new_order_are_one_update_on_an_owned_doctype(self):
+		changes = self._diff(_ordered_snap(["a", "c", "b"]), _ordered_snap(["a", "b", "c"]), self.OWNED)
+
+		self.assertEqual(changes, [{
+			"object_type": "Field", "name": "Demo DT → field order", "doctype": "Demo DT",
+			"action": "Update", "detail": "Field order", "destination": self.OWNED,
+		}])
+
+	def test_the_same_order_is_not_a_change(self):
+		self.assertEqual(self._diff(_ordered_snap(["a", "b", "c"]), _ordered_snap(["a", "b", "c"]), self.OWNED), [])
+
+	def test_a_doctype_we_do_not_own_reports_no_move(self):
+		changes = self._diff(_ordered_snap(["a", "c", "b"]), _ordered_snap(["a", "b", "c"]), "")
+
+		self.assertEqual(changes, [])
+
+	def test_a_field_only_one_side_has_is_not_a_move(self):
+		"""Only the fieldnames on both sides are compared; a new field is reported as Create."""
+		changes = self._diff(_ordered_snap(["a", "new", "b"]), _ordered_snap(["a", "b"]), self.OWNED)
+
+		self.assertEqual([c["action"] for c in changes], ["Create"])
