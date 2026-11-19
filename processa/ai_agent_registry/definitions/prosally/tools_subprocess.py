@@ -6,6 +6,7 @@ import re
 from xml.etree import ElementTree as ET
 
 import frappe
+from frappe import _
 
 from processa.ai_agent_memory.text_clean import strip_html
 from processa.ai_agent_registry.definitions.prosally.helpers import (
@@ -13,6 +14,7 @@ from processa.ai_agent_registry.definitions.prosally.helpers import (
 	NS,
 	STEP_TAGS,
 	confirmation_reply,
+	quoted,
 	register_namespaces,
 )
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import element_names
@@ -39,6 +41,43 @@ CALL_ACTIVITY_CONVERSION = re.compile(
 )
 EXPANDED_PAD = 24
 EXPANDED_HEADER = 36
+
+ADD_SUBPROCESS = re.compile(
+	r"^\s*(?:please\s+)?add\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?[\"']?(?P<name>[^\"',.;:\n]+?)[\"']?\s+sub[\s-]?process"
+	r"(?:\s+(?:after|following)\s+(?:the\s+)?[\"']?(?P<after>[^\"'.;:\n]+?)[\"']?)?\s*[.!]?\s*$",
+	re.I,
+)
+ADD_WORKFLOW_STATE = re.compile(
+	r"^\s*(?:please\s+)?add\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:workflow\s+state\s+[\"']?(?P<state>[^\"',.;:\n]+?)[\"']?"
+	r"|[\"']?(?P<state2>[^\"',.;:\n]+?)[\"']?\s+workflow\s+state)"
+	r"(?:\s+(?:after|following)\s+(?:the\s+)?[\"']?(?P<after>[^\"'.;:\n]+?)[\"']?)?\s*[.!]?\s*$",
+	re.I,
+)
+NODE_TAGS = tuple(
+	"{" + NS["bpmn"] + "}" + tag
+	for tag in (
+		"task",
+		"userTask",
+		"serviceTask",
+		"scriptTask",
+		"manualTask",
+		"businessRuleTask",
+		"sendTask",
+		"receiveTask",
+		"subProcess",
+		"callActivity",
+		"startEvent",
+		"endEvent",
+		"intermediateCatchEvent",
+		"intermediateThrowEvent",
+		"exclusiveGateway",
+		"parallelGateway",
+		"inclusiveGateway",
+		"eventBasedGateway",
+	)
+)
+INSERT_GAP = 50
+SUBPROCESS_SIZE = (100, 80)
 
 
 def resolve_scope(xml: str, texts: list, scope_id: str = "") -> dict | None:
@@ -357,3 +396,216 @@ def _offset(point: ET.Element, rule) -> tuple:
 
 def _num(value: float) -> str:
 	return str(int(value)) if value == int(value) else str(round(value, 2))
+
+
+def add_subprocess_output(xml: str, text: str) -> dict | None:
+	"""The reply to "add a <name> sub-process [after <step>]": a new collapsed sub-process in the flow, or None."""
+	match = ADD_SUBPROCESS.match(text or "")
+	if not match:
+		return None
+	name = match["name"].strip()
+	# Naming a step that exists asks to turn that step into a sub-process, which another route does.
+	if named_node(ET.fromstring(xml), name) is not None:
+		return None
+	bpmn = "{" + NS["bpmn"] + "}"
+	sub = ET.Element(bpmn + "subProcess", {"name": name})
+	start = ET.SubElement(sub, bpmn + "startEvent", {"id": "", "name": _("Start")})
+	end = ET.SubElement(sub, bpmn + "endEvent", {"id": "", "name": _("End")})
+	inner = ET.SubElement(sub, bpmn + "sequenceFlow", {"id": "", "sourceRef": "", "targetRef": ""})
+	added = insert_after(xml, match["after"], sub, (start, end, inner))
+	if not added:
+		return None
+	return _inserted_reply(
+		added, "ADD_SUBPROCESS", _("I added the sub-process {0} after {1}. Open it to draw its steps.")
+	)
+
+
+def add_workflow_state_output(xml: str, text: str) -> dict | None:
+	"""The reply to "add the workflow state <state> [after <step>]": an Apply Workflow step in the flow, or None."""
+	match = ADD_WORKFLOW_STATE.match(text or "")
+	if not match:
+		return None
+	state = (match["state"] or match["state2"]).strip()
+	bpmn, spiff = "{" + NS["bpmn"] + "}", "{" + NS["spiffworkflow"] + "}"
+	task = ET.Element(
+		bpmn + "serviceTask",
+		{
+			"name": _("Set Workflow State {0}").format(state),
+			spiff + "serviceType": "apply_workflow",
+			spiff + "workflowState": state,
+		},
+	)
+	added = insert_after(xml, match["after"], task, ())
+	if not added:
+		return None
+	return _inserted_reply(
+		added,
+		"ADD_WORKFLOW_STATE",
+		_("I added the step {0} after {1}. Pick the role allowed to edit in that state on the step."),
+	)
+
+
+def _inserted_reply(added: dict, action: str, message: str) -> dict:
+	return {
+		"intent": "BPMN_MODIFIED",
+		"action_intent": action,
+		"bpmn_xml": added["xml"],
+		"response": message.format(quoted(added["name"]), quoted(added["after"]))
+		+ " "
+		+ _("Every other step, arrow and setting is kept. Review it on the canvas."),
+		"options": [],
+	}
+
+
+def insert_after(xml: str, after_name: str | None, element: ET.Element, inner: tuple) -> dict | None:
+	"""xml with element placed on the arrow that leaves the step named after_name, or the last step before the end.
+
+	None when that step is not found, is not unique, or does not leave by exactly one arrow.
+	"""
+	register_namespaces()
+	root = ET.fromstring(xml)
+	bpmn = "{" + NS["bpmn"] + "}"
+	anchor = _anchor(root, after_name)
+	if anchor is None:
+		return None
+	parent = next(p for p in root.iter() if anchor in list(p))
+	leaving = [f for f in parent.findall(bpmn + "sequenceFlow") if f.get("sourceRef") == anchor.get("id")]
+	if len(leaving) != 1:
+		return None
+	taken = {e.get("id") for e in root.iter() if e.get("id")}
+	new_id = _free_id(taken, "Activity")
+	element.set("id", new_id)
+	start, end, flow = inner or (None, None, None)
+	if inner:
+		start.set("id", _free_id(taken, "StartEvent"))
+		end.set("id", _free_id(taken, "EndEvent"))
+		flow.attrib.update(
+			{"id": _free_id(taken, "Flow"), "sourceRef": start.get("id"), "targetRef": end.get("id")}
+		)
+		add_flow_references(element)
+	old_flow = leaving[0]
+	target = old_flow.get("targetRef")
+	old_flow.set("targetRef", new_id)
+	new_flow = ET.Element(
+		bpmn + "sequenceFlow", {"id": _free_id(taken, "Flow"), "sourceRef": new_id, "targetRef": target}
+	)
+	position = list(parent).index(anchor) + 1
+	parent.insert(position, element)
+	parent.append(new_flow)
+	add_flow_references(parent)
+	for lane in root.iter(bpmn + "lane"):
+		if any((ref.text or "").strip() == anchor.get("id") for ref in lane.findall(bpmn + "flowNodeRef")):
+			ET.SubElement(lane, bpmn + "flowNodeRef").text = new_id
+	_draw_inserted(root, anchor.get("id"), new_id, old_flow.get("id"), new_flow.get("id"), target)
+	if inner:
+		_draw_collapsed_inside(root, new_id, start.get("id"), end.get("id"), flow.get("id"))
+	added = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return {
+		"xml": re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', added),
+		"name": element.get("name"),
+		"after": anchor.get("name") or anchor.get("id"),
+	}
+
+
+def _anchor(root: ET.Element, after_name: str | None) -> ET.Element | None:
+	"""The step named after_name, or the one step that leads into the end event."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	if after_name:
+		return named_node(root, after_name.strip())
+	ends = [
+		e
+		for e in root.iter(bpmn + "endEvent")
+		if any(p.tag == bpmn + "process" and e in list(p) for p in root.iter())
+	]
+	if len(ends) != 1:
+		return None
+	sources = [
+		f.get("sourceRef")
+		for f in root.iter(bpmn + "sequenceFlow")
+		if f.get("targetRef") == ends[0].get("id")
+	]
+	if len(sources) != 1:
+		return None
+	return next((e for e in root.iter() if e.get("id") == sources[0]), None)
+
+
+def named_node(root: ET.Element, name: str) -> ET.Element | None:
+	"""The one flow node whose name is name, ignoring case, spaces and punctuation."""
+	wanted = _squash(name)
+	found = [
+		e
+		for e in root.iter()
+		if e.get("name") and e.get("id") and _squash(e.get("name")) == wanted and e.tag in NODE_TAGS
+	]
+	return found[0] if len(found) == 1 else None
+
+
+def _free_id(taken: set, prefix: str) -> str:
+	"""An id that starts with prefix and is in no use, recorded in taken."""
+	n = 1
+	while f"{prefix}_{n}" in taken:
+		n += 1
+	taken.add(f"{prefix}_{n}")
+	return f"{prefix}_{n}"
+
+
+def _draw_inserted(
+	root: ET.Element, anchor_id: str, new_id: str, old_flow_id: str, new_flow_id: str, target_id: str
+) -> None:
+	"""Draw the new step right of its anchor, push the rest right, and route both arrows straight."""
+	dc, di, bpmndi = "{" + NS["dc"] + "}", "{" + NS["di"] + "}", "{" + NS["bpmndi"] + "}"
+	plane = next(
+		(p for p in root.iter(bpmndi + "BPMNPlane") if any(s.get("bpmnElement") == anchor_id for s in p)),
+		None,
+	)
+	if plane is None:
+		return
+	anchor_shape = next(s for s in plane.findall(bpmndi + "BPMNShape") if s.get("bpmnElement") == anchor_id)
+	b = anchor_shape.find(dc + "Bounds")
+	x, y, w, h = (float(b.get(k)) for k in ("x", "y", "width", "height"))
+	width, height = SUBPROCESS_SIZE
+	_make_room(plane, anchor_shape, (x + w, y + h, y + h / 2), width + INSERT_GAP, 0)
+	new_x, new_y = x + w + INSERT_GAP, y + h / 2 - height / 2
+	shape = ET.SubElement(plane, bpmndi + "BPMNShape", {"id": new_id + "_di", "bpmnElement": new_id})
+	ET.SubElement(
+		shape,
+		dc + "Bounds",
+		{"x": _num(new_x), "y": _num(new_y), "width": _num(width), "height": _num(height)},
+	)
+	target_shape = next(
+		(s for s in plane.findall(bpmndi + "BPMNShape") if s.get("bpmnElement") == target_id), None
+	)
+	old_edge = next(
+		(e for e in plane.findall(bpmndi + "BPMNEdge") if e.get("bpmnElement") == old_flow_id), None
+	)
+	if old_edge is not None:
+		for point in old_edge.findall(di + "waypoint"):
+			old_edge.remove(point)
+		ET.SubElement(old_edge, di + "waypoint", {"x": _num(x + w), "y": _num(y + h / 2)})
+		ET.SubElement(old_edge, di + "waypoint", {"x": _num(new_x), "y": _num(y + h / 2)})
+	if target_shape is not None:
+		tb = target_shape.find(dc + "Bounds")
+		edge = ET.SubElement(
+			plane, bpmndi + "BPMNEdge", {"id": new_flow_id + "_di", "bpmnElement": new_flow_id}
+		)
+		ET.SubElement(edge, di + "waypoint", {"x": _num(new_x + width), "y": _num(y + h / 2)})
+		ET.SubElement(
+			edge,
+			di + "waypoint",
+			{"x": tb.get("x"), "y": _num(float(tb.get("y")) + float(tb.get("height")) / 2)},
+		)
+
+
+def _draw_collapsed_inside(root: ET.Element, sub_id: str, start_id: str, end_id: str, flow_id: str) -> None:
+	"""Give a collapsed sub-process its own drawing, holding its start, its end and the arrow between them."""
+	dc, di, bpmndi = "{" + NS["dc"] + "}", "{" + NS["di"] + "}", "{" + NS["bpmndi"] + "}"
+	diagram = ET.SubElement(root, bpmndi + "BPMNDiagram", {"id": sub_id + "_diagram"})
+	plane = ET.SubElement(diagram, bpmndi + "BPMNPlane", {"id": sub_id + "_plane", "bpmnElement": sub_id})
+	for element_id, x in ((start_id, 180), (end_id, 332)):
+		shape = ET.SubElement(
+			plane, bpmndi + "BPMNShape", {"id": element_id + "_di", "bpmnElement": element_id}
+		)
+		ET.SubElement(shape, dc + "Bounds", {"x": str(x), "y": "82", "width": "36", "height": "36"})
+	edge = ET.SubElement(plane, bpmndi + "BPMNEdge", {"id": flow_id + "_di", "bpmnElement": flow_id})
+	ET.SubElement(edge, di + "waypoint", {"x": "216", "y": "100"})
+	ET.SubElement(edge, di + "waypoint", {"x": "332", "y": "100"})

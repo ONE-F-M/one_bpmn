@@ -10,6 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from processa.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from processa.ai_agent_registry.definitions.prosally.tools_subprocess import asks_to_make_call_activity, convert_step_to_subprocess, find_missing_target, resolve_step, restore_call_activities
 from processa.ai_agent_registry.definitions.prosally.tools_properties import transfer_properties
+from processa.ai_agent_registry.definitions.prosally.tools_review import diagram_edit_output
 from processa.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 from processa.tests.test_prosally_subprocess_scope import STEPS
 
@@ -17,6 +18,7 @@ BPMN = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
 BPMNDI = "{http://www.omg.org/spec/BPMN/20100524/DI}"
 DC = "{http://www.omg.org/spec/DD/20100524/DC}"
 DI = "{http://www.omg.org/spec/DD/20100524/DI}"
+SPIFF = "{http://spiffworkflow.org/bpmn/schema/1.0/core}"
 HEAD = (
 	'<?xml version="1.0" encoding="UTF-8"?>'
 	'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
@@ -366,3 +368,117 @@ class TestResolveStep(FrappeTestCase):
 	def test_nothing_matches_a_diagram_without_that_step(self):
 		self.assertIsNone(resolve_step(_diagram(), ["Create a sub process for Visa Stamping: steps"]))
 		self.assertIsNone(resolve_step("", ["Create a sub process for Complete Payroll Clearance"]))
+
+
+GATEWAYS = (
+	f'{HEAD}<bpmn:process id="P" isExecutable="true">'
+	'<bpmn:startEvent id="s" name="Start"/>'
+	'<bpmn:parallelGateway id="split" name="Split"/>'
+	'<bpmn:userTask id="med" name="Check Medical"/>'
+	'<bpmn:userTask id="pcc" name="Check PCC"/>'
+	'<bpmn:exclusiveGateway id="ok" name="Cleared?" default="f_no"/>'
+	'<bpmn:userTask id="stamp" name="Stamp Visa"/>'
+	'<bpmn:endEvent id="e" name="End"/>'
+	'<bpmn:sequenceFlow id="f0" sourceRef="s" targetRef="split"/>'
+	'<bpmn:sequenceFlow id="f1" sourceRef="split" targetRef="med"/>'
+	'<bpmn:sequenceFlow id="f2" sourceRef="split" targetRef="pcc"/>'
+	'<bpmn:sequenceFlow id="f3" sourceRef="med" targetRef="ok"/>'
+	'<bpmn:sequenceFlow id="f4" sourceRef="pcc" targetRef="ok"/>'
+	'<bpmn:sequenceFlow id="f_yes" sourceRef="ok" targetRef="stamp">'
+	"<bpmn:conditionExpression>cleared == True</bpmn:conditionExpression></bpmn:sequenceFlow>"
+	'<bpmn:sequenceFlow id="f_no" sourceRef="ok" targetRef="e"/>'
+	'<bpmn:sequenceFlow id="f5" sourceRef="stamp" targetRef="e"/>'
+	"</bpmn:process></bpmn:definitions>"
+)
+
+
+def _flow(root, flow_id):
+	return root.find(f".//{BPMN}sequenceFlow[@id='{flow_id}']")
+
+
+class TestDiagramEdits(FrappeTestCase):
+	def _edit(self, xml, text):
+		reply = diagram_edit_output(xml, text)
+		self.assertIsNotNone(reply, text)
+		return reply, ET.fromstring(reply["bpmn_xml"]) if "bpmn_xml" in reply else None
+
+	def test_a_named_sub_process_is_added_on_the_arrow_after_the_step(self):
+		reply, root = self._edit(_diagram(), "Add a Visa Stamping sub-process after Prepare")
+		sub = root.find(f".//{BPMN}subProcess[@name='Visa Stamping']")
+		self.assertEqual(reply["action_intent"], "ADD_SUBPROCESS")
+		self.assertEqual(_flow(root, "f1").get("targetRef"), sub.get("id"))
+		self.assertTrue(
+			any(
+				f.get("sourceRef") == sub.get("id") and f.get("targetRef") == "conv"
+				for f in root.iter(f"{BPMN}sequenceFlow")
+			)
+		)
+		self.assertIsNotNone(sub.find(f"{BPMN}startEvent"))
+
+	def test_a_sub_process_with_no_step_named_goes_before_the_end(self):
+		xml = _diagram(lanes=True).replace(
+			'<bpmn:lane id="l1" name="Payroll"/>',
+			'<bpmn:lane id="l1" name="Payroll"><bpmn:flowNodeRef>notify</bpmn:flowNodeRef></bpmn:lane>',
+		)
+		_, root = self._edit(xml, "add a Payroll Operator sub-process")
+		sub = root.find(f".//{BPMN}subProcess[@name='Payroll Operator']")
+		self.assertEqual(_flow(root, "f4").get("targetRef"), sub.get("id"))
+		lane = root.find(f".//{BPMN}lane[@id='l1']")
+		self.assertIn(sub.get("id"), [r.text for r in lane.iter(f"{BPMN}flowNodeRef")])
+
+	def test_adding_steps_brings_no_new_validator_violation(self):
+		before = len(validate_bpmn_xml(_diagram())["violations"])
+		for text in (
+			"Add a PCC sub-process after Prepare",
+			"Add the workflow state Medical Cleared after Notify HR",
+		):
+			_, root = self._edit(_diagram(), text)
+			self.assertEqual(
+				len(validate_bpmn_xml(ET.tostring(root, encoding="unicode"))["violations"]), before, text
+			)
+
+	def test_a_workflow_state_is_an_apply_workflow_step_after_the_step(self):
+		reply, root = self._edit(_diagram(), "Add the workflow state Medical Cleared after Notify HR")
+		task = next(
+			t for t in root.iter(f"{BPMN}serviceTask") if t.get(f"{SPIFF}workflowState") == "Medical Cleared"
+		)
+		self.assertEqual(reply["action_intent"], "ADD_WORKFLOW_STATE")
+		self.assertEqual(task.get(f"{SPIFF}serviceType"), "apply_workflow")
+		self.assertEqual(_flow(root, "f4").get("targetRef"), task.get("id"))
+
+	def test_parallel_to_exclusive_sets_a_default_path_and_asks_for_the_other_conditions(self):
+		reply, root = self._edit(GATEWAYS, "Make every parallel gateway exclusive")
+		split = root.find(f".//{BPMN}exclusiveGateway[@id='split']")
+		self.assertEqual(split.get("default"), "f1")
+		self.assertIn("Check PCC", reply["response"])
+		self.assertEqual(reply["action_intent"], "SWITCH_GATEWAYS")
+
+	def test_exclusive_to_parallel_drops_the_default_and_the_conditions(self):
+		_, root = self._edit(GATEWAYS, "Change the Cleared? gateway to parallel")
+		ok = root.find(f".//{BPMN}parallelGateway[@id='ok']")
+		self.assertIsNone(ok.get("default"))
+		self.assertIsNone(_flow(root, "f_yes").find(f"{BPMN}conditionExpression"))
+
+	def test_a_gateway_already_of_that_kind_is_left_alone_with_a_reason(self):
+		reply = diagram_edit_output(GATEWAYS, "Change Split to parallel")
+		self.assertNotIn("bpmn_xml", reply)
+		self.assertIn("already parallel", reply["response"])
+
+	def test_an_arrow_is_rerouted_to_the_step_named(self):
+		for text in (
+			"Reroute the arrow from Prepare to Complete Payroll Clearance so it goes to Notify HR",
+			"Point the arrow from Prepare to Notify HR instead of Complete Payroll Clearance",
+		):
+			reply, root = self._edit(_diagram(), text)
+			self.assertEqual(reply["action_intent"], "REROUTE_ARROW")
+			self.assertEqual(_flow(root, "f1").get("targetRef"), "notify", text)
+			edge = next(e for e in root.iter(f"{BPMNDI}BPMNEdge") if e.get("bpmnElement") == "f1")
+			self.assertEqual(edge.findall(f"{DI}waypoint")[-1].get("x"), "650")
+
+	def test_a_message_that_asks_for_something_else_is_left_to_the_model(self):
+		for text in (
+			"What does this map do?",
+			"Add a Prepare sub-process",
+			"Reroute the arrow from Prepare to Audit so it goes to End",
+		):
+			self.assertIsNone(diagram_edit_output(_diagram(), text), text)

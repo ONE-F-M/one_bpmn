@@ -1,4 +1,4 @@
-"""ProsAlly answers without a redraw: diagnose an error, compare with a spec, tidy the layout, type plain tasks."""
+"""ProsAlly answers without a redraw: diagnose an error, compare with a spec, tidy the layout, type plain tasks, edit the diagram."""
 
 import html
 import json
@@ -25,6 +25,14 @@ from processa.ai_agent_registry.definitions.prosally.tools_pipeline import (
 	has_lanes,
 )
 from processa.ai_agent_registry.definitions.prosally.tools_properties import transfer_properties
+from processa.ai_agent_registry.definitions.prosally.tools_subprocess import (
+	NODE_TAGS,
+	_num,
+	add_flow_references,
+	add_subprocess_output,
+	add_workflow_state_output,
+	named_node,
+)
 from processa.ai_agent_registry.definitions.shared.helpers import extract_json
 
 DIAGNOSE_ERROR_CHARS = 3000
@@ -283,6 +291,187 @@ def layout_is_automatic() -> str:
 		"Layout is computed automatically, so I cannot place one arrow, label or colour by hand. "
 		"You can drag shapes on the canvas, or change the flow structure and I will lay it out again."
 	)
+
+
+def diagram_edit_output(xml: str, text: str) -> dict | None:
+	"""The reply to a message that only asks for one edit ProsAlly makes in code, or None to leave it to the model."""
+	if not (xml or "").strip():
+		return None
+	for operation in (
+		move_to_lane_output,
+		add_subprocess_output,
+		add_workflow_state_output,
+		switch_gateways_output,
+		reroute_arrow_output,
+	):
+		reply = operation(xml, text)
+		if reply:
+			return reply
+	return None
+
+
+GATEWAY_KINDS = {
+	"parallel": "parallelGateway",
+	"exclusive": "exclusiveGateway",
+	"inclusive": "inclusiveGateway",
+}
+SWITCH_ALL_GATEWAYS = re.compile(
+	r"\b(?:make|change|switch|convert|turn|replace)\b\s+(?:every|all|each)\s+(?:of\s+the\s+|the\s+)?"
+	r"(?P<old>parallel|exclusive|inclusive)\s+gateways?\s+(?:(?:to|into|with)\s+(?:an?\s+)?)?"
+	r"(?P<new>parallel|exclusive|inclusive)\b",
+	re.I,
+)
+SWITCH_NAMED_GATEWAY = re.compile(
+	r"\b(?:make|change|switch|convert|turn)\b\s+(?:the\s+)?(?:gateway\s+)?[\"']?(?P<name>[^\"'.;:\n]+?)[\"']?\s+"
+	r"(?:gateway\s+)?(?:to|into)\s+(?:an?\s+)?(?P<new>parallel|exclusive|inclusive)(?:\s+gateway)?\b",
+	re.I,
+)
+REROUTE = re.compile(
+	r"\b(?:reroute|redirect|move|point|change|connect)\b\s+(?:the\s+)?(?:arrow|flow|line|connection)?\s*from\s+[\"']?(?P<source>[^\"'\n]+?)[\"']?\s+"
+	r"to\s+[\"']?(?P<old>[^\"'\n]+?)[\"']?\s+(?:so\s+(?:that\s+)?it\s+goes\s+|to\s+go\s+|and\s+point\s+it\s+|instead\s+)?to\s+[\"']?(?P<new>[^\"'.;\n]+?)[\"']?\s*[.!]?\s*$",
+	re.I,
+)
+REROUTE_INSTEAD = re.compile(
+	r"\b(?:reroute|redirect|move|point|change|connect)\b\s+(?:the\s+)?(?:arrow|flow|line|connection)?\s*from\s+[\"']?(?P<source>[^\"'\n]+?)[\"']?\s+"
+	r"to\s+[\"']?(?P<new>[^\"'\n]+?)[\"']?\s+instead\s+of\s+[\"']?(?P<old>[^\"'.;\n]+?)[\"']?\s*[.!]?\s*$",
+	re.I,
+)
+
+
+def switch_gateways_output(xml: str, text: str) -> dict | None:
+	"""The reply to "make every parallel gateway exclusive" or "change <gateway> to exclusive", or None."""
+	every = SWITCH_ALL_GATEWAYS.search(text or "")
+	named = None if every else SWITCH_NAMED_GATEWAY.search(text or "")
+	if not (every or named):
+		return None
+	register_namespaces()
+	root = ET.fromstring(xml)
+	bpmn = "{" + NS["bpmn"] + "}"
+	if every:
+		old, new = every["old"].lower(), every["new"].lower()
+		gateways = list(root.iter(bpmn + GATEWAY_KINDS[old]))
+	else:
+		gateway = named_node(root, named["name"])
+		if gateway is None or not gateway.tag.endswith("Gateway"):
+			return None
+		new = named["new"].lower()
+		gateways = [gateway]
+	gateways = [g for g in gateways if g.tag != bpmn + GATEWAY_KINDS[new]]
+	if not gateways:
+		return {
+			"intent": "CLARIFY",
+			"response": _("Every gateway you named is already {0}, so I changed nothing.").format(new),
+		}
+	to_ask = []
+	for gateway in gateways:
+		to_ask += _switch_gateway(root, gateway, bpmn + GATEWAY_KINDS[new])
+	reply = _("I made {0} gateway(s) {1}. Every step and arrow is kept.").format(len(gateways), new)
+	if to_ask:
+		reply += " " + _(
+			"An exclusive gateway takes one path, so I made the first path of each the default. "
+			"Tell me when each of these other paths should be taken: {0}."
+		).format(", ".join(to_ask))
+	return _edited_reply(root, "SWITCH_GATEWAYS", reply + " " + _("Review it on the canvas."))
+
+
+def _switch_gateway(root: ET.Element, gateway: ET.Element, new_tag: str) -> list[str]:
+	"""Change gateway to new_tag in place; the paths that now need a condition from the person, by name."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	gateway.tag = new_tag
+	leaving = [f for f in root.iter(bpmn + "sequenceFlow") if f.get("sourceRef") == gateway.get("id")]
+	if new_tag.endswith("parallelGateway"):
+		gateway.attrib.pop("default", None)
+		for flow in leaving:
+			for condition in flow.findall(bpmn + "conditionExpression"):
+				flow.remove(condition)
+		return []
+	if len(leaving) < 2:
+		return []
+	unconditioned = [f for f in leaving if f.find(bpmn + "conditionExpression") is None]
+	if unconditioned and not gateway.get("default"):
+		gateway.set("default", unconditioned[0].get("id"))
+	names = _node_names(root)
+	return [
+		quoted(f.get("name") or _("to {0}").format(names.get(f.get("targetRef"), f.get("targetRef"))))
+		for f in unconditioned
+		if f.get("id") != gateway.get("default")
+	]
+
+
+def reroute_arrow_output(xml: str, text: str) -> dict | None:
+	"""The reply to "reroute the arrow from A to B so it goes to C", or None."""
+	match = REROUTE_INSTEAD.search(text or "") or REROUTE.search(text or "")
+	if not match:
+		return None
+	register_namespaces()
+	root = ET.fromstring(xml)
+	bpmn = "{" + NS["bpmn"] + "}"
+	source, old, new = (named_node(root, match[key]) for key in ("source", "old", "new"))
+	if source is None or old is None or new is None:
+		return None
+	flows = [
+		f
+		for f in root.iter(bpmn + "sequenceFlow")
+		if f.get("sourceRef") == source.get("id") and f.get("targetRef") == old.get("id")
+	]
+	if len(flows) != 1:
+		return None
+	flow = flows[0]
+	flow.set("targetRef", new.get("id"))
+	for node in (old, new):
+		for ref in node.findall(bpmn + "incoming"):
+			node.remove(ref)
+	for parent in root.iter():
+		if parent.find(bpmn + "sequenceFlow") is not None:
+			add_flow_references(parent)
+	_redraw_edge(root, flow.get("id"), source.get("id"), new.get("id"))
+	return _edited_reply(
+		root,
+		"REROUTE_ARROW",
+		_(
+			"The arrow from {0} now goes to {1} instead of {2}. Everything else is kept. Review it on the canvas."
+		).format(quoted(source.get("name")), quoted(new.get("name")), quoted(old.get("name"))),
+	)
+
+
+def _redraw_edge(root: ET.Element, flow_id: str, source_id: str, target_id: str) -> None:
+	"""Draw the arrow flow_id straight from the right of source_id to the left of target_id."""
+	dc, di, bpmndi = "{" + NS["dc"] + "}", "{" + NS["di"] + "}", "{" + NS["bpmndi"] + "}"
+	shapes = {s.get("bpmnElement"): s.find(dc + "Bounds") for s in root.iter(bpmndi + "BPMNShape")}
+	edge = next((e for e in root.iter(bpmndi + "BPMNEdge") if e.get("bpmnElement") == flow_id), None)
+	if edge is None or shapes.get(source_id) is None or shapes.get(target_id) is None:
+		return
+	for point in edge.findall(di + "waypoint"):
+		edge.remove(point)
+	sb, tb = shapes[source_id], shapes[target_id]
+	ET.SubElement(
+		edge,
+		di + "waypoint",
+		{
+			"x": _num(float(sb.get("x")) + float(sb.get("width"))),
+			"y": _num(float(sb.get("y")) + float(sb.get("height")) / 2),
+		},
+	)
+	ET.SubElement(
+		edge,
+		di + "waypoint",
+		{"x": tb.get("x"), "y": _num(float(tb.get("y")) + float(tb.get("height")) / 2)},
+	)
+
+
+def _node_names(root: ET.Element) -> dict:
+	return {e.get("id"): e.get("name") or e.get("id") for e in root.iter() if e.tag in NODE_TAGS}
+
+
+def _edited_reply(root: ET.Element, action: str, response: str) -> dict:
+	edited = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return {
+		"intent": "BPMN_MODIFIED",
+		"action_intent": action,
+		"bpmn_xml": re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', edited),
+		"response": response,
+		"options": [],
+	}
 
 
 LANE_MOVE_VERBS = r"\b(?:move|put|bring|shift|place|drag|relocate)\b"
