@@ -89,6 +89,49 @@ def _typed(value, property_type: str):
 	return value
 
 
+def deleted_fieldnames(dt: str) -> set:
+	"""Fieldnames a Version on this site records as deleted from the DocType.
+
+	DocType has track_changes, so every save made on the site writes a Version
+	whose ``data`` lists each child row under ``removed`` / ``added``. A field
+	that is truly deleted is in ``removed`` and not in ``added`` of the same
+	Version. A field the site simply never received (behind the code) has no
+	Version removing it, so it is not reported. Migrate imports DocTypes with
+	``ignore_version``, so code never writes one.
+
+	A fieldname the DocType carries today is not deleted, whatever a Version says
+	(it was added back later).
+	"""
+
+	def fieldnames(rows) -> set:
+		names = set()
+		for entry in rows or []:
+			if (
+				isinstance(entry, (list, tuple)) and len(entry) > 1
+				and entry[0] == "fields" and isinstance(entry[1], dict)
+				and entry[1].get("fieldname")
+			):
+				names.add(entry[1]["fieldname"])
+		return names
+
+	deleted = set()
+	for version in frappe.get_all(
+		"Version", filters={"ref_doctype": "DocType", "docname": dt}, fields=["data"]
+	):
+		try:
+			data = json.loads(version.get("data") or "{}")
+		except (TypeError, ValueError):
+			continue
+		if not isinstance(data, dict):
+			continue
+		deleted |= fieldnames(data.get("removed")) - fieldnames(data.get("added"))
+
+	if not deleted:
+		return set()
+	present = set(frappe.get_all("DocField", filters={"parent": dt}, pluck="fieldname"))
+	return deleted - present
+
+
 def site_schema(dt: str) -> dict:
 	"""What THIS site says the schema is.
 
@@ -123,7 +166,10 @@ def site_schema(dt: str) -> dict:
 		field = {k: v for k, v in row.items() if k not in _VOLATILE and k not in _PLACEMENT}
 		added.append({"after": row.get("insert_after"), "field": field})
 
-	return {"doctype_level": doc_level, "fields": fields, "added_fields": added}
+	return {
+		"doctype_level": doc_level, "fields": fields, "added_fields": added,
+		"deleted_fields": sorted(deleted_fieldnames(dt)),
+	}
 
 
 def _set(value) -> bool:
@@ -227,6 +273,19 @@ def _fold(doc: dict, schema: dict) -> list:
 			continue
 		_insert_field(doc, rows, by_name, field, entry["after"])
 		notes.append(_("added field {0}").format(fieldname))
+
+	# Deleted on the site: the field must leave the file, or it comes back on every migrate.
+	for fieldname in schema.get("deleted_fields", []):
+		kept = [r for r in rows if not (isinstance(r, dict) and r.get("fieldname") == fieldname)]
+		order = doc.get("field_order")
+		in_order = isinstance(order, list) and fieldname in order
+		if len(kept) == len(rows) and not in_order:
+			continue
+		rows[:] = kept
+		by_name.pop(fieldname, None)
+		if in_order:
+			order[:] = [n for n in order if n != fieldname]
+		notes.append(_("removed field {0}").format(fieldname))
 
 	# A DocType-level field_order Property Setter was folded above and decides the order.
 	if "field_order" not in schema["doctype_level"] and _reorder(doc, rows, schema["fields"]):
