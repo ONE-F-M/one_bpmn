@@ -32,3 +32,32 @@ test("a non-object process entry still gets an empty shapes array", async () => 
 	const view = deriveLuCrusherView({ intent: "TOPOLOGY_PROPOSAL", topology: { processes: [null] } })
 	assert.deepEqual(view.processes[0].shapes, [])
 })
+
+async function scanView(scan) {
+	globalThis.window = {}
+	const { deriveLuCrusherView } = await import("../../src/utils/luCrusherView.js")
+	return deriveLuCrusherView({ intent: "CODEBASE_SCAN_RESULT", codebase_scan: scan })
+}
+
+test("each matched DocType carries the words and score behind it", async () => {
+	const view = await scanView({
+		matched_doctypes: [{ doctype: "Leave Application", reason: "words application, leave · score 1.0" }],
+		counts: { doctypes: 1 },
+	})
+	assert.deepEqual(view.doctypes, [{ name: "Leave Application", note: "words application, leave · score 1.0" }])
+})
+
+test("the count is how many matched, not how many arrived", async () => {
+	const view = await scanView({
+		matched_doctypes: [{ doctype: "A" }, { doctype: "B" }],
+		counts: { doctypes: 75 },
+	})
+	assert.equal(view.doctypes.length, 2)
+	assert.equal(view.doctypeTotal, 75)
+})
+
+test("a scan with no match carries the reason, not a bare zero", async () => {
+	const view = await scanView({ matched_doctypes: [], counts: { doctypes: 0 }, no_match_reason: "0 DocTypes matched: check the step names." })
+	assert.equal(view.noMatchReason, "0 DocTypes matched: check the step names.")
+	assert.equal((await scanView({ matched_doctypes: [{ doctype: "A" }], no_match_reason: "stale" })).noMatchReason, "")
+})

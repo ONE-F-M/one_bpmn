@@ -11,8 +11,8 @@ from processa.ai_agent_registry.definitions.lucrusher import tools as codebase_i
 MSE = "Maintenance Schedule Entry"
 
 
-def _index(module_app, module="One Fm", name=MSE):
-	rows = [{"name": name, "module": module}]
+def _index(module_app, module="One Fm", name=MSE, istable=0):
+	rows = [{"name": name, "module": module, "istable": istable}]
 	with patch.object(frappe, "get_all", return_value=rows):
 		return codebase_index._doctypes(module_app, codebase_index.get_apps_root())
 
@@ -37,4 +37,10 @@ class TestDoctypeAppMapping(FrappeTestCase):
 		self.assertFalse(entry["py_exists"])
 
 	def test_cached_index_of_the_old_mapping_is_not_reused(self):
-		self.assertTrue(codebase_index.INDEX_CACHE_KEY.endswith("_v2"))
+		self.assertTrue(codebase_index.INDEX_CACHE_KEY.endswith("_v3"))
+
+	def test_a_child_table_is_marked_so_the_scan_can_skip_it(self):
+		(entry,) = _index({"one_fm": "one_fm"}, istable=1)
+		self.assertTrue(entry["istable"])
+		(entry,) = _index({"one_fm": "one_fm"})
+		self.assertFalse(entry["istable"])
