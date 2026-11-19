@@ -108,7 +108,7 @@
   {
    "read": 1,
    "report": 1,
-   "role": "All"
+   "role": "Desk User"
   }
  ],
  "sort_field": "category_name",

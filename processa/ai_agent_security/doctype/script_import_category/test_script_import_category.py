@@ -86,7 +86,13 @@ class TestScriptImportCategory(FrappeTestCase):
 	def test_other_users_can_read_but_not_change(self):
 		if not frappe.db.exists("User", READER):
 			frappe.get_doc(
-				{"doctype": "User", "email": READER, "first_name": "Reader", "send_welcome_email": 0}
+				{
+					"doctype": "User",
+					"email": READER,
+					"first_name": "Reader",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Process Designer"}],
+				}
 			).insert()
 		self.assertTrue(frappe.has_permission("Script Import Category", "read", "Network", user=READER))
 		self.assertFalse(frappe.has_permission("Script Import Category", "write", "Network", user=READER))
