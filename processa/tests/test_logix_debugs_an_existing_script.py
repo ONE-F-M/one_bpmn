@@ -95,7 +95,10 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 
 	def test_a_fix_that_uses_a_name_it_never_imports_is_not_offered(self):
 		adapter = FakeAdapter(
-			{"explanation": "It divides by zero.", "fixed_script": FIXED + "\nresult['when'] = now_datetime()"},
+			{
+				"explanation": "It divides by zero.",
+				"fixed_script": FIXED + "\nresult['when'] = now_datetime()",
+			},
 			{"approved": True, "issues": [], "suggestions": []},
 		)
 		output = self._run(adapter)

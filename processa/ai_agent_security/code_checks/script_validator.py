@@ -37,10 +37,6 @@ Public API:
   validate_script(code) -> dict
       Back-compatible wrapper used by the AI pipeline.
       Returns {"valid": bool, "violations": [...], "findings": [{"rule", "line", "code"}]}.
-
-  request_findings(code, request, language) -> list[dict]
-      Whether a generated script runs and follows the request: names it never
-      defines, the request's numbers, and the script type. Same finding shape.
 """
 
 import ast
@@ -566,29 +562,37 @@ _LIMIT_WORDS = frozenset(
 
 def request_findings(code: str, request: str, language: str = "python") -> list[dict]:
 	"""Findings for a generated script that would not run or does not follow the request, as {"rule", "line", "code"}."""
-	findings = _script_type_findings(request or "", language)
+	findings = _script_type_findings(request, language)
 	if language == "python":
-		findings += undefined_name_findings(code or "")
-	return findings + _number_findings(code or "", request or "")
+		findings += undefined_name_findings(code)
+	return findings + _number_findings(code, request)
 
 
 def _script_type_findings(request: str, language: str) -> list[dict]:
+	from frappe import _
+
 	wants_client = bool(_CLIENT_SCRIPT_RE.search(request))
 	wants_server = bool(_SERVER_SCRIPT_RE.search(request))
-	if wants_client and not wants_server and language == "python":
-		rule = (
+	if wants_client == wants_server:
+		return []
+	if wants_client and language == "python":
+		rule = _(
 			"The request asks for a client script (JavaScript that runs on the form), but this is a "
 			"server script in Python. Return the client script in a ```javascript block."
 		)
 		return [{"rule": rule, "line": 0, "code": ""}]
-	if wants_server and not wants_client and language == "javascript":
-		rule = "The request asks for a server script, but this is JavaScript. Return the server script in a ```python block."
+	if wants_server and language == "javascript":
+		rule = _(
+			"The request asks for a server script, but this is JavaScript. Return the server script in a ```python block."
+		)
 		return [{"rule": rule, "line": 0, "code": ""}]
 	return []
 
 
 def undefined_name_findings(code: str) -> list[dict]:
 	"""One finding per name the script reads but never injects, defines or imports, at its first use."""
+	from frappe import _
+
 	try:
 		tree = ast.parse(code)
 	except SyntaxError:
@@ -623,10 +627,11 @@ def undefined_name_findings(code: str) -> list[dict]:
 		reported.add(node.id)
 		findings.append(
 			{
-				"rule": f"`{node.id}` is used but never defined or imported, and a Script Task only receives "
-				+ ", ".join(INJECTED_NAMES),
+				"rule": _(
+					"`{0}` is used but never defined or imported, and a Script Task only receives {1}"
+				).format(node.id, ", ".join(INJECTED_NAMES)),
 				"line": node.lineno,
-				"code": lines[node.lineno - 1].strip() if node.lineno <= len(lines) else "",
+				"code": lines[node.lineno - 1].strip(),
 			}
 		)
 	return findings
@@ -634,12 +639,16 @@ def undefined_name_findings(code: str) -> list[dict]:
 
 def _number_findings(code: str, request: str) -> list[dict]:
 	"""A number the request asks for that the script replaced with a number of its own."""
+	from frappe import _
+
 	replaced = set(_REPLACED_NUMBER_RE.findall(request))
 	words = re.findall(r"[a-z]+|\d+(?:\.\d+)?|%", request.lower())
 	wanted = []
 	for i, word in enumerate(words):
+		if not _REQUEST_NUMBER_RE.fullmatch(word) or word in replaced:
+			continue
 		near = set(words[max(0, i - 3) : i + 4])
-		if _REQUEST_NUMBER_RE.fullmatch(word) and word not in replaced and (near & _LIMIT_WORDS or "%" in near):
+		if near & _LIMIT_WORDS or "%" in near:
 			wanted.append(word)
 	wanted = list(dict.fromkeys(wanted))
 	in_code = set(_CODE_NUMBER_RE.findall(code))
@@ -648,7 +657,9 @@ def _number_findings(code: str, request: str) -> list[dict]:
 		return []
 	return [
 		{
-			"rule": f"The request says {n}, but the script uses {', '.join(own)} instead. Use the request's numbers exactly.",
+			"rule": _(
+				"The request says {0}, but the script uses {1} instead. Use the request's numbers exactly."
+			).format(n, ", ".join(own)),
 			"line": 0,
 			"code": "",
 		}

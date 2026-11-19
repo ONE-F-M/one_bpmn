@@ -69,7 +69,8 @@ def run_debug_stage(conversation: str) -> dict:
 	)
 	gate = validate_script(fixed)
 	checks = request_findings(fixed, turn.get("user_text") or "")
-	if review.get("approved") and gate["valid"] and not checks:
+	passes_checks = gate["valid"] and not checks
+	if review.get("approved") and passes_checks:
 		return _reply(conversation, explanation, original=script, fixed=fixed, diff=diff)
 
 	lines = [explanation, "", _("I drafted a fix, but it does not pass review, so I am not offering it:")]
