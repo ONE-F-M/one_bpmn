@@ -37,7 +37,7 @@ import re
 
 import frappe
 
-INDEX_CACHE_KEY = "lucrusher_codebase_index_v2"
+INDEX_CACHE_KEY = "lucrusher_codebase_index_v3"
 INDEX_TTL = 3600  # 1 hour
 
 # hooks.py top-level assignments worth reporting.
@@ -103,7 +103,7 @@ def _doctypes(module_app: dict, apps_root: str) -> list:
 	"""
 	entries = []
 	try:
-		doctypes = frappe.get_all("DocType", fields=["name", "module"])
+		doctypes = frappe.get_all("DocType", fields=["name", "module", "istable"])
 	except Exception:
 		frappe.log_error(title="Codebase index — DocType scan", message=frappe.get_traceback())
 		return entries
@@ -128,6 +128,7 @@ def _doctypes(module_app: dict, apps_root: str) -> list:
 			"file": json_file,
 			"py_file": py_file,
 			"py_exists": bool(py_file) and os.path.isfile(os.path.join(apps_root, py_file)),
+			"istable": bool(dt.get("istable")),
 		})
 	return entries
 

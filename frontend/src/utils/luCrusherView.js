@@ -111,6 +111,9 @@ export function deriveLuCrusherView(value) {
 	const doctypes = (scan.matched_doctypes || []).map((d) =>
 		typeof d === "string" ? { name: d, note: "" } : { name: d.doctype || d.name || "", note: d.relevance || d.reason || "" }
 	);
+	// The scan caps its list, so the count is how many matched, not how many arrived.
+	const doctypeTotal = (scan.counts || {}).doctypes ?? doctypes.length;
+	const noMatchReason = doctypes.length ? "" : scan.no_match_reason || "";
 	const hooks = (scan.hooks_found || []).map((h) => (typeof h === "string" ? h : JSON.stringify(h)).substring(0, 150));
 	const files = (scan.controller_files || []).map((f) =>
 		typeof f === "string" ? { path: f, note: "" } : { path: f.path || f.file || "", note: f.note || f.relevance || "" }
@@ -162,7 +165,7 @@ export function deriveLuCrusherView(value) {
 
 	return {
 		intent, panel, confirmed, matches, doc, scan, topology, processes, swimlanes,
-		doctypes, hooks, files, taskProcesses, promptProcesses, stageActions,
+		doctypes, doctypeTotal, noMatchReason, hooks, files, taskProcesses, promptProcesses, stageActions,
 		confirmedLabel, suggestions, hasContent, title,
 	};
 }

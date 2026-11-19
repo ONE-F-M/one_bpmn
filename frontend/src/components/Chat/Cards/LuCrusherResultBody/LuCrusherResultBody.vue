@@ -28,12 +28,17 @@
 		<Stack v-else-if="view.panel === 'scan'" :gap="8">
 			<Row :gap="6">
 				<span class="lcr-stat">{{ (view.scan.apps_scanned || []).length }} {{ __("apps") }}</span>
-				<span class="lcr-stat">{{ view.doctypes.length }} {{ __("DocTypes matched") }}</span>
+				<span class="lcr-stat">
+					{{ view.doctypes.length }} {{ __("of") }} {{ view.doctypeTotal }} {{ __("DocTypes matched") }}
+				</span>
 				<span class="lcr-stat">{{ view.hooks.length }} {{ __("hooks") }}</span>
 				<span class="lcr-stat">{{ view.files.length }} {{ __("controller files") }}</span>
 			</Row>
+			<TextBlock v-if="view.noMatchReason" class="lcr-sub">{{ view.noMatchReason }}</TextBlock>
 			<details v-if="view.doctypes.length" class="lcr-details">
-				<summary>{{ __("DocTypes") }} ({{ view.doctypes.length }})</summary>
+				<summary>
+					{{ __("DocTypes") }} ({{ view.doctypes.length }} {{ __("of") }} {{ view.doctypeTotal }} {{ __("shown") }})
+				</summary>
 				<Stack :gap="2" :class="['lcr-scroll', { 'lcr-scroll-capped': capped }]">
 					<Row v-for="(d, i) in view.doctypes" :key="i" :gap="6">
 						<span class="lcr-name">{{ d.name }}</span>
