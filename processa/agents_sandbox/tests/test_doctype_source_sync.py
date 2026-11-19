@@ -375,6 +375,69 @@ class TestCreatingSourceForADoctypeTheRepoLacks(FrappeTestCase):
             self.assertNotIn("patches", path)
 
 
+def _row(name):
+    return {"fieldname": name, "fieldtype": "Data"}
+
+
+def _json(order, rows=None):
+    return json.dumps(
+        {"doctype": "DocType", "name": "Demo", "field_order": list(order),
+         "fields": [_row(n) for n in (rows or order)]},
+        indent=1,
+    ) + "\n"
+
+
+def _schema(order, doctype_level=None):
+    return {"doctype_level": doctype_level or {}, "fields": [_row(n) for n in order],
+            "added_fields": []}
+
+
+class TestAFieldMovedOnTheSiteReachesTheFile(FrappeTestCase):
+    """A move made directly on the site lives only in DocField idx, so _fold must carry it."""
+
+    def test_a_new_order_rewrites_field_order_and_fields_and_says_so(self):
+        text, notes = source.merge_into_source(
+            _json(["a", "b", "c", "d"]), OURS, _schema(["a", "c", "d", "b"])
+        )
+        after = json.loads(text)
+
+        self.assertEqual(after["field_order"], ["a", "c", "d", "b"])
+        self.assertEqual([r["fieldname"] for r in after["fields"]], ["a", "c", "d", "b"])
+        self.assertEqual(notes, ["field order"])
+
+    def test_the_same_order_writes_nothing(self):
+        self.assertEqual(
+            source.merge_into_source(_json(["a", "b", "c"]), OURS, _schema(["a", "b", "c"])),
+            (None, []),
+        )
+
+    def test_a_field_only_in_the_json_stays_right_after_its_neighbour(self):
+        text, notes = source.merge_into_source(
+            _json(["a", "b", "only_json", "c"]), OURS, _schema(["a", "c", "b"])
+        )
+        after = json.loads(text)
+
+        self.assertEqual(after["field_order"], ["a", "c", "b", "only_json"])
+        self.assertEqual([r["fieldname"] for r in after["fields"]], after["field_order"])
+        self.assertEqual(notes, ["field order"])
+
+    def test_a_field_only_in_the_json_at_the_front_stays_at_the_front(self):
+        text, _notes = source.merge_into_source(
+            _json(["only_json", "a", "b"]), OURS, _schema(["b", "a"])
+        )
+
+        self.assertEqual(json.loads(text)["field_order"], ["only_json", "b", "a"])
+
+    def test_a_field_order_property_setter_still_wins(self):
+        level = {"field_order": ["d", "c", "b", "a"]}
+        text, notes = source.merge_into_source(
+            _json(["a", "b", "c", "d"]), OURS, _schema(["a", "c", "b", "d"], level)
+        )
+
+        self.assertEqual(json.loads(text)["field_order"], ["d", "c", "b", "a"])
+        self.assertNotIn("field order", notes)
+
+
 class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
     """AC1, AC7, AC8."""
 

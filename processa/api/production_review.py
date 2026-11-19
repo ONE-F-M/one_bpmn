@@ -371,6 +371,18 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
 						"destination": destination,
 					})
+			# idx is not compared, so a move on a DocType we own is checked by order here.
+			if destination and (
+				[f for f in lfields if f in rfields] != [f for f in rfields if f in lfields]
+			):
+				changes.append({
+					"object_type": _("Field"),
+					"name": f"{dt} → field order",
+					"doctype": dt,
+					"action": "Update",
+					"detail": _("Field order"),
+					"destination": destination,
+				})
 	return changes
 
 

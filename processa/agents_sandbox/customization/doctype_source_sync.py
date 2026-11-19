@@ -228,7 +228,56 @@ def _fold(doc: dict, schema: dict) -> list:
 		_insert_field(doc, rows, by_name, field, entry["after"])
 		notes.append(_("added field {0}").format(fieldname))
 
+	# A DocType-level field_order Property Setter was folded above and decides the order.
+	if "field_order" not in schema["doctype_level"] and _reorder(doc, rows, schema["fields"]):
+		notes.append(_("field order"))
+
 	return notes
+
+
+def _reorder(doc: dict, rows: list, site_fields: list) -> bool:
+	"""Rewrite ``field_order`` and ``fields`` in the site's order; True when anything moved.
+
+	A name the site does not serve stays right after the field it follows today.
+	"""
+	stored = doc.get("field_order")
+	current = list(stored) if isinstance(stored, list) else [
+		r.get("fieldname") for r in rows if isinstance(r, dict) and r.get("fieldname")
+	]
+	site_order = list(dict.fromkeys(f.get("fieldname") for f in site_fields if f.get("fieldname")))
+	served = set(site_order)
+
+	front, followers = [], {}
+	for i, name in enumerate(current):
+		if name in served:
+			continue
+		if i == 0:
+			front.append(name)
+		else:
+			followers.setdefault(current[i - 1], []).append(name)
+
+	ordered, seen = [], set()
+
+	def place(name):
+		if name in seen:
+			return
+		seen.add(name)
+		ordered.append(name)
+		for follower in followers.get(name, []):
+			place(follower)
+
+	for name in front + site_order:
+		place(name)
+
+	if ordered == current:
+		return False
+
+	if isinstance(stored, list):
+		doc["field_order"] = ordered
+	position = {name: i for i, name in enumerate(ordered)}
+	# list.sort is stable, so a row with no place in the order keeps its relative spot at the end.
+	rows.sort(key=lambda r: position.get(r.get("fieldname"), len(position)))
+	return True
 
 
 def _insert_field(doc: dict, rows: list, by_name: dict, field: dict, after: str | None) -> None:
