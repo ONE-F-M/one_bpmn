@@ -475,7 +475,7 @@ class TestAFieldDeletedOnTheSiteIsFound(FrappeTestCase):
 
     def test_a_field_no_version_removed_is_not_deleted(self):
         """BA behind the code never received it, so nothing was ever removed."""
-        self.assertEqual(source.deleted_fieldnames(self.GHOST), set())
+        self.assertEqual(source.deleted_fieldnames("ZZ Never Edited Demo"), set())
 
     def test_site_schema_carries_the_sorted_deleted_fields(self):
         if not frappe.db.exists("DocType", OURS):
