@@ -262,11 +262,15 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 	``docfields`` closes that hole. It is keyed by ``fieldname`` rather than by
 	row name — see ``_clean_docfield``.
 	"""
+	from processa.agents_sandbox.customization.doctype_source_sync import deleted_fieldnames
+
 	snap = {}
 	for dt in doctypes:
 		exists = bool(frappe.db.exists("DocType", dt))
 		snap[dt] = {
 			"exists": exists,
+			# Fields a Version on this site records as deleted; see deleted_fieldnames.
+			"deleted_fields": sorted(deleted_fieldnames(dt)) if exists else [],
 			"custom": bool(frappe.db.get_value("DocType", dt, "custom")) if exists else False,
 			"custom_fields": {
 				r["name"]: _clean(r)
@@ -371,6 +375,20 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
 						"destination": destination,
 					})
+			# A field Production still has that BA deleted (a Version says so). One BA never
+			# received has no such Version, so it is not here and is not reported.
+			if destination:
+				deleted = lsnap.get("deleted_fields") or []
+				for fieldname in rfields:
+					if fieldname not in lfields and fieldname in deleted:
+						changes.append({
+							"object_type": _("Field"),
+							"name": f"{dt} → {fieldname}",
+							"doctype": dt,
+							"action": "Delete",
+							"detail": _("Deleted on BA"),
+							"destination": destination,
+						})
 			# idx is not compared, so a move on a DocType we own is checked by order here.
 			if destination and (
 				[f for f in lfields if f in rfields] != [f for f in rfields if f in lfields]
