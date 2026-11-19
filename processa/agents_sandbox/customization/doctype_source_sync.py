@@ -89,28 +89,6 @@ def _typed(value, property_type: str):
 	return value
 
 
-def deleted_fieldnames(dt: str) -> set:
-	"""Fieldnames a Version on this site removed from the DocType and that it does not carry today.
-
-	Migrate imports DocTypes with ignore_version, so only edits made on the site write these Versions.
-	"""
-
-	def fieldnames(rows) -> set:
-		return {row.get("fieldname") for table, row in rows or [] if table == "fields"} - {None}
-
-	deleted = set()
-	for version in frappe.get_all(
-		"Version", filters={"ref_doctype": "DocType", "docname": dt}, fields=["data"]
-	):
-		data = json.loads(version.data)
-		deleted |= fieldnames(data.get("removed")) - fieldnames(data.get("added"))
-
-	if not deleted:
-		return set()
-	present = set(frappe.get_all("DocField", filters={"parent": dt}, pluck="fieldname"))
-	return deleted - present
-
-
 def site_schema(dt: str) -> dict:
 	"""What THIS site says the schema is.
 
@@ -149,6 +127,28 @@ def site_schema(dt: str) -> dict:
 		"doctype_level": doc_level, "fields": fields, "added_fields": added,
 		"deleted_fields": sorted(deleted_fieldnames(dt)),
 	}
+
+
+def deleted_fieldnames(dt: str) -> set:
+	"""Fieldnames a Version on this site removed from the DocType and that it does not carry today.
+
+	Migrate imports DocTypes with ignore_version, so only edits made on the site write these Versions.
+	"""
+
+	def fieldnames(rows) -> set:
+		return {row.get("fieldname") for table, row in rows or [] if table == "fields"} - {None}
+
+	deleted = set()
+	for version in frappe.get_all(
+		"Version", filters={"ref_doctype": "DocType", "docname": dt}, fields=["data"]
+	):
+		data = json.loads(version.data)
+		deleted |= fieldnames(data.get("removed")) - fieldnames(data.get("added"))
+
+	if not deleted:
+		return set()
+	present = set(frappe.get_all("DocField", filters={"parent": dt}, pluck="fieldname"))
+	return deleted - present
 
 
 def _set(value) -> bool:

@@ -269,7 +269,6 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 		exists = bool(frappe.db.exists("DocType", dt))
 		snap[dt] = {
 			"exists": exists,
-			# Fields a Version on this site records as deleted; see deleted_fieldnames.
 			"deleted_fields": sorted(deleted_fieldnames(dt)) if exists else [],
 			"custom": bool(frappe.db.get_value("DocType", dt, "custom")) if exists else False,
 			"custom_fields": {
@@ -377,7 +376,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 					})
 			# A field missing on BA counts as deleted only when a BA Version removed it.
 			if destination:
-				deleted = lsnap.get("deleted_fields") or []
+				deleted = lsnap["deleted_fields"]
 				for fieldname in rfields:
 					if fieldname not in lfields and fieldname in deleted:
 						changes.append({

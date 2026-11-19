@@ -31,7 +31,7 @@ def _snap(link_filters=None, extra_fields=None):
 	                             "options": "Process", "link_filters": link_filters}}
 	fields.update(extra_fields or {})
 	return {"Demo DT": {"exists": True, "custom": 0, "custom_fields": {},
-	                    "property_setters": {}, "docfields": fields}}
+	                    "property_setters": {}, "docfields": fields, "deleted_fields": []}}
 
 
 class TestDocFieldDriftIsVisible(FrappeTestCase):
@@ -106,7 +106,7 @@ def _ordered_snap(names):
 	"""A snapshot whose docfields keep the given order, as the idx-ordered query yields them."""
 	fields = {n: {"fieldname": n, "fieldtype": "Data"} for n in names}
 	return {"Demo DT": {"exists": True, "custom": 0, "custom_fields": {},
-	                    "property_setters": {}, "docfields": fields}}
+	                    "property_setters": {}, "docfields": fields, "deleted_fields": []}}
 
 
 class TestFieldMovesAreVisible(FrappeTestCase):
