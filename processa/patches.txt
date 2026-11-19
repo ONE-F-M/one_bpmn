@@ -387,3 +387,4 @@ processa.patches.v1_0.rename_on_cancel_request_trigger #17-11-2026 cancellation 
 processa.patches.v1_0.sandbox_tools_fall_back_to_base_branch #18-11-2026 sandbox tool scripts fall back to the map's base_branch when the model passes no git_branch
 processa.patches.v1_0.submit_assertions_reads_one_review #18-11-2026 Submit Assertions reads the checker's one review variable, so approved lines are no longer duplicated and rejected
 processa.patches.v1_0.seed_docu_edit_command_cases
+processa.patches.v1_0.seed_prosally_diagram_edit_cases
