@@ -85,13 +85,6 @@ class ProcessaSettings(Document):
 		sandbox_job_processa_url: DF.Data | None
 		sandbox_job_project: DF.Data | None
 		sandbox_job_region: DF.Data | None
-		script_binop_multiply_threshold: DF.Int
-		script_block_all_imports: DF.Check
-		script_block_functiondef: DF.Check
-		script_block_lambda: DF.Check
-		script_block_while: DF.Check
-		script_strict_builtins: DF.Check
-		script_strict_frappe_attrs: DF.Check
 		staging_api_key: DF.Password | None
 		staging_api_secret: DF.Password | None
 		staging_site_url: DF.Data | None

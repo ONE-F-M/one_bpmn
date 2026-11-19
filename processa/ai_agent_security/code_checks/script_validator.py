@@ -1,261 +1,62 @@
 """
-Security validator for BPMN Script Tasks (Frappe Server Scripts).
+Security check for BPMN Script Tasks and Server Scripts.
 
-This module is the single source of truth for script security in processa.
-Every entry point — the AI-generation pipeline, Server Script save, process-model
-authoring, and process-model deploy — funnels through ``deep_inspect_script``.
-
-Design: a structural Abstract Syntax Tree (AST) analyser, NOT a keyword
-blacklist. A blacklist is trivially bypassed via string formatting, dynamic
-attribute lookup, or sandbox-escape gadgets; walking the AST catches the
-*shape* of an attack regardless of how it is spelled.
-
-Enforcement model: runs on save, on deploy, and again before every exec()
-(see processa.processa_engine.engine._check_script_permissions).
-
-Tuning (per the agreed decisions):
-  * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
-    names AND as attribute calls, frame-walking dunders, __globals__, subscript
-    dunder lookups, imports of dangerous modules, memory-bomb multiplication,
-    permission-bypass kwargs).
-  * Constructs that also have legitimate uses are CONFIG-GATED and default to
-    ALLOW, so the gate does not reject ordinary Frappe scripts wholesale:
-        - control flow: while / def / lambda   (block_while / block_functiondef / block_lambda)
-        - soft builtins: hasattr / type / id / classmethod / staticmethod  (strict_builtins)
-        - soft frappe attrs: sql / commit / flags / conf / cache           (strict_frappe_attrs)
-        - all imports:                                                       (block_all_imports)
-  * Overrides live on the **Processa Settings** single doctype (see
-    ``_resolve_options``) so an operator can tighten the posture from the desk
-    UI without a code change.
-
-Public API:
-  deep_inspect_script(script_text, options=None) -> list[str]
-      Structural analysis. Returns a list of human-readable violation
-      messages (empty when clean), or a single-element list with a syntax-error
-      message when the script does not parse.
-
-  validate_script(code) -> dict
-      Back-compatible wrapper used by the AI pipeline.
-      Returns {"valid": bool, "violations": [...], "findings": [{"rule", "line", "code"}]}.
+Walks the AST once and reports each module, Frappe function, builtin and shape whose
+Script Import Category needs approval, with its line. An import of a module in no
+category is Unlisted. Every entry point (Server Script save, map deploy, the run-time
+check before exec and the AI pipeline) goes through inspect_script.
 """
 
 import ast
 import builtins
 import re
 
-# ── Python modules that must never appear in a Frappe Server Script ──────────
-FORBIDDEN_MODULES = frozenset({
-	# OS / shell / process
-	"os", "sys", "subprocess", "signal", "pty", "atexit",
-	# Networking
-	"socket", "ssl", "requests", "urllib", "urllib2", "urllib3",
-	"http", "ftplib", "smtplib", "telnetlib", "imaplib", "poplib",
-	# Serialisation / code execution
-	"pickle", "marshal", "shelve", "dill", "cloudpickle",
-	# Low-level / FFI
-	"ctypes", "cffi", "mmap",
-	# Concurrency (no background threads in scripts)
-	"multiprocessing", "threading", "concurrent",
-	# Dynamic code loading
-	"importlib", "pkgutil", "types",
-	# Reflection / introspection
-	"inspect", "dis", "gc", "traceback",
-	# File-system helpers
-	"tempfile", "shutil", "pathlib", "glob",
-	# The banned builtins, reachable as an ordinary module attribute.
-	# `exec` as a bare name is blocked; `import builtins; builtins.exec(...)`
-	# is an attribute call that no other rule matches.
-	"builtins",
-	# Modules that execute a string of source. Same hole as builtins, different
-	# spelling: runpy.run_path, code.InteractiveInterpreter().runsource,
-	# codeop.compile_command, timeit.timeit, pdb.run, bdb.Bdb().run.
-	"runpy", "code", "codeop", "timeit", "pdb", "bdb",
-	# operator.attrgetter is getattr by another name, and getattr is always
-	# blocked precisely because it defeats the attribute blacklist.
-	"operator",
-	# Shell out by other means: asyncio.create_subprocess_shell, and platform /
-	# webbrowser both invoke system commands underneath.
-	"asyncio", "platform", "webbrowser",
-})
+from processa.ai_agent_security.code_checks.script_categories import (
+	UNLISTED,
+	attribute_category,
+	category_for,
+	category_threshold,
+	needs_approval,
+)
 
-# ── Builtins that are pure escape/reflection vectors — ALWAYS blocked ─────────
-# getattr/setattr/delattr are the classic dynamic-attribute bypass:
-#   getattr(frappe, "__" + "globals__")  defeats any attribute blacklist.
-BANNED_BUILTINS = frozenset({
-	"exec", "eval", "compile", "__import__", "open",
-	"globals", "locals", "vars", "dir",
-	"getattr", "setattr", "delattr",
-})
+MODULE = "Module"
+FUNCTION = "Frappe function"
+BUILTIN = "Builtin"
+SYNTAX = "Syntax"
+SYNTAX_ERROR = "Syntax error"
 
-# The same verbs reached as an ATTRIBUTE — ``anything.exec(...)`` — always blocked.
-#
-# A module blacklist can only ever name the modules someone thought of, and the
-# call check above sees bare names only, so every module holding a reference to
-# exec is a bypass waiting to be found. Catching the verb at the call site closes
-# the shape instead of the instances.
-#
-# Deliberately NOT all of BANNED_BUILTINS: ``re.compile()`` and ``Path.open()``
-# are ordinary code and banning them as attributes would reject real scripts.
-# These three have no legitimate attribute form in a Server Script — confirmed
-# against the 235 currently on this site, none of which call any of them.
-BANNED_CALL_ATTRIBUTES = frozenset({"exec", "eval", "__import__"})
-
-# Builtins with common legitimate uses — blocked only when strict_builtins is on.
-SOFT_BANNED_BUILTINS = frozenset({
-	"hasattr", "type", "id", "classmethod", "staticmethod",
-})
-
-# ── Attributes that are pure escape vectors — ALWAYS blocked ──────────────────
-# Frame-walking + object-graph traversal dunders let a script climb from any
-# object to the interpreter globals and rebuild banned builtins.
-BANNED_ATTRIBUTES = frozenset({
-	# frame / generator / code walking
+# Attributes that climb from any object to the interpreter globals.
+_OBJECT_GRAPH_ATTRIBUTES = frozenset({
 	"gi_frame", "f_back", "f_globals", "f_locals", "f_code",
-	# object-graph traversal
 	"__dict__", "__code__", "__globals__", "__subclasses__",
 	"__class__", "__base__", "__bases__", "__mro__",
 	"__builtins__", "__closure__", "__func__", "__self__",
 })
-
-# Frappe internals that bypass the permission / durability model — ALWAYS blocked.
-BANNED_FRAPPE_ATTRIBUTES = frozenset({
-	"ignore_permissions", "db_update", "add_roles", "set_user",
-})
-
-# Frappe internals that are sensitive but often legitimate (frappe.db.sql for
-# reads, frappe.conf for config, frappe.cache() ...) — blocked only when
-# strict_frappe_attrs is on. Destructive raw SQL is caught separately, always.
-SOFT_BANNED_FRAPPE_ATTRIBUTES = frozenset({
-	"sql", "commit", "flags", "conf", "cache",
-})
-
-# Frappe helpers that reach the shell, site config, raw SQL or an arbitrary dotted path.
-# Blocked unless the script is approved and lists the path in its allowed modules.
-GATED_FRAPPE_CALLS = frozenset({
-	"frappe.get_attr", "frappe.get_module", "frappe.call", "frappe.enqueue",
-	"frappe.utils.execute_in_shell",
-	"frappe.conf", "frappe.local.conf",
-	"frappe.get_site_config", "frappe.get_common_site_config", "frappe.get_conf",
-	"frappe.db.sql", "frappe.db.sql_ddl", "frappe.db.multisql",
-})
-
-# Gated names specific enough to match on any object, so db = frappe.db; db.sql() is caught too.
-_GATED_BY_NAME = {
-	path.rsplit(".", 1)[1]: path
-	for path in GATED_FRAPPE_CALLS
-	if path.rsplit(".", 1)[1] not in {"call", "enqueue", "conf"}
-}
-
-# Request state a script may read but never mutate in bulk.
-PROTECTED_STATE_ATTRIBUTES = frozenset({"flags", "session"})
-MUTATING_METHODS = frozenset({"update", "setdefault", "pop", "popitem", "clear", "__setitem__"})
-
-# Keyword arguments that inject a permission bypass into a save/insert/submit call.
-PERMISSION_BYPASS_KWARGS = frozenset({
-	"ignore_permissions",
-})
-
-# Destructive raw SQL — DDL/DML that a Server Script must never issue.
+# Builtins with no legitimate attribute form, caught when reached as obj.exec().
+_CALL_ATTRIBUTE_BUILTINS = frozenset({"exec", "eval", "__import__"})
+_PERMISSION_KWARGS = frozenset({"ignore_permissions"})
+_PROTECTED_STATE_ATTRIBUTES = frozenset({"flags", "session"})
+_MUTATING_METHODS = frozenset({"update", "setdefault", "pop", "popitem", "clear", "__setitem__"})
 _DESTRUCTIVE_SQL_RE = re.compile(
 	r"frappe\.db\.sql\s*\(.*?\b(DROP|TRUNCATE|ALTER|CREATE\s+TABLE)\b",
 	re.IGNORECASE | re.DOTALL,
 )
-
-# Processa Settings field → ValidatorOptions attribute, with defaults.
-_SETTINGS_FIELDS = {
-	"script_block_while": ("block_while", False),
-	"script_block_functiondef": ("block_functiondef", False),
-	"script_block_lambda": ("block_lambda", False),
-	"script_strict_builtins": ("strict_builtins", False),
-	"script_strict_frappe_attrs": ("strict_frappe_attrs", False),
-	"script_block_all_imports": ("block_all_imports", False),
-	"script_binop_multiply_threshold": ("binop_multiply_threshold", 50000),
-}
-
-
-class ValidatorOptions:
-	"""Tunable posture for :func:`deep_inspect_script`."""
-
-	__slots__ = (
-		"block_while",
-		"block_functiondef",
-		"block_lambda",
-		"strict_builtins",
-		"strict_frappe_attrs",
-		"block_all_imports",
-		"binop_multiply_threshold",
-	)
-
-	def __init__(
-		self,
-		block_while: bool = False,
-		block_functiondef: bool = False,
-		block_lambda: bool = False,
-		strict_builtins: bool = False,
-		strict_frappe_attrs: bool = False,
-		block_all_imports: bool = False,
-		binop_multiply_threshold: int = 50000,
-	):
-		self.block_while = block_while
-		self.block_functiondef = block_functiondef
-		self.block_lambda = block_lambda
-		self.strict_builtins = strict_builtins
-		self.strict_frappe_attrs = strict_frappe_attrs
-		self.block_all_imports = block_all_imports
-		self.binop_multiply_threshold = binop_multiply_threshold
-
-
-# ValidatorOptions switch -> the construct it refuses, as a script writer is told it.
-_SWITCHED_CONSTRUCTS = {
-	"block_while": "`while` loops",
-	"block_functiondef": "`def` functions",
-	"block_lambda": "`lambda`",
-	"block_all_imports": "`import` lines (a forbidden module is refused either way)",
+# Used when the category holding large_multiplication has no Threshold.
+_DEFAULT_MULTIPLY_THRESHOLD = 50000
+_LANGUAGE_CONSTRUCTS = {
+	"while": "`while` loops",
+	"def": "`def` functions",
+	"lambda": "`lambda`",
+	"class": "`class` definitions",
 }
 
 
 def site_gate_rules() -> str:
-	"""Whether this site's gate refuses each construct Processa Settings can switch, one line each."""
-	options = _resolve_options()
+	"""Whether this site's gate accepts each language construct, one line each."""
 	return "\n".join(
-		f"- {construct}: {'refused' if getattr(options, switch) else 'accepted'} on this site."
-		for switch, construct in _SWITCHED_CONSTRUCTS.items()
+		f"- {label}: {'needs approval' if needs_approval(category_for(name)) else 'accepted'} on this site."
+		for name, label in _LANGUAGE_CONSTRUCTS.items()
 	)
-
-
-def _resolve_options() -> ValidatorOptions:
-	"""
-	Build :class:`ValidatorOptions` from the Processa Settings single doctype.
-
-	Defensive: if ``frappe`` is not importable (unit tests, tooling) or the
-	doctype is not yet installed, the secure-but-usable defaults apply.
-	"""
-	opts = ValidatorOptions()
-	try:
-		import frappe as _f
-
-		settings = _f.get_cached_doc("Processa Settings")
-	except Exception:
-		return opts
-
-	for field, (attr, default) in _SETTINGS_FIELDS.items():
-		value = getattr(settings, field, None)
-		if value is None:
-			continue
-		if isinstance(default, bool):
-			# Check fields can surface as the strings "0"/"1" (e.g. from the
-			# singles table before the doctype is migrated). bool("0") is True,
-			# so coerce numerically — cint("0") == 0 → False, cint("1") == 1 → True.
-			setattr(opts, attr, bool(_f.utils.cint(value)))
-		else:
-			# Threshold: ignore unset/zero/malformed values, keep the default.
-			try:
-				parsed = int(value)
-			except (TypeError, ValueError):
-				continue
-			if parsed > 0:
-				setattr(opts, attr, parsed)
-	return opts
 
 
 def parse_allowed(text: str | None) -> frozenset:
@@ -264,14 +65,12 @@ def parse_allowed(text: str | None) -> frozenset:
 
 
 class _SecurityVisitor(ast.NodeVisitor):
-	"""Walk the AST once, collecting security violations."""
+	"""Walk the AST once, collecting findings."""
 
-	def __init__(self, options: ValidatorOptions, allowed: frozenset = frozenset()):
-		self.options = options
+	def __init__(self, allowed: frozenset):
 		self.allowed = allowed
 		self.frappe_aliases = {"frappe": "frappe"}
-		self.violations: list[str] = []
-		self.lines: list[int] = []
+		self.findings: list[dict] = []
 		self._node: ast.AST | None = None
 
 	def visit(self, node: ast.AST) -> None:
@@ -279,44 +78,55 @@ class _SecurityVisitor(ast.NodeVisitor):
 		super().visit(node)
 		self._node = parent
 
-	def _flag(self, message: str) -> None:
-		self.violations.append(message)
-		self.lines.append(self._node.lineno)
+	def report(self, name, kind, category=None, unlisted=False, detail="", line=None) -> None:
+		"""Record name when its category needs approval and the script's approval does not cover it."""
+		category = category or category_for(name)
+		if category == UNLISTED and not unlisted:
+			return
+		parts = name.split(".")
+		if not needs_approval(category) or any(".".join(parts[:end]) in self.allowed for end in range(1, len(parts) + 1)):
+			return
+		self.findings.append({
+			"category": category,
+			"name": name,
+			"kind": kind,
+			"line": line or getattr(self._node, "lineno", None),
+			"message": f"{detail or name} needs approval ({category})",
+		})
 
 	# ── imports ──────────────────────────────────────────────────────────
 	def visit_Import(self, node: ast.Import) -> None:
 		for alias in node.names:
-			top = alias.name.split(".")[0]
-			if self.options.block_all_imports:
-				self._flag(f"Import statements are not allowed: 'import {alias.name}'")
-			elif top in FORBIDDEN_MODULES and not self._is_allowed_module(alias.name):
-				self._flag(f"Forbidden import: '{alias.name}'")
-			if top == "frappe":
-				self.frappe_aliases[alias.asname or top] = alias.name if alias.asname else top
+			if alias.name.split(".")[0] == "frappe":
+				self.frappe_aliases[alias.asname or "frappe"] = alias.name if alias.asname else "frappe"
+				self.report(alias.name, FUNCTION)
+			else:
+				self.report(alias.name, MODULE, unlisted=True)
 		self.generic_visit(node)
 
 	def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
 		module = node.module or ""
-		top = module.split(".")[0]
-		if self.options.block_all_imports:
-			self._flag(f"Import statements are not allowed: 'from {module} import ...'")
-		elif top in FORBIDDEN_MODULES and not self._is_allowed_module(module):
-			self._flag(f"Forbidden import: 'from {module} import ...'")
-		if top == "frappe":
-			for alias in node.names:
-				if alias.name == "*":
-					self._flag(f"'from {module} import *' is not allowed")
-				else:
-					self._check_gated(f"{module}.{alias.name}", alias.name)
+		from_frappe = module.split(".")[0] == "frappe"
+		for alias in node.names:
+			if alias.name == "*":
+				self.report(
+					f"from {module} import *", SYNTAX, category="Dynamic code and reflection", unlisted=True
+				)
+				continue
+			name = f"{module}.{alias.name}"
+			if from_frappe:
+				self.frappe_aliases[alias.asname or alias.name] = name
+				self.report(name, FUNCTION)
+			else:
+				self.report(name, MODULE, unlisted=True)
 		self.generic_visit(node)
 
-	def _is_allowed_module(self, name: str) -> bool:
-		return name in self.allowed or name.split(".")[0] in self.allowed
-
-	def _check_gated(self, path: str | None, name: str) -> None:
-		gated = path if path in GATED_FRAPPE_CALLS else _GATED_BY_NAME.get(name)
-		if gated and gated not in self.allowed:
-			self._flag(f"{gated} needs System Manager approval (list it in Allowed Modules)")
+	def visit_Assign(self, node: ast.Assign) -> None:
+		if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+			dotted = self._dotted(node.value)
+			if dotted:
+				self.frappe_aliases[node.targets[0].id] = dotted
+		self.generic_visit(node)
 
 	def _dotted(self, node: ast.expr) -> str | None:
 		"""``frappe.db.sql`` for an attribute chain rooted at frappe or an alias of it, else None."""
@@ -327,121 +137,96 @@ class _SecurityVisitor(ast.NodeVisitor):
 			return f"{base}.{node.attr}" if base else None
 		return None
 
-	# ── calls: banned builtins + kwargs permission injection ─────────────
+	# ── calls: builtins, attribute exec, state mutation, permission kwargs ─
 	def visit_Call(self, node: ast.Call) -> None:
 		func = node.func
 		if isinstance(func, ast.Name):
-			name = func.id
-			if name in BANNED_BUILTINS:
-				self._flag(f"{name}() is not allowed")
-			elif name in SOFT_BANNED_BUILTINS and self.options.strict_builtins:
-				self._flag(f"{name}() is not allowed (strict mode)")
-		elif isinstance(func, ast.Attribute) and func.attr in BANNED_CALL_ATTRIBUTES:
-			# builtins.exec(...), or any other object that happens to hold it.
-			self._flag(f".{func.attr}() is not allowed")
+			self.report(func.id, BUILTIN, detail=f"{func.id}()")
+		elif isinstance(func, ast.Attribute) and func.attr in _CALL_ATTRIBUTE_BUILTINS:
+			self.report(func.attr, BUILTIN, detail=f".{func.attr}()")
 		if (
 			isinstance(func, ast.Attribute)
-			and func.attr in MUTATING_METHODS
-			and _node_name(func.value) in PROTECTED_STATE_ATTRIBUTES
+			and func.attr in _MUTATING_METHODS
+			and _node_name(func.value) in _PROTECTED_STATE_ATTRIBUTES
 		):
-			self._flag(f".{_node_name(func.value)}.{func.attr}() is not allowed")
-
-		# explicit  save(ignore_permissions=True)
+			self.report("session_write", SYNTAX, unlisted=True, detail=f".{_node_name(func.value)}.{func.attr}()")
 		for kw in node.keywords:
 			if kw.arg is None:
-				# dict-unpack:  save(**{"ignore_permissions": True})
 				self._check_kwargs_unpack(kw.value)
-			elif kw.arg in PERMISSION_BYPASS_KWARGS:
-				self._flag(
-					f"Permission-bypass keyword '{kw.arg}=...' is not allowed"
-				)
+			elif kw.arg in _PERMISSION_KWARGS:
+				self.report("permission_kwarg", SYNTAX, unlisted=True, detail=f"{kw.arg}=...")
 		self.generic_visit(node)
 
 	def _check_kwargs_unpack(self, value: ast.expr) -> None:
 		if not isinstance(value, ast.Dict):
 			return
 		for key in value.keys:
-			if isinstance(key, ast.Constant) and key.value in PERMISSION_BYPASS_KWARGS:
-				self._flag(
-					f"Permission-bypass keyword '{key.value}' injected via **kwargs is not allowed"
-				)
+			if isinstance(key, ast.Constant) and key.value in _PERMISSION_KWARGS:
+				self.report("permission_kwarg", SYNTAX, unlisted=True, detail=f"**{{'{key.value}': ...}}")
 			elif key is not None and not isinstance(key, ast.Constant):
-				self._flag(
-					"Dynamically computed keyword name in **kwargs unpack is not allowed "
-					"(cannot verify it is not a permission-bypass keyword)"
-				)
+				self.report("permission_kwarg", SYNTAX, unlisted=True, detail="A computed keyword in **kwargs")
 
 	# ── attribute access ─────────────────────────────────────────────────
 	def visit_Attribute(self, node: ast.Attribute) -> None:
 		attr = node.attr
-		if attr in BANNED_ATTRIBUTES:
-			self._flag(f"Access to '.{attr}' is not allowed")
-		elif attr in BANNED_FRAPPE_ATTRIBUTES:
-			self._flag(f"Access to Frappe internal '.{attr}' is not allowed")
-		elif attr in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
-			self._flag(f"Access to '.{attr}' is not allowed (strict mode)")
-		self._check_gated(self._dotted(node), attr)
+		if attr in _OBJECT_GRAPH_ATTRIBUTES:
+			self.report("dunder_attribute", SYNTAX, unlisted=True, detail=f".{attr}")
 		self._check_session_write(node)
+		dotted = self._dotted(node)
+		if dotted and category_for(dotted) != UNLISTED:
+			# The rest of the chain is frappe and its attributes, already covered by the full name.
+			self.report(dotted, FUNCTION)
+			return
+		category = attribute_category(attr)
+		if category:
+			self.report(attr, FUNCTION, category=category)
 		self.generic_visit(node)
+
+	def visit_Name(self, node: ast.Name) -> None:
+		if node.id == "__builtins__":
+			self.report("dunder_attribute", SYNTAX, unlisted=True, detail="__builtins__")
 
 	def _check_session_write(self, node: ast.Attribute | ast.Subscript) -> None:
 		if isinstance(node.ctx, (ast.Store, ast.Del)) and _node_name(node.value) == "session":
-			self._flag("Writing to the request session is not allowed")
+			self.report("session_write", SYNTAX, unlisted=True, detail="Writing to the request session")
 
 	# ── subscript string lookup:  frappe["__dict__"], obj["f_back"] ──────
 	def visit_Subscript(self, node: ast.Subscript) -> None:
-		key = self._subscript_key(node)
+		key = node.slice.value if isinstance(node.slice, ast.Constant) else None
 		if isinstance(key, str):
-			if key in BANNED_ATTRIBUTES or key in BANNED_FRAPPE_ATTRIBUTES or _is_dunder(key):
-				self._flag(
-					f"Subscript lookup of '{key}' is not allowed (attribute-access bypass)"
-				)
-			elif key in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
-				self._flag(f"Subscript lookup of '{key}' is not allowed (strict mode)")
+			if key in _OBJECT_GRAPH_ATTRIBUTES or _is_dunder(key):
+				self.report("dunder_subscript", SYNTAX, unlisted=True, detail=f"['{key}']")
+			elif category := attribute_category(key):
+				self.report(key, FUNCTION, category=category, detail=f"['{key}']")
 		self._check_session_write(node)
 		self.generic_visit(node)
 
-	@staticmethod
-	def _subscript_key(node: ast.Subscript):
-		sl = node.slice
-		# py3.9+: the constant is the slice directly; older wrapped in ast.Index
-		if isinstance(sl, ast.Constant):
-			return sl.value
-		if isinstance(sl, ast.Index) and isinstance(sl.value, ast.Constant):  # pragma: no cover
-			return sl.value.value
-		return None
-
-	# ── control flow (config-gated, default allow) ───────────────────────
+	# ── language constructs ──────────────────────────────────────────────
 	def visit_While(self, node: ast.While) -> None:
-		if self.options.block_while:
-			self._flag(
-				"while loops are not allowed — use a BPMN gateway/loop for iteration"
-			)
+		self.report("while", SYNTAX)
 		self.generic_visit(node)
 
 	def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-		if self.options.block_functiondef:
-			self._flag(
-				f"Function definitions are not allowed ('def {node.name}')"
-			)
+		self.report("def", SYNTAX, detail=f"def {node.name}")
 		self.generic_visit(node)
 
 	def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-		if self.options.block_functiondef:
-			self._flag(
-				f"Function definitions are not allowed ('async def {node.name}')"
-			)
+		self.report("def", SYNTAX, detail=f"async def {node.name}")
 		self.generic_visit(node)
 
 	def visit_Lambda(self, node: ast.Lambda) -> None:
-		if self.options.block_lambda:
-			self._flag("lambda expressions are not allowed")
+		self.report("lambda", SYNTAX)
+		self.generic_visit(node)
+
+	def visit_ClassDef(self, node: ast.ClassDef) -> None:
+		self.report("class", SYNTAX, detail=f"class {node.name}")
 		self.generic_visit(node)
 
 	# ── memory-bomb multiplication:  "A" * 999999999 ────────────────────
 	def visit_BinOp(self, node: ast.BinOp) -> None:
 		if isinstance(node.op, ast.Mult):
-			threshold = self.options.binop_multiply_threshold
+			category = category_for("large_multiplication")
+			threshold = category_threshold(category) or _DEFAULT_MULTIPLY_THRESHOLD
 			for operand in (node.left, node.right):
 				if (
 					isinstance(operand, ast.Constant)
@@ -449,9 +234,12 @@ class _SecurityVisitor(ast.NodeVisitor):
 					and not isinstance(operand.value, bool)
 					and operand.value > threshold
 				):
-					self._flag(
-						f"Multiplication factor {operand.value} exceeds the "
-						f"memory-safety threshold of {threshold}"
+					self.report(
+						"large_multiplication",
+						SYNTAX,
+						category=category,
+						unlisted=True,
+						detail=f"Multiplying by {operand.value}, above the threshold of {threshold},",
 					)
 					break
 		self.generic_visit(node)
@@ -469,77 +257,58 @@ def _node_name(node: ast.expr) -> str | None:
 	return None
 
 
-def deep_inspect_script(
-	script_text: str, options: "ValidatorOptions | None" = None, allowed: frozenset = frozenset()
-) -> list[str]:
+def inspect_script(code: str | None, allowed: frozenset = frozenset()) -> list[dict]:
+	"""Each finding in code as {category, name, kind, line, message}; empty when clean.
+
+	allowed holds the names an approved script may use. A script that does not parse gives one Syntax error finding.
 	"""
-	Structurally inspect a script for security violations.
-
-	Args:
-		script_text: the Python source of a Server Script / inline script task.
-		options:     tunable posture; when omitted, resolved from site_config.
-		allowed:     blocked modules and gated frappe calls an approved script may use.
-
-	Returns:
-		A list of human-readable violation messages (empty when the script is
-		clean), or a single-element list containing a syntax-error message when
-		the script does not parse.
-	"""
-	return [message for message, _line in _inspect(script_text or "", options, allowed)]
-
-
-def _inspect(
-	code: str, options: "ValidatorOptions | None", allowed: frozenset = frozenset()
-) -> list[tuple[str, int | None]]:
-	"""Each violation in ``code`` paired with the line it was found on."""
-	if options is None:
-		options = _resolve_options()
-
+	code = code or ""
 	try:
 		tree = ast.parse(code)
 	except SyntaxError as exc:
-		return [(f"Syntax error on line {exc.lineno}: {exc.msg}", exc.lineno)]
-
-	visitor = _SecurityVisitor(options, allowed)
+		return [{
+			"category": SYNTAX_ERROR,
+			"name": "",
+			"kind": SYNTAX,
+			"line": exc.lineno,
+			"message": f"Syntax error on line {exc.lineno}: {exc.msg}",
+		}]
+	visitor = _SecurityVisitor(allowed)
 	visitor.visit(tree)
-	found = list(zip(visitor.violations, visitor.lines))
-
-	# Destructive raw SQL is a string-content concern, not a structural one.
 	if match := _DESTRUCTIVE_SQL_RE.search(code):
-		found.append((
-			"Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed",
-			code.count("\n", 0, match.start()) + 1,
-		))
+		visitor.report(
+			"destructive_sql",
+			SYNTAX,
+			unlisted=True,
+			detail="Destructive SQL (DROP/TRUNCATE/ALTER/CREATE TABLE)",
+			line=code.count("\n", 0, match.start()) + 1,
+		)
+	return visitor.findings
 
-	# __builtins__ can appear as a bare name too (not only as an attribute).
-	match = re.search(r"\b__builtins__\b", code)
-	if match and not any("__builtins__" in message for message, _line in found):
-		found.append(("__builtins__ access is not allowed", code.count("\n", 0, match.start()) + 1))
 
-	return found
+def deep_inspect_script(script_text: str | None, allowed: frozenset = frozenset()) -> list[str]:
+	"""The message of each finding in script_text; empty when clean."""
+	return [finding["message"] for finding in inspect_script(script_text, allowed)]
 
 
 def validate_script(code: str) -> dict:
-	"""
-	Back-compatible wrapper for the AI-generation pipeline.
-
-	Returns {"valid", "violations", "findings"}; each finding is {"rule", "line", "code"}.
-	"""
+	"""{"valid", "violations", "findings"} for the AI pipeline; each finding is {rule, line, code, category, name}."""
 	code = code or ""
 	source_lines = code.splitlines()
-	found = _inspect(code, None)
-	findings = [
-		{
-			"rule": message,
-			"line": line,
-			"code": source_lines[line - 1].strip() if line and line <= len(source_lines) else "",
-		}
-		for message, line in found
-	]
+	found = inspect_script(code)
 	return {
 		"valid": not found,
-		"violations": [message for message, _line in found],
-		"findings": findings,
+		"violations": [f["message"] for f in found],
+		"findings": [
+			{
+				"rule": f["message"],
+				"line": f["line"],
+				"code": source_lines[f["line"] - 1].strip() if f["line"] and f["line"] <= len(source_lines) else "",
+				"category": f["category"],
+				"name": f["name"],
+			}
+			for f in found
+		],
 	}
 
 

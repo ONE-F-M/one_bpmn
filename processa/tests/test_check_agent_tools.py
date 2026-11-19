@@ -27,7 +27,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from processa.commands.agent_tools import _is_real_failure, check_agent_tools, run_check
 
-BAD_IMPORT_SCRIPT = "import this_module_does_not_exist_anywhere\nresult['x'] = 1\n"
+BAD_IMPORT_SCRIPT = "import json.this_module_does_not_exist_anywhere\nresult['x'] = 1\n"
 THROWS_SCRIPT = "raise ValueError('deliberately broken input')\n"
 FINE_SCRIPT = "result['ok'] = True\n"
 

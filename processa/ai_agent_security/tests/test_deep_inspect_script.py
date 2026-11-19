@@ -1,44 +1,137 @@
 # Copyright (c) 2026, one-fm and contributors
-"""
-Unit tests for the structural AST script validator
-(``processa.ai_agent_security.code_checks.script_validator.deep_inspect_script``).
-
-Pure Python — no Frappe / DB required — so these run standalone and cover
-every edge case in the BPMN Script-Task security spec (section 2.1 / 4.1).
-"""
+"""Tests for the script security check: each finding carries its category, name, kind and line."""
 
 import unittest
 
+import frappe
+from frappe.tests.utils import FrappeTestCase
+
+from processa.ai_agent_security.code_checks.script_categories import clear_category_cache
+from processa.ai_agent_security.code_checks.script_gate import approved_names
 from processa.ai_agent_security.code_checks.script_validator import (
-	ValidatorOptions,
+	SYNTAX_ERROR,
 	deep_inspect_script,
+	inspect_script,
 	request_findings,
 	validate_script,
 )
+from processa.patches.v1_0 import approve_processa_imports_in_server_scripts, seed_script_import_categories
+
+SETTINGS_FIELDS = (
+	"section_break_script_security",
+	"script_security_intro",
+	"column_break_script_security",
+	"script_block_while",
+	"script_block_functiondef",
+	"script_block_lambda",
+	"script_strict_builtins",
+	"script_strict_frappe_attrs",
+	"script_block_all_imports",
+	"script_binop_multiply_threshold",
+)
 
 
-def _flags(code, **opts):
-	return deep_inspect_script(code, ValidatorOptions(**opts) if opts else None)
+def _flags(code):
+	return deep_inspect_script(code)
 
 
-class TestSafeScriptsPass(unittest.TestCase):
+class _CategoryTestCase(FrappeTestCase):
+	def setUp(self):
+		super().setUp()
+		clear_category_cache()
+		seed_script_import_categories.execute()
+
+	def tearDown(self):
+		frappe.db.rollback()
+		clear_category_cache()
+		super().tearDown()
+
+	def _set_category(self, name, **values):
+		category = frappe.get_doc("Script Import Category", name)
+		category.update(values)
+		category.save()
+
+
+class TestFindingsByCategory(_CategoryTestCase):
+	def test_an_import_is_reported_with_category_name_kind_and_line(self):
+		self.assertEqual(
+			inspect_script("x = 1\ny = 2\nimport requests"),
+			[
+				{
+					"category": "Network",
+					"name": "requests",
+					"kind": "Module",
+					"line": 3,
+					"message": "requests needs approval (Network)",
+				}
+			],
+		)
+
+	def test_allowed_categories_give_no_findings(self):
+		self.assertEqual(inspect_script("import json\ndoc = frappe.get_doc('ToDo', 'x')"), [])
+
+	def test_an_alias_of_frappe_db_is_followed(self):
+		findings = inspect_script("db = frappe.db\ndb.sql('select 1')")  # validator input
+		self.assertEqual(
+			[(f["name"], f["category"], f["line"]) for f in findings],
+			[("frappe.db.sql", "Database direct", 2)],
+		)
+
+	def test_permission_keyword_through_kwargs(self):
+		findings = inspect_script("doc.save(**{'ignore_permissions': True})")
+		self.assertEqual([f["category"] for f in findings], ["Identity and permissions"])
+
+	def test_a_module_in_no_category_is_unlisted(self):
+		findings = inspect_script("import paramiko")
+		self.assertEqual([(f["name"], f["category"]) for f in findings], [("paramiko", "Unlisted")])
+
+	def test_unlisted_frappe_functions_and_builtins_are_not_reported(self):
+		self.assertEqual(
+			inspect_script("rows = frappe.get_all('ToDo')\nfrappe.log_error('x')\nn = len(rows)"), []
+		)
+
+	def test_size_limit_follows_the_category_threshold(self):
+		code = "x = 'A' * 60000"
+		self.assertEqual([f["category"] for f in inspect_script(code)], ["Size limits"])
+		self._set_category("Size limits", threshold=100000)
+		self.assertEqual(inspect_script(code), [])
+
+	def test_a_script_that_does_not_parse_is_one_syntax_error(self):
+		findings = inspect_script("x = 1\nprint(''")
+		self.assertEqual(len(findings), 1)
+		self.assertEqual(findings[0]["category"], SYNTAX_ERROR)
+		self.assertEqual(findings[0]["line"], 2)
+
+	def test_language_features_need_approval_when_their_category_does(self):
+		code = "i = 0\nwhile i < 3:\n    i += 1"
+		self.assertEqual(_flags(code), [])
+		self._set_category("Language features", allowed_by_default=0)
+		self.assertEqual([f["name"] for f in inspect_script(code)], ["while"])
+
+	def test_an_approved_name_is_not_reported(self):
+		code = "rows = frappe.db.sql('select name from tabUser')"  # validator input, not a query
+		self.assertTrue(_flags(code))
+		self.assertEqual(deep_inspect_script(code, frozenset({"frappe.db.sql"})), [])
+
+	def test_processa_settings_has_no_script_security_fields(self):
+		meta = frappe.get_meta("Processa Settings")
+		for fieldname in SETTINGS_FIELDS:
+			with self.subTest(fieldname=fieldname):
+				self.assertFalse(meta.has_field(fieldname))
+
+
+class TestSafeScriptsPass(_CategoryTestCase):
 	def test_orm_read_write(self):
 		self.assertEqual(_flags("doc = frappe.get_doc('Employee', 'E1')\ndoc.save()"), [])
 
-	def test_db_read_sql_needs_approval(self):
-		code = "rows = frappe.db.sql('select name from tabUser')"  # validator input, not a query
-		self.assertTrue(_flags(code))
-		self.assertEqual(deep_inspect_script(code, ValidatorOptions(), frozenset({"frappe.db.sql"})), [])
-
 	def test_get_all_and_msgprint(self):
-		self.assertEqual(
-			_flags("users = frappe.get_all('User')\nfrappe.msgprint(str(len(users)))"), []
-		)
+		self.assertEqual(_flags("users = frappe.get_all('User')\nfrappe.msgprint(str(len(users)))"), [])
 
-	def test_def_lambda_while_allowed_by_default(self):
+	def test_def_lambda_while_class_allowed_by_default(self):
 		self.assertEqual(_flags("def f(x):\n    return x\nresult['n'] = f(1)"), [])
 		self.assertEqual(_flags("g = lambda x: x + 1\nresult['n'] = g(1)"), [])
 		self.assertEqual(_flags("i = 0\nwhile i < 3:\n    i += 1"), [])
+		self.assertEqual(_flags("class A:\n    pass"), [])
 
 	def test_soft_builtins_allowed_by_default(self):
 		self.assertEqual(_flags("t = type(doc)\nh = hasattr(doc, 'name')"), [])
@@ -47,10 +140,21 @@ class TestSafeScriptsPass(unittest.TestCase):
 		self.assertEqual(_flags("s = 'ab' * 1000\nn = 3 * 4"), [])
 
 
-class TestBannedBuiltins(unittest.TestCase):
-	def test_hard_banned(self):
-		for name in ("exec", "eval", "compile", "getattr", "setattr", "delattr",
-					 "globals", "locals", "vars", "dir", "open"):
+class TestBannedBuiltins(_CategoryTestCase):
+	def test_dynamic_code_and_file_builtins(self):
+		for name in (
+			"exec",
+			"eval",
+			"compile",
+			"getattr",
+			"setattr",
+			"delattr",
+			"globals",
+			"locals",
+			"vars",
+			"dir",
+			"open",
+		):
 			with self.subTest(builtin=name):
 				out = _flags(f"{name}(doc)")
 				self.assertTrue(any(name in v for v in out), out)
@@ -58,16 +162,20 @@ class TestBannedBuiltins(unittest.TestCase):
 	def test_dunder_import_call(self):
 		self.assertTrue(_flags("__import__('os')"))
 
-	def test_soft_builtins_only_blocked_in_strict(self):
-		self.assertEqual(_flags("hasattr(doc, 'x')"), [])
-		self.assertTrue(_flags("hasattr(doc, 'x')", strict_builtins=True))
-		self.assertTrue(_flags("type(doc)", strict_builtins=True))
 
-
-class TestBannedAttributes(unittest.TestCase):
+class TestBannedAttributes(_CategoryTestCase):
 	def test_frame_walking(self):
-		for attr in ("__class__", "__bases__", "__subclasses__", "__globals__",
-					 "f_back", "f_globals", "gi_frame", "__mro__", "__dict__"):
+		for attr in (
+			"__class__",
+			"__bases__",
+			"__subclasses__",
+			"__globals__",
+			"f_back",
+			"f_globals",
+			"gi_frame",
+			"__mro__",
+			"__dict__",
+		):
 			with self.subTest(attr=attr):
 				self.assertTrue(_flags(f"x = obj.{attr}"), attr)
 
@@ -76,25 +184,25 @@ class TestBannedAttributes(unittest.TestCase):
 		self.assertTrue(_flags("doc.db_update()"))
 		self.assertTrue(_flags("role.add_roles('System Manager')"))
 
-	def test_soft_frappe_attrs_only_blocked_in_strict(self):
-		approved = frozenset({"frappe.db.sql"})
-		self.assertEqual(deep_inspect_script("frappe.db.sql('select 1')", ValidatorOptions(), approved), [])  # validator input
-		self.assertTrue(
-			deep_inspect_script("frappe.db.sql('select 1')", ValidatorOptions(strict_frappe_attrs=True), approved)  # validator input
-		)
-		self.assertTrue(_flags("c = frappe.conf", strict_frappe_attrs=True))
+	def test_secrets(self):
+		self.assertTrue(_flags("c = frappe.conf"))
+		self.assertTrue(_flags("p = settings.get_password('api_key')"))
+
+	def test_bare_builtins_name(self):
+		self.assertTrue(_flags("b = __builtins__"))
 
 
-class TestKwargsPermissionInjection(unittest.TestCase):
+class TestKwargsPermissionInjection(_CategoryTestCase):
 	def test_explicit_kwarg(self):
 		self.assertTrue(_flags("doc.save(ignore_permissions=True)"))
 		self.assertTrue(_flags("doc.insert(ignore_permissions=True)"))
 
 	def test_dict_unpack(self):
 		self.assertTrue(_flags('doc.save(**{"ignore_permissions": True})'))
+		self.assertTrue(_flags("doc.save(**{key: True})"))
 
 
-class TestSubscriptStringLookup(unittest.TestCase):
+class TestSubscriptStringLookup(_CategoryTestCase):
 	def test_dunder_subscript(self):
 		self.assertTrue(_flags('x = frappe["__dict__"]'))
 		self.assertTrue(_flags('x = obj["f_back"]'))
@@ -103,44 +211,39 @@ class TestSubscriptStringLookup(unittest.TestCase):
 	def test_normal_subscript_ok(self):
 		self.assertEqual(_flags('x = mydict["name"]'), [])
 
+	def test_session_write(self):
+		self.assertTrue(_flags("frappe.session.user = 'Administrator'"))
+		self.assertTrue(_flags("frappe.flags.update({'x': 1})"))
 
-class TestImports(unittest.TestCase):
-	def test_forbidden_module(self):
+
+class TestImports(_CategoryTestCase):
+	def test_approval_module(self):
 		self.assertTrue(_flags("import os"))
 		self.assertTrue(_flags("from subprocess import run"))
+		self.assertTrue(_flags("from urllib.request import urlopen"))
 
 	def test_safe_module_allowed_by_default(self):
-		self.assertEqual(_flags("import json\nimport datetime"), [])
+		self.assertEqual(_flags("import json\nimport datetime\nfrom urllib.parse import quote"), [])
 
-	def test_block_all_imports_strict(self):
-		self.assertTrue(_flags("import json", block_all_imports=True))
-		self.assertTrue(_flags("from datetime import datetime", block_all_imports=True))
+	def test_star_import(self):
+		self.assertTrue(_flags("from frappe.utils import *"))
 
 
-class TestBuiltinsModuleEscape(unittest.TestCase):
-	"""``exec`` is blocked as a bare name; it must not come back via a module.
+class TestBuiltinsModuleEscape(_CategoryTestCase):
+	"""exec must not come back through a module or an attribute."""
 
-	The call check inspects bare names only, so once ``exec`` is bound to an
-	attribute of anything the rule stops applying. That made every module
-	holding a reference to it a way straight through the gate.
-	"""
-
-	def test_the_builtins_module_cannot_be_imported(self):
+	def test_the_builtins_module_needs_approval(self):
 		for code in (
 			"import builtins\nbuiltins.exec('x=1')",
 			"import builtins as b\nb.eval('1+1')",
 			"from builtins import exec\nexec('x=1')",
-			# Aliased on the way in, so the resulting call is not a banned NAME
-			# either — the import is the only place left to catch it.
 			"from builtins import exec as e\ne('x=1')",
 			"import builtins\nbuiltins.__import__('os').system('id')",
 		):
 			with self.subTest(code=code):
 				self.assertTrue(_flags(code), f"builtins escape not caught: {code!r}")
 
-	def test_modules_that_execute_a_string_cannot_be_imported(self):
-		"""Same hole as builtins, different spelling. Each of these turns a
-		string into running code without ever naming exec."""
+	def test_modules_that_execute_a_string_need_approval(self):
 		for code in (
 			"import runpy\nrunpy.run_path('/tmp/x.py')",
 			"import code\ncode.InteractiveInterpreter().runsource('x=1')",
@@ -148,10 +251,7 @@ class TestBuiltinsModuleEscape(unittest.TestCase):
 			"import timeit\ntimeit.timeit('1')",
 			"import pdb\npdb.run('x=1')",
 			"import bdb\nbdb.Bdb().run('x=1')",
-			# attrgetter is getattr spelled differently, and getattr is always
-			# banned precisely because it defeats the attribute blacklist.
 			"import operator\noperator.attrgetter('__globals__')(frappe)",
-			# Shell access that never touches subprocess by name.
 			"import asyncio\nasyncio.create_subprocess_shell('id')",
 			"import platform\nplatform.popen('id')",
 			"import webbrowser\nwebbrowser.open('x')",
@@ -160,37 +260,17 @@ class TestBuiltinsModuleEscape(unittest.TestCase):
 				self.assertTrue(_flags(code), f"code-execution module allowed: {code!r}")
 
 	def test_exec_as_an_attribute_is_caught_whatever_holds_it(self):
-		"""The backstop for the module blacklist, which can only name modules
-		someone thought of. A stdlib module nobody blacklisted is still caught
-		at the call site, because the verb is what matters."""
 		self.assertTrue(_flags("import json\njson.exec('x=1')"))
 		self.assertTrue(_flags("obj.eval('1+1')"))
 		self.assertTrue(_flags("m.__import__('os')"))
 
 	def test_ordinary_attribute_calls_that_share_a_name_still_pass(self):
-		"""The attribute rule covers exec/eval/__import__ only, NOT all of
-		BANNED_BUILTINS: re.compile() and .open() are everyday code, and
-		banning them here would reject real scripts to no benefit."""
 		self.assertEqual(_flags("import re\nre.compile('x')"), [])
 		self.assertEqual(_flags("import json\nx = json.dumps({'a': 1})"), [])
 		self.assertEqual(_flags("rows = frappe.db.get_all('User')\nresult = [r.name for r in rows]"), [])
 
 
-class TestControlFlowGated(unittest.TestCase):
-	def test_while_gate(self):
-		self.assertEqual(_flags("while True:\n    break"), [])
-		self.assertTrue(_flags("while True:\n    break", block_while=True))
-
-	def test_functiondef_gate(self):
-		self.assertEqual(_flags("def f():\n    pass"), [])
-		self.assertTrue(_flags("def f():\n    pass", block_functiondef=True))
-
-	def test_lambda_gate(self):
-		self.assertEqual(_flags("f = lambda: 1"), [])
-		self.assertTrue(_flags("f = lambda: 1", block_lambda=True))
-
-
-class TestMemoryBomb(unittest.TestCase):
+class TestMemoryBomb(_CategoryTestCase):
 	def test_large_multiply_flagged(self):
 		self.assertTrue(_flags("x = 'A' * 999999999"))
 		self.assertTrue(_flags("x = 999999999 * 'A'"))
@@ -200,27 +280,15 @@ class TestMemoryBomb(unittest.TestCase):
 		self.assertEqual(_flags("x = 'A' * 50000"), [])
 		self.assertTrue(_flags("x = 'A' * 50001"))
 
-	def test_custom_threshold(self):
-		self.assertTrue(_flags("x = 'A' * 200", binop_multiply_threshold=100))
 
-
-class TestDestructiveSql(unittest.TestCase):
-	def test_destructive_flagged(self):
+class TestDestructiveSql(_CategoryTestCase):
+	def test_destructive_flagged_even_when_sql_is_approved(self):
 		for kw in ("DROP TABLE tabUser", "TRUNCATE tabUser", "ALTER TABLE tabUser ADD x INT"):
 			with self.subTest(sql=kw):
-				self.assertTrue(_flags(f"frappe.db.sql('{kw}')"))
-
-	def test_select_allowed_when_approved(self):
-		code = "frappe.db.sql('select name from tabUser')"  # validator input, not a query
-		self.assertEqual(deep_inspect_script(code, ValidatorOptions(), frozenset({"frappe.db.sql"})), [])
+				self.assertTrue(deep_inspect_script(f"frappe.db.sql('{kw}')", frozenset({"frappe.db.sql"})))  # validator input, not a query
 
 
-class TestSyntaxAndWrapper(unittest.TestCase):
-	def test_syntax_error(self):
-		out = _flags("def broken(:\n    pass")
-		self.assertEqual(len(out), 1)
-		self.assertIn("Syntax error", out[0])
-
+class TestSyntaxAndWrapper(_CategoryTestCase):
 	def test_a_syntax_error_names_its_line_and_reason_and_nothing_else(self):
 		self.assertEqual(_flags('x = 1\nprint(""'), ["Syntax error on line 2: '(' was never closed"])
 
@@ -233,25 +301,31 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 		self.assertFalse(bad["valid"])
 		self.assertTrue(bad["violations"])
 
-	def test_findings_carry_the_rule_and_the_offending_line(self):
+	def test_findings_carry_the_category_name_and_offending_line(self):
 		code = "x = 1\nfor d in []:\n    d.save(ignore_permissions=True)\nfrappe.db.sql('DROP TABLE tabX')"
 		self.assertEqual(
 			validate_script(code)["findings"],
 			[
 				{
-					"rule": "Permission-bypass keyword 'ignore_permissions=...' is not allowed",
+					"rule": "ignore_permissions=... needs approval (Identity and permissions)",
 					"line": 3,
 					"code": "d.save(ignore_permissions=True)",
+					"category": "Identity and permissions",
+					"name": "permission_kwarg",
 				},
 				{
-					"rule": "frappe.db.sql needs System Manager approval (list it in Allowed Modules)",
+					"rule": "frappe.db.sql needs approval (Database direct)",
 					"line": 4,
 					"code": "frappe.db.sql('DROP TABLE tabX')",  # validator input, not a query
+					"category": "Database direct",
+					"name": "frappe.db.sql",
 				},
 				{
-					"rule": "Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed",
+					"rule": "Destructive SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) needs approval (Database direct)",
 					"line": 4,
-					"code": "frappe.db.sql('DROP TABLE tabX')",
+					"code": "frappe.db.sql('DROP TABLE tabX')",  # validator input, not a query
+					"category": "Database direct",
+					"name": "destructive_sql",
 				},
 			],
 		)
@@ -259,10 +333,6 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 	def test_empty_script(self):
 		self.assertEqual(_flags(""), [])
 		self.assertEqual(_flags(None), [])
-
-
-if __name__ == "__main__":
-	unittest.main()
 
 
 def _rules(code, request, language="python"):
@@ -309,3 +379,29 @@ class TestRequestFindings(unittest.TestCase):
 		self.assertTrue(_rules("x = 1", "write a client script that hides the Notes field"))
 		self.assertEqual(_rules("frappe.ui.form.on('ToDo', {})", "write a client script", "javascript"), [])
 		self.assertTrue(_rules("frappe.ui.form.on('ToDo', {})", "write a server script", "javascript"))
+
+
+class TestApproveProcessaImports(_CategoryTestCase):
+	def _script(self, name, body):
+		if frappe.db.exists("Server Script", name):
+			frappe.delete_doc("Server Script", name, force=True)
+		frappe.get_doc(
+			{
+				"doctype": "Server Script",
+				"name": name,
+				"script_type": "API",
+				"api_method": frappe.scrub(name),
+				"script": body,
+			}
+		).insert()
+		return name
+
+	def test_only_scripts_whose_findings_are_processa_imports_are_approved(self):
+		shipped = self._script("Approve Test Shipped", "from processa.api import deploy\nresult['x'] = 1")
+		network = self._script("Approve Test Network", "import processa.api\nimport requests")
+		approve_processa_imports_in_server_scripts.execute()
+		script = frappe.get_doc("Server Script", shipped)
+		self.assertEqual(script.processa_approved, 1)
+		self.assertEqual(script.processa_allowed_modules, "processa.api.deploy")
+		self.assertEqual(deep_inspect_script(script.script, approved_names(script)), [])
+		self.assertEqual(frappe.db.get_value("Server Script", network, "processa_approved"), 0)

@@ -24,7 +24,8 @@ from processa.patches.v1_0 import (
 	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
 )
 from processa.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
-from processa.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
+from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
+from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
 from processa.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -57,7 +58,6 @@ FULL_IR = {
 COMPILED = {"ok": True, "xml": "<definitions/>", "problems": [], "topology": {}, "layout": {}}
 INLINE_TYPES = ("StartEvent", "ScriptTask", "ExclusiveGateway", "UserTask", "EndEvent")
 EDITED_LINES = 8
-STRICT = ValidatorOptions(strict_builtins=True, strict_frappe_attrs=True)
 
 
 def _script(shape):
@@ -401,19 +401,20 @@ class TestTheEngineValidatorAcceptsTheScript(FrappeTestCase):
 		for shape in SHAPES:
 			with self.subTest(shape=shape):
 				patched = split_patch.rewrite(_script(shape))
-				self.assertEqual(deep_inspect_script(patched), [])
-				self.assertEqual(deep_inspect_script(patched, STRICT), [])
+				self.assertEqual(deep_inspect_script(patched, processa_imports(patched)), [])
 
 	def test_the_script_as_the_first_version_of_the_patch_left_it_was_blocked(self):
 		broken = _script("ba_after_split_patch")
-		self.assertEqual(deep_inspect_script(broken), ["getattr() is not allowed"])
+		self.assertIn(
+			"getattr() needs approval (Dynamic code and reflection)",
+			deep_inspect_script(broken, processa_imports(broken)),
+		)
 
 
 class TestTheRepairOfTheBlockedScript(FrappeTestCase):
 	def test_the_repaired_script_has_no_findings_compiles_and_a_second_run_changes_nothing(self):
 		repaired = repair_patch.rewrite(_script("ba_after_split_patch"))
-		self.assertEqual(deep_inspect_script(repaired), [])
-		self.assertEqual(deep_inspect_script(repaired, STRICT), [])
+		self.assertEqual(deep_inspect_script(repaired, processa_imports(repaired)), [])
 		compile(repaired, "repaired", "exec")
 		self.assertEqual(repair_patch.rewrite(repaired), repaired)
 
@@ -445,7 +446,7 @@ class TestTheRepairOfTheBlockedScript(FrappeTestCase):
 			get_value.call_args_list[0].args,
 			("Server Script", {"api_method": "prosally_tool_generate_process"}, "name"),
 		)
-		self.assertEqual(deep_inspect_script(set_value.call_args.args[3]), [])
+		self.assertEqual(deep_inspect_script(set_value.call_args.args[3], processa_imports(set_value.call_args.args[3])), [])
 
 	def test_a_site_without_the_script_or_with_nothing_to_repair_writes_nothing(self):
 		for values in ([None], ["Any Name", split_patch.rewrite(_script("ba"))]):

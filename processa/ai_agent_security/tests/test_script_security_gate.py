@@ -81,8 +81,8 @@ class TestProcessModelScriptGate(FrappeTestCase):
 		self.assertIn("security issue", msg)
 		self.assertIn("Deployment Readiness", msg)
 		# … but does not leak the specific per-rule blacklist text.
-		self.assertNotIn("Forbidden import", msg)
-		self.assertNotIn("exec() is not allowed", msg)
+		self.assertNotIn("os needs approval", msg)
+		self.assertNotIn("exec() needs approval", msg)
 
 
 class TestServerScriptGate(FrappeTestCase):

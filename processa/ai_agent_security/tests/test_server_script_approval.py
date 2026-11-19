@@ -5,7 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_security.code_checks import script_gate
-from processa.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
+from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
 from processa.api.deploy import compile_process_model
 from processa.api.security import lint_server_script
 from processa.api.server_scripts import create_server_script, toggle_server_script, update_server_script
@@ -193,7 +193,6 @@ class TestServerScriptApproval(FrappeTestCase):
 			environment.evaluate("frappe.get_attr('frappe.utils.execute_in_shell')", {})
 
 	def test_gated_frappe_calls_need_the_approved_list(self):
-		options = ValidatorOptions()
 		for code, entry in (
 			("frappe.get_attr('a.b')", "frappe.get_attr"),
 			("from frappe.utils import execute_in_shell", "frappe.utils.execute_in_shell"),
@@ -201,8 +200,8 @@ class TestServerScriptApproval(FrappeTestCase):
 			("frappe.local.conf.get('x')", "frappe.local.conf"),
 			("import frappe as f\nf.call('a.b')", "frappe.call"),
 		):
-			self.assertTrue(deep_inspect_script(code, options), code)
-			self.assertEqual(deep_inspect_script(code, options, frozenset({entry})), [], code)
+			self.assertTrue(deep_inspect_script(code), code)
+			self.assertEqual(deep_inspect_script(code, frozenset({entry})), [], code)
 
 	def test_live_lint_honours_the_approval_of_the_saved_script(self):
 		code = "frappe.enqueue('processa.some.job')"
@@ -216,7 +215,7 @@ class TestServerScriptApproval(FrappeTestCase):
 		doc = self._script("ZZ A26 Lint Unapproved", "pass")
 		for result in (lint_server_script(code), lint_server_script(code, doc.name)):
 			self.assertFalse(result["valid"])
-			self.assertIn("frappe.enqueue needs System Manager approval", result["violations"][0])
+			self.assertIn("frappe.enqueue needs approval (Concurrency)", result["violations"][0])
 
 	def test_live_lint_flags_edited_code_that_the_approval_no_longer_covers(self):
 		doc = self._script(
