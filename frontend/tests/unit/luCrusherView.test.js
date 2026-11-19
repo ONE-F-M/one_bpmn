@@ -41,10 +41,10 @@ async function scanView(scan) {
 
 test("each matched DocType carries the words and score behind it", async () => {
 	const view = await scanView({
-		matched_doctypes: [{ doctype: "Leave Application", reason: "words application, leave · score 1.0" }],
+		matched_doctypes: [{ doctype: "Leave Application", reason: "words application, leave; score 1.0" }],
 		counts: { doctypes: 1 },
 	})
-	assert.deepEqual(view.doctypes, [{ name: "Leave Application", note: "words application, leave · score 1.0" }])
+	assert.deepEqual(view.doctypes, [{ name: "Leave Application", note: "words application, leave; score 1.0" }])
 })
 
 test("the count is how many matched, not how many arrived", async () => {
