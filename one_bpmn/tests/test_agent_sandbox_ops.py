@@ -654,6 +654,14 @@ class TestDispatchError(FrappeTestCase):
 		with patch.object(ops, "_missing_branch_error", return_value=None):
 			self.assertIsNone(ops.dispatch_error("one_bpmn", "staging"))
 
+	def test_processa_is_allowed_on_a_bench_that_does_not_run_it(self):
+		with (
+			patch.object(ops.frappe, "get_installed_apps", return_value=["frappe", "one_bpmn"]),
+			patch.object(ops, "_missing_branch_error", return_value=None),
+		):
+			self.assertIsNone(ops.dispatch_error("processa", "staging"))
+			self.assertEqual(ops.target_app_choices().count("processa"), 1)
+
 	def _repo(self, html_url="https://github.com/ONE-F-M/one_bpmn", token="t"):
 		settings = SimpleNamespace(get_password=lambda *a, **k: token)
 		return (

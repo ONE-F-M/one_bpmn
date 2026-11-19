@@ -71,15 +71,16 @@ class AgentSandboxError(Exception):
 	rather than one dispatch_connector's generic handler swallows silently."""
 
 
-_SANDBOX_ONLY_TARGET_APPS = ["mobile_app_ionic", "one_lms"]
+_SANDBOX_ONLY_TARGET_APPS = ["mobile_app_ionic", "one_lms", "processa"]
 """target_app values the sandbox clones and can run against but that never
 appear in frappe.get_installed_apps() here. mobile_app_ionic has no
 hooks.py, so bench install-app fails on it outright — it's a standalone
 Vue/Ionic/Capacitor project, cloned into the sandbox's apps/ purely to be
 a coding-loop target, never installed onto any site. one_lms is a real
-Frappe app the sandbox installs, but this bench itself doesn't have it —
-kept as an explicit list rather than assuming this bench's install state
-always mirrors the sandbox's clone set."""
+Frappe app the sandbox installs, but this bench itself doesn't have it.
+processa is the renamed one_bpmn repository, which this bench does not
+run yet. The list is explicit rather than assuming this bench's install
+state always mirrors the sandbox's clone set."""
 
 
 def target_app_choices() -> list[str]:
