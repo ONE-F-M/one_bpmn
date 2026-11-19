@@ -136,6 +136,9 @@ class TestFieldMovesAreVisible(FrappeTestCase):
 
 		self.assertEqual(changes, [])
 
+	def test_a_field_only_one_side_has_is_not_a_move_placeholder(self):
+		pass
+
 	def test_a_field_only_one_side_has_is_not_a_move(self):
 		"""Only the fieldnames on both sides are compared; a new field is reported as Create."""
 		changes = self._diff(_ordered_snap(["a", "new", "b"]), _ordered_snap(["a", "b"]), self.OWNED)
