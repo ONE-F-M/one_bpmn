@@ -1,0 +1,57 @@
+{
+ "actions": [],
+ "creation": "2026-11-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "dotted_name",
+  "kind",
+  "match_on_any_object",
+  "note"
+ ],
+ "fields": [
+  {
+   "description": "A module, function or builtin as a script writes it, such as urllib.request or frappe.db.sql. For a Syntax row, the name of a shape check.",
+   "fieldname": "dotted_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Dotted Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Kind",
+   "options": "Module\nFrappe function\nBuiltin\nSyntax",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Match the last part of the name on any object, so doc.db_set and db.sql count too.",
+   "fieldname": "match_on_any_object",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Match On Any Object"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Note"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI Agent Security",
+ "name": "Script Import Category Name",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

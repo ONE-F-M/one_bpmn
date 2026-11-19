@@ -1,0 +1,119 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:category_name",
+ "creation": "2026-11-19 00:00:00.000000",
+ "description": "A group of modules, functions and language features a script can use, and whether a script may use them without approval.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "category_name",
+  "allowed_by_default",
+  "column_break_head",
+  "threshold",
+  "section_details",
+  "description",
+  "sanctioned_alternative",
+  "section_names",
+  "names"
+ ],
+ "fields": [
+  {
+   "fieldname": "category_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "Ticked: a script may use these names without approval. Unticked: it needs an approved request.",
+   "fieldname": "allowed_by_default",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Allowed by Default"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Only for size categories: the largest constant a script may multiply by.",
+   "fieldname": "threshold",
+   "fieldtype": "Int",
+   "label": "Threshold"
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "description": "What a script should use instead, shown when it asks for this category.",
+   "fieldname": "sanctioned_alternative",
+   "fieldtype": "Small Text",
+   "label": "Sanctioned Alternative"
+  },
+  {
+   "fieldname": "section_names",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "names",
+   "fieldtype": "Table",
+   "label": "Names",
+   "options": "Script Import Category Name"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI Agent Security",
+ "name": "Script Import Category",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Application Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "All"
+  }
+ ],
+ "sort_field": "category_name",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "category_name",
+ "track_changes": 1
+}
