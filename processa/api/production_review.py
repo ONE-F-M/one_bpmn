@@ -375,8 +375,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
 						"destination": destination,
 					})
-			# A field Production still has that BA deleted (a Version says so). One BA never
-			# received has no such Version, so it is not here and is not reported.
+			# A field missing on BA counts as deleted only when a BA Version removed it.
 			if destination:
 				deleted = lsnap.get("deleted_fields") or []
 				for fieldname in rfields:

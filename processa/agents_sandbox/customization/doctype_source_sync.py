@@ -90,40 +90,19 @@ def _typed(value, property_type: str):
 
 
 def deleted_fieldnames(dt: str) -> set:
-	"""Fieldnames a Version on this site records as deleted from the DocType.
+	"""Fieldnames a Version on this site removed from the DocType and that it does not carry today.
 
-	DocType has track_changes, so every save made on the site writes a Version
-	whose ``data`` lists each child row under ``removed`` / ``added``. A field
-	that is truly deleted is in ``removed`` and not in ``added`` of the same
-	Version. A field the site simply never received (behind the code) has no
-	Version removing it, so it is not reported. Migrate imports DocTypes with
-	``ignore_version``, so code never writes one.
-
-	A fieldname the DocType carries today is not deleted, whatever a Version says
-	(it was added back later).
+	Migrate imports DocTypes with ignore_version, so only edits made on the site write these Versions.
 	"""
 
 	def fieldnames(rows) -> set:
-		names = set()
-		for entry in rows or []:
-			if (
-				isinstance(entry, (list, tuple)) and len(entry) > 1
-				and entry[0] == "fields" and isinstance(entry[1], dict)
-				and entry[1].get("fieldname")
-			):
-				names.add(entry[1]["fieldname"])
-		return names
+		return {row.get("fieldname") for table, row in rows or [] if table == "fields"} - {None}
 
 	deleted = set()
 	for version in frappe.get_all(
 		"Version", filters={"ref_doctype": "DocType", "docname": dt}, fields=["data"]
 	):
-		try:
-			data = json.loads(version.get("data") or "{}")
-		except (TypeError, ValueError):
-			continue
-		if not isinstance(data, dict):
-			continue
+		data = json.loads(version.data)
 		deleted |= fieldnames(data.get("removed")) - fieldnames(data.get("added"))
 
 	if not deleted:
@@ -276,15 +255,13 @@ def _fold(doc: dict, schema: dict) -> list:
 
 	# Deleted on the site: the field must leave the file, or it comes back on every migrate.
 	for fieldname in schema.get("deleted_fields", []):
-		kept = [r for r in rows if not (isinstance(r, dict) and r.get("fieldname") == fieldname)]
-		order = doc.get("field_order")
-		in_order = isinstance(order, list) and fieldname in order
-		if len(kept) == len(rows) and not in_order:
+		if fieldname not in by_name:
 			continue
-		rows[:] = kept
-		by_name.pop(fieldname, None)
-		if in_order:
-			order[:] = [n for n in order if n != fieldname]
+		rows[:] = [r for r in rows if r.get("fieldname") != fieldname]
+		by_name.pop(fieldname)
+		order = doc.get("field_order")
+		if isinstance(order, list) and fieldname in order:
+			order.remove(fieldname)
 		notes.append(_("removed field {0}").format(fieldname))
 
 	# A DocType-level field_order Property Setter was folded above and decides the order.
