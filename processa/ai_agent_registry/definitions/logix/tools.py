@@ -9,7 +9,7 @@ from frappe import _
 
 from processa.ai_agent_registry.definitions.shared.helpers import tool_envelope
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-from processa.ai_agent_security.code_checks.script_validator import validate_script
+from processa.ai_agent_security.code_checks.script_validator import request_findings, validate_script
 from processa.api.versions import script_versions
 from processa.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from processa.processa_engine.agent_runtime.structured_output import provider_schema
@@ -68,12 +68,14 @@ def run_debug_stage(conversation: str) -> dict:
 		adapter, _reviewer_system(subs, shape_kind), _review_prompt(shape_kind, diff), REVIEW_SCHEMA
 	)
 	gate = validate_script(fixed)
-	if review.get("approved") and gate["valid"]:
+	checks = request_findings(fixed, turn.get("user_text") or "")
+	if review.get("approved") and gate["valid"] and not checks:
 		return _reply(conversation, explanation, original=script, fixed=fixed, diff=diff)
 
 	lines = [explanation, "", _("I drafted a fix, but it does not pass review, so I am not offering it:")]
 	lines += [f"- {issue}" for issue in review.get("issues") or []]
-	lines += [f"- {f['rule']} (line {f['line']}: `{f['code']}`)" for f in gate.get("findings") or []]
+	for f in (gate.get("findings") or []) + checks:
+		lines.append(f"- {f['rule']} (line {f['line']}: `{f['code']}`)" if f["line"] else f"- {f['rule']}")
 	return _reply(conversation, "\n".join(lines))
 
 

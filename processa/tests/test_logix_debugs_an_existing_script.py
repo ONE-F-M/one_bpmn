@@ -93,6 +93,17 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		self.assertIn("does not pass review", output["response"])
 		self.assertIn("line 3: `doc.save(ignore_permissions=True)`", output["response"])
 
+	def test_a_fix_that_uses_a_name_it_never_imports_is_not_offered(self):
+		adapter = FakeAdapter(
+			{"explanation": "It divides by zero.", "fixed_script": FIXED + "\nresult['when'] = now_datetime()"},
+			{"approved": True, "issues": [], "suggestions": []},
+		)
+		output = self._run(adapter)
+
+		self.assertIsNone(output["modified_script"])
+		self.assertIn("`now_datetime` is used but never defined or imported", output["response"])
+		self.assertIn("line 3:", output["response"])
+
 	def test_a_fix_the_reviewer_rejects_is_not_offered(self):
 		adapter = FakeAdapter(
 			{"explanation": "It divides by zero.", "fixed_script": FIXED},

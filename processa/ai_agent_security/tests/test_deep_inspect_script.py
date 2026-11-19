@@ -12,6 +12,7 @@ import unittest
 from processa.ai_agent_security.code_checks.script_validator import (
 	ValidatorOptions,
 	deep_inspect_script,
+	request_findings,
 	validate_script,
 )
 
@@ -262,3 +263,49 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+def _rules(code, request, language="python"):
+	return [f["rule"] for f in request_findings(code, request, language)]
+
+
+class TestRequestFindings(unittest.TestCase):
+	def test_a_name_never_imported_is_reported_with_its_line(self):
+		findings = request_findings("x = 1\nrows = json.loads(task_data.get('p'))", "parse the payload")
+
+		self.assertEqual(len(findings), 1)
+		self.assertIn("`json` is used but never defined or imported", findings[0]["rule"])
+		self.assertEqual(findings[0]["line"], 2)
+		self.assertEqual(findings[0]["code"], "rows = json.loads(task_data.get('p'))")
+
+	def test_injected_defined_and_imported_names_pass(self):
+		code = (
+			"import json\n"
+			"def total(rows):\n"
+			"    return sum(r['n'] for r in rows)\n"
+			"try:\n"
+			"    data = json.loads(task_data.get('p'))\n"
+			"except ValueError as e:\n"
+			"    data = []\n"
+			"result['n'] = total(data)\n"
+			"frappe.msgprint(context_doctype + context_docname + doc.name + str(e))"
+		)
+		self.assertEqual(_rules(code, "sum the rows"), [])
+
+	def test_a_number_replaced_by_another_is_reported(self):
+		self.assertIn(
+			"The request says 5, but the script uses 10 instead. Use the request's numbers exactly.",
+			_rules("x = frappe.get_all('ToDo', limit=10)", "list the 5 latest todos"),
+		)
+		self.assertTrue(_rules("x = frappe.get_all('ToDo', limit=10)", "show 5 todos, not 10"))
+		self.assertTrue(_rules("x = frappe.get_all('ToDo', limit=10)", "change the limit from 10 to 5"))
+
+	def test_numbers_that_match_or_only_count_changes_pass(self):
+		self.assertEqual(_rules("x = frappe.get_all('ToDo', limit=5)", "list the 5 latest todos"), [])
+		self.assertEqual(_rules("x = frappe.get_all('ToDo', limit=5)", "change the limit from 10 to 5"), [])
+		self.assertEqual(_rules("for i in range(3):\n    frappe.msgprint(str(i))", "update 2 fields"), [])
+
+	def test_a_server_script_returned_for_a_client_script_request_is_reported(self):
+		self.assertTrue(_rules("x = 1", "write a client script that hides the Notes field"))
+		self.assertEqual(_rules("frappe.ui.form.on('ToDo', {})", "write a client script", "javascript"), [])
+		self.assertTrue(_rules("frappe.ui.form.on('ToDo', {})", "write a server script", "javascript"))
