@@ -371,6 +371,20 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
 						"destination": destination,
 					})
+			# A move changes no property, and idx is not compared, so it needs its own
+			# check. Only for a DocType we own: the move is written into its JSON.
+			# Both dicts keep the snapshot's idx order; compare the fields on both sides.
+			if destination and (
+				[f for f in lfields if f in rfields] != [f for f in rfields if f in lfields]
+			):
+				changes.append({
+					"object_type": _("Field"),
+					"name": f"{dt} → field order",
+					"doctype": dt,
+					"action": "Update",
+					"detail": _("Field order"),
+					"destination": destination,
+				})
 	return changes
 
 
