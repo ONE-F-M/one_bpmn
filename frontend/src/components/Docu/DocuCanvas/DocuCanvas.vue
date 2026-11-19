@@ -20,6 +20,7 @@
 							layout="conversation"
 							:apply-targets="['apply-schema', 'apply-script']"
 							:context="docuTurnContext"
+							:context-provider="autosave.flushAutosave"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
 							@card-action="onDocuCardAction"
@@ -117,6 +118,7 @@ const chat = useDocuChat({
 	dtApp: settings.dtApp,
 	dtModule: settings.dtModule,
 	loadIr: ir.loadIr,
+	baseModified: ir.baseModified,
 	autosave,
 });
 

@@ -40,6 +40,7 @@ REQUIRED_CALLABLES = (
 	"diff_ir",
 	"get_doctype_fields",
 	"keep_unrequested_fields",
+	"merge_into_live_fields",
 )
 REQUIRED_TUPLES = (
 	"DOCFIELD_FLAGS",
@@ -293,3 +294,41 @@ class TestKeepUnrequestedFields(FrappeTestCase):
 		)
 		self.assertIn(dropped["fieldname"], [c["fieldname"] for c in proposed["fields"][0]["child_fields"]])
 		self.assertIn(dropped["label"], reply)
+
+
+class TestMergeIntoLiveFields(FrappeTestCase):
+	LIVE = {
+		"fields": [
+			{"fieldname": "phone", "label": "Phone", "fieldtype": "Data"},
+			{"fieldname": "contact_section", "label": "Contact", "fieldtype": "Section Break"},
+			{"fieldname": "email", "label": "Email", "fieldtype": "Data"},
+		]
+	}
+
+	def test_a_field_sent_again_updates_the_first_copy(self):
+		proposed = {"fields": [dict(f) for f in self.LIVE["fields"]] + [{"fieldname": "phone", "reqd": 1}]}
+		tools.merge_into_live_fields(self.LIVE, proposed)
+		self.assertEqual([f["fieldname"] for f in proposed["fields"]], ["phone", "contact_section", "email"])
+		self.assertEqual(proposed["fields"][0]["reqd"], 1)
+
+	def test_a_live_label_under_a_new_fieldname_updates_the_live_field(self):
+		proposed = {
+			"fields": [
+				{"fieldname": "phone_number", "label": "Phone", "fieldtype": "Data", "options": "Phone"},
+				*[dict(f) for f in self.LIVE["fields"][1:]],
+			]
+		}
+		tools.merge_into_live_fields(self.LIVE, proposed)
+		self.assertEqual([f["fieldname"] for f in proposed["fields"]], ["phone", "contact_section", "email"])
+		self.assertEqual(proposed["fields"][0]["options"], "Phone")
+
+	def test_a_new_field_and_a_repeated_section_label_are_left_alone(self):
+		proposed = {
+			"fields": [
+				*[dict(f) for f in self.LIVE["fields"]],
+				{"fieldname": "", "label": "Contact", "fieldtype": "Section Break"},
+				{"fieldname": "mobile", "label": "Mobile", "fieldtype": "Data"},
+			]
+		}
+		tools.merge_into_live_fields(self.LIVE, proposed)
+		self.assertEqual(len(proposed["fields"]), 5)

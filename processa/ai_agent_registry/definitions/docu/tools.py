@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 import frappe
 from frappe import _
-from frappe.model import table_fields
+from frappe.model import display_fieldtypes, table_fields
 from frappe.utils import now_datetime
 
 from processa.ai_agent_registry.definitions.docu.validators import RESERVED_FIELDNAMES, validate_doctype_ir
@@ -265,6 +265,31 @@ def diff_ir(original: dict, modified: dict) -> dict:
 
 
 REMOVAL_WORDS = re.compile(r"\b(?:remove|delete|drop|get\s+rid\s+of|take\s+out|replace|without)\b", re.I)
+
+
+def merge_into_live_fields(current_ir: dict, proposed_ir: dict) -> None:
+	"""Make a proposed field that repeats a live one, by fieldname or by label under a new fieldname, an update of it."""
+	live = {}
+	for field in current_ir.get("fields") or []:
+		label = (field.get("label") or "").strip().lower()
+		if label and field.get("fieldname") and field.get("fieldtype") not in display_fieldtypes:
+			live.setdefault(label, field["fieldname"])
+	live_names = set(live.values())
+	by_name = {}
+	merged = []
+	for field in proposed_ir.get("fields") or []:
+		fieldname = field.get("fieldname")
+		label = (field.get("label") or "").strip().lower()
+		if field.get("fieldtype") not in display_fieldtypes and fieldname not in live_names and label in live:
+			field = {**field, "fieldname": live[label]}
+			fieldname = field["fieldname"]
+		if fieldname in by_name and field.get("fieldtype") not in display_fieldtypes:
+			by_name[fieldname].update(field)
+			continue
+		if fieldname:
+			by_name[fieldname] = field
+		merged.append(field)
+	proposed_ir["fields"] = merged
 
 
 def keep_unrequested_fields(current_ir: dict, proposed_ir: dict, request: str) -> str:

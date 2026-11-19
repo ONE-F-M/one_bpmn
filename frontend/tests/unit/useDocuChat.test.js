@@ -17,15 +17,17 @@ function make(props = {}, names = {}) {
 		saveState: ref("idle"),
 	};
 	const loadIr = vi.fn();
+	const baseModified = ref("2026-11-19 10:00:00");
 	const chat = useDocuChat({
 		props: { doctype: "", processContext: null, ...props },
 		dtName: ref(names.dtName || ""),
 		dtApp: ref(names.dtApp || ""),
 		dtModule: ref(names.dtModule || ""),
 		loadIr,
+		baseModified,
 		autosave,
 	});
-	return { chat, autosave, loadIr };
+	return { chat, autosave, loadIr, baseModified };
 }
 
 beforeEach(() => {
@@ -85,6 +87,23 @@ describe("schema cards", () => {
 			url: `${API}preview_doctype`,
 			params: { ir: JSON.stringify(IR) },
 		});
+	});
+
+	it("saves a card on the copy it was built from, so an older card cannot overwrite a newer save", () => {
+		frappeRequest.mockResolvedValue({});
+		const { chat, baseModified } = make();
+		chat.onDocuCardAction({
+			name: "onefm.doctype_schema",
+			action: "apply-schema",
+			value: { doctype_ir: IR, base_modified: "2026-11-19 09:00:00" },
+		});
+		expect(baseModified.value).toBe("2026-11-19 09:00:00");
+		chat.onDocuCardAction({
+			name: "onefm.doctype_schema",
+			action: "apply-schema",
+			value: { doctype_ir: IR },
+		});
+		expect(baseModified.value).toBe("2026-11-19 09:00:00");
 	});
 
 	it("shows an error when the preview fails", async () => {

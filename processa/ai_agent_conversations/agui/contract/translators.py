@@ -105,6 +105,7 @@ def _doctype_schema(result: dict):
 				"doctype_ir": result["doctype_ir"],
 				**({"exists": bool(result["exists"])} if "exists" in result else {}),
 				**({"custom": bool(result["custom"])} if "custom" in result else {}),
+				**({"base_modified": result["base_modified"]} if result.get("base_modified") else {}),
 			},
 		)
 
