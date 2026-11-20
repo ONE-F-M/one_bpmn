@@ -53,7 +53,7 @@ The shape a script backs decides how it runs (`shape_kind` in the turn context).
 
 `validate_script(code)` gates every generated script and returns `{"valid": bool, "violations": [...]}`.
 
-- Pass 1, AST: blocks imports in `FORBIDDEN_MODULES` (os, sys, subprocess, socket, requests, pickle, ctypes, inspect, pathlib and others).
+- Pass 1, AST: reports every import, Frappe function and builtin whose Script Import Category needs approval (Network, Shell and processes, Dynamic code and reflection and others). An import of a module in no category is Unlisted.
 - Pass 2, patterns: blocks `open()`, `eval()`, `exec()`, `__import__()`, `compile()`, `globals()`, `locals()`, `vars()`, `__builtins__`, MRO traversal, and destructive `frappe.db.sql` (DROP, TRUNCATE, ALTER, CREATE TABLE).
 - A rejected script is regenerated with its violations fed back into the writer prompt. The violation list is logged with `frappe.log_error` and never shown to the user.
 - Never log a full generated script at INFO level.

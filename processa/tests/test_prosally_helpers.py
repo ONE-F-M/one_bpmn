@@ -19,6 +19,7 @@ from processa.patches.v1_0 import (
 )
 from processa.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
+from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
 from processa.tests.site_scripts import as_deployed
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -486,7 +487,8 @@ class TestTheEngineValidatorAcceptsThePatchedBuildContext(FrappeTestCase):
 	def test_both_script_shapes_have_no_findings_after_the_patch(self):
 		for label, script in (("assigned", REAL_BUILD_CONTEXT), ("in the dict", OLDER_BUILD_CONTEXT)):
 			with self.subTest(shape=label):
-				self.assertEqual(deep_inspect_script(build_context_patch.rewrite(script)), [])
+				rewritten = build_context_patch.rewrite(script)
+				self.assertEqual(deep_inspect_script(rewritten, processa_imports(rewritten)), [])
 
 
 CONV = "zz-prosally-route"

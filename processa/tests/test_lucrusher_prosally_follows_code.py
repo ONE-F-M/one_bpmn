@@ -14,6 +14,7 @@ from processa.processa_engine.agent_runtime.tool_bounds import validate_tool_arg
 from processa.patches.v1_0 import lucrusher_prosally_follows_code_and_workflow as p
 from processa.patches.v1_0.seed_lucrusher_skills import SKILLS
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
+from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
 from processa.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -141,7 +142,7 @@ def _run_finalize(prosally_prompts):
 
 class TestFinalizeScript(FrappeTestCase):
 	def test_script_passes_the_script_gate(self):
-		self.assertEqual(deep_inspect_script(_finalize_script()), [])
+		self.assertEqual(deep_inspect_script(_finalize_script(), processa_imports(_finalize_script())), [])
 
 	def test_edit_is_applied_once_and_a_moved_anchor_is_left_alone(self):
 		original = _fixture("lucrusher_finalize_ba.txt")

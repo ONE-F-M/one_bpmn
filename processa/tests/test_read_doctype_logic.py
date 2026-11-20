@@ -12,6 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_registry.definitions.lucrusher import tools as ci
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
+from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
 from processa.patches.v1_0 import lucrusher_reads_doctype_logic as p
 from processa.tests.site_scripts import as_deployed
 
@@ -152,7 +153,7 @@ def _run_script(names, sources, **fake):
 
 class TestReadDoctypeLogicScript(FrappeTestCase):
 	def test_script_passes_the_script_gate(self):
-		self.assertEqual(deep_inspect_script(p.READ_DOCTYPE_LOGIC_SCRIPT), [])
+		self.assertEqual(deep_inspect_script(p.READ_DOCTYPE_LOGIC_SCRIPT, processa_imports(p.READ_DOCTYPE_LOGIC_SCRIPT)), [])
 
 	def test_seven_names_read_five_and_skip_two(self):
 		names = [f"DT {i}" for i in range(7)] + ["dt 0"]

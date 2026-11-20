@@ -388,3 +388,5 @@ processa.patches.v1_0.sandbox_tools_fall_back_to_base_branch #18-11-2026 sandbox
 processa.patches.v1_0.submit_assertions_reads_one_review #18-11-2026 Submit Assertions reads the checker's one review variable, so approved lines are no longer duplicated and rejected
 processa.patches.v1_0.seed_docu_edit_command_cases
 processa.patches.v1_0.seed_script_import_categories #19-11-2026 the Script Import Category records and the Application Manager role
+processa.patches.v1_0.remove_script_security_settings #19-11-2026 Processa Settings drops the seven script security fields; Script Import Category holds the rules
+processa.patches.v1_0.approve_processa_imports_in_server_scripts #19-11-2026 Server Scripts whose only findings are Processa backend imports are approved for those imports
