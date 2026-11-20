@@ -12,6 +12,7 @@ from frappe.utils import cint, escape_html, now_datetime
 
 from processa.processa_engine.agent_runtime import turn_signal
 from processa.processa_engine.agent_runtime.executor import ErrorCode
+from processa.ai_agent_registry.definitions.logix import helpers as logix_helpers
 from processa.ai_agent_security.rate_limit import RateLimited
 from processa.api.common import shape_reply
 from processa.utils.session import as_user
@@ -798,19 +799,7 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 # left. The Server Script CRUD and test-runner endpoints in this module are
 # Logix TOOLING, not chat, and stay exactly where they are.
 def build_logix_turn_context(context: dict) -> dict:
-	"""Load the linked script's content for a Logix turn (context builder for
-	the AG-UI endpoint). The legacy process_logix_message did this inline —
-	permission-checked — before invoking; through the shared endpoint the
-	panel sends only the script NAME, and without the content the map's
-	prompt renders empty and the model asks the user to paste their script
-	(observed live, 2026-08-08).
-
-	The reply contract is appended on EVERY turn, linked script or not: the
-	agent's seeded system prompt does not carry it, and the CREATE-from-
-	scratch turn (no script linked yet) is exactly where the model must know
-	to answer in JSON — an early return here left it replying in prose, so
-	no onefm.script_diff card and no Apply button (observed live,
-	2026-08-09)."""
+	"""Add the linked script, the library scripts on the map and the reply contract to a Logix turn."""
 	out = dict(context or {})
 	script = out.get("current_script") or ""
 	content = None
@@ -835,6 +824,11 @@ def build_logix_turn_context(context: dict) -> dict:
 	parts = []
 	if content is not None:
 		parts.append("CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```" % (script, content))
+	process_model = (out.get("process_context") or {}).get("process_model")
+	libraries = out.get("library_scripts") or logix_helpers.library_scripts(process_model)
+	if libraries:
+		out["library_scripts"] = libraries
+		parts.append(logix_helpers.library_text(libraries))
 	parts.append(
 		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
 		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE"|"GENERAL", '
