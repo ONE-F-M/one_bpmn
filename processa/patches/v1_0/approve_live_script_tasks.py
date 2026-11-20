@@ -3,7 +3,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from processa.ai_agent_security.code_checks.script_gate import script_task_sources
-from processa.ai_agent_security.code_checks.script_validator import SYNTAX_ERROR, inspect_script
+from processa.ai_agent_security.code_checks.script_validator import NOT_APPROVABLE, inspect_script
 
 
 def execute():
@@ -17,7 +17,7 @@ def execute():
 		for label, code, allowed, bpmn_id, server_script in script_task_sources(
 			model.bpmn_xml, model.process_name
 		):
-			findings = [f for f in inspect_script(code, allowed) if f["category"] != SYNTAX_ERROR]
+			findings = [f for f in inspect_script(code, allowed) if f["category"] not in NOT_APPROVABLE]
 			if server_script and findings:
 				approve(model.process_name, bpmn_id, label, server_script)
 	for name in awaiting_review():

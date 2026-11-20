@@ -7,6 +7,7 @@
  "field_order": [
   "category",
   "item_name",
+  "library",
   "lines"
  ],
  "fields": [
@@ -22,6 +23,14 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Item Name",
+   "read_only": 1
+  },
+  {
+   "description": "The library script the item comes from, when the script task uses it through import_script.",
+   "fieldname": "library",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Library",
    "read_only": 1
   },
   {

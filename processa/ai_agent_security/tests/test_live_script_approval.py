@@ -96,6 +96,8 @@ class TestApproveLiveScriptTasks(FrappeTestCase):
 
 	def test_a_flagged_script_task_gets_one_approved_request_and_no_instance_starts(self):
 		instances = frappe.db.count("BPMN Process Instance")
+		frappe.flags.in_patch = True
+		self.addCleanup(setattr, frappe.flags, "in_patch", False)
 		approve_live_script_tasks.execute()
 		requests = self._requests(self.first, "t0", FLAGGED)
 		self.assertEqual([(r.status, r.source) for r in requests], [("Approved", "Shipped by patch")])

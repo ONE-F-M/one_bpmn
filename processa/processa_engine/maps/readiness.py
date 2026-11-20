@@ -108,11 +108,15 @@ def check_readiness(xml_content: str, model_name: str = None) -> dict:
 			"items": script_items,
 		})
 
-	from processa.ai_agent_security.code_checks.script_gate import collect_script_security_violations
+	from processa.ai_agent_security.code_checks.script_gate import (
+		collect_script_security_violations,
+		model_scripts,
+	)
 
 	process = model_name and frappe.db.get_value("BPMN Process Model", model_name, "process_name")
 	security_items = []
-	for finding in collect_script_security_violations(xml_content, process):
+	called_scripts = frozenset(model_scripts(model_name)) if model_name else frozenset()
+	for finding in collect_script_security_violations(xml_content, process, called_scripts):
 		request = _(", request {0} is open").format(finding["request"]) if finding["request"] else ""
 		security_items.append({
 			"name": f"{finding['label']}: {finding['message']}{request}",

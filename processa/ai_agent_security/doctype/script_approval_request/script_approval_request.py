@@ -6,7 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from processa.ai_agent_security.code_checks.script_gate import script_task_findings
-from processa.ai_agent_security.code_checks.script_validator import SYNTAX_ERROR
+from processa.ai_agent_security.code_checks.script_validator import NOT_APPROVABLE
 
 OPEN_STATUSES = ("Pending Review", "Pending Approval")
 # The name of the Approve user task on the Script Security Approval map, as its activity log records it.
@@ -103,15 +103,20 @@ class ScriptApprovalRequest(Document):
 	def set_requested_items(self, code: str):
 		lines = {}
 		for f in script_task_findings(code, self.process_name, self.script_task, self.server_script):
-			if f["category"] != SYNTAX_ERROR:
-				lines.setdefault((f["category"], f["name"]), []).append(str(f["line"]))
+			if f["category"] not in NOT_APPROVABLE:
+				lines.setdefault((f["category"], f["name"], f.get("library") or ""), []).append(str(f["line"]))
 		if not lines:
 			frappe.throw(_("Script task {0} has nothing that needs approval.").format(self.script_task))
 		self.requested_items = []
-		for (category, item_name), numbers in lines.items():
+		for (category, item_name, library), numbers in lines.items():
 			self.append(
 				"requested_items",
-				{"category": category, "item_name": item_name, "lines": ", ".join(dict.fromkeys(numbers))},
+				{
+					"category": category,
+					"item_name": item_name,
+					"library": library,
+					"lines": ", ".join(dict.fromkeys(numbers)),
+				},
 			)
 
 
