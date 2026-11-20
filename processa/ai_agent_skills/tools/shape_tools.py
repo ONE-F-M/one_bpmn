@@ -589,6 +589,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	local_vars.update(
 		{
 			"frappe": frappe,
+			"_": frappe._,
 			"context_doctype": getattr(instance, "context_doctype", "") or "",
 			"context_docname": getattr(instance, "context_docname", "") or "",
 			"result": result_dict,

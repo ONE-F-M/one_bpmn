@@ -361,7 +361,7 @@ def validate_script(code: str) -> dict:
 
 
 # Names a BPMN Script Task receives without defining them; anything else must be defined or imported.
-INJECTED_NAMES = ("frappe", "doc", "task_data", "result", "context_doctype", "context_docname", "import_script")
+INJECTED_NAMES = ("frappe", "_", "doc", "task_data", "result", "context_doctype", "context_docname", "import_script")
 _BUILTIN_NAMES = frozenset(dir(builtins))
 _CLIENT_SCRIPT_RE = re.compile(r"\b(client[\s-]?script|form script|javascript|js)\b", re.IGNORECASE)
 _SERVER_SCRIPT_RE = re.compile(r"\b(server[\s-]?script|python)\b", re.IGNORECASE)
