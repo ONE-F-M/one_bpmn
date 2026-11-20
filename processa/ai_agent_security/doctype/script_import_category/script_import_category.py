@@ -10,6 +10,25 @@ from processa.ai_agent_security.code_checks.script_categories import SYNTAX_CHEC
 
 
 class ScriptImportCategory(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from processa.ai_agent_security.doctype.script_import_category_name.script_import_category_name import (
+			ScriptImportCategoryName,
+		)
+
+		allowed_by_default: DF.Check
+		category_name: DF.Data
+		description: DF.SmallText | None
+		names: DF.Table[ScriptImportCategoryName]
+		sanctioned_alternative: DF.SmallText | None
+		threshold: DF.Int
+	# end: auto-generated types
 	def validate(self):
 		for d in self.names:
 			d.dotted_name = (d.dotted_name or "").strip()
