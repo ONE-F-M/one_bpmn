@@ -74,6 +74,43 @@
 			></textarea>
 			<div v-else-if="previewKind(fld.df.fieldtype) === 'table'" class="fb-table-preview">
 				▦ {{ fld.df.options || "child table" }}
+				<button
+					v-if="childTable"
+					type="button"
+					class="fb-table-toggle"
+					@click.stop="showColumns = !columnsOpen"
+				>
+					{{ toggleLabel }}
+				</button>
+				<div v-if="columnsOpen" class="fb-table-columns">
+					<p v-if="childTable.note" class="fb-table-note">
+						{{ childTable.note }}
+					</p>
+					<table>
+						<thead>
+							<tr>
+								<th>Label</th>
+								<th>Type</th>
+								<th>Required</th>
+								<th>Options</th>
+								<th>Change</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr
+								v-for="col in childTable.columns"
+								:key="col.fieldname"
+								:class="CHANGE_CLASSES[col.change]"
+							>
+								<td>{{ col.label }}</td>
+								<td>{{ col.fieldtype }}</td>
+								<td>{{ col.reqd ? "Yes" : "" }}</td>
+								<td>{{ col.options }}</td>
+								<td>{{ CHANGE_LABELS[col.change] }}</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
 			</div>
 			<div
 				v-else-if="previewKind(fld.df.fieldtype) === 'heading'"
@@ -96,8 +133,17 @@
 </template>
 
 <script setup>
+import { computed, ref } from "vue";
 import { previewKind, previewPlaceholder } from "@/utils/docuFieldDefs";
 import { useDocu } from "@/composables/Docu/useDocu";
+
+const CHANGE_LABELS = { added: "Added", removed: "Removed", changed: "Changed", "": "" };
+const CHANGE_CLASSES = {
+	added: "text-green-700",
+	removed: "text-red-600 line-through",
+	changed: "text-amber-700",
+	"": "",
+};
 
 const {
 	selectField,
@@ -106,12 +152,27 @@ const {
 	duplicateField,
 	addFieldAfter,
 	moveFieldsToNewColumn,
+	childTables,
 } = useDocu();
 
-defineProps({
+const props = defineProps({
 	fld: { type: Object, required: true },
 	column: { type: Object, required: true },
 });
+
+const showColumns = ref(null);
+const childTable = computed(() =>
+	childTables.value.find((t) => t.fieldname && t.fieldname === props.fld.df.fieldname),
+);
+// A table whose columns change opens by default, so the change is seen before it is applied.
+const columnsOpen = computed(
+	() =>
+		Boolean(childTable.value) &&
+		(showColumns.value ?? childTable.value.columns.some((c) => c.change)),
+);
+const toggleLabel = computed(() =>
+	columnsOpen.value ? "Hide columns" : `Show ${childTable.value.columns.length} columns`,
+);
 </script>
 
 <style scoped src="./DocuFieldCard.css"></style>
