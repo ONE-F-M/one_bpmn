@@ -28,13 +28,10 @@ class ProcessaServerScript(ServerScript):
 			frappe.msgprint("<br>".join(exc.msg), title=_("Compilation warning"))
 
 	def execute_doc(self, doc):
-		"""Inside a Processa script task or tool, validate and run with real imports; elsewhere use safe_exec."""
+		"""Inside a Processa script task or tool, run with real imports; elsewhere use safe_exec."""
 		if not frappe.flags.in_processa_script:
 			super().execute_doc(doc)
 			return
 
-		from processa.processa_engine.engine import check_server_script
-
-		check_server_script(self)
 		# json is bound like safe_exec binds it, so doc event scripts written for safe_exec keep working.
 		exec(self.script, {"__builtins__": __builtins__, "frappe": frappe, "json": json, "doc": doc})

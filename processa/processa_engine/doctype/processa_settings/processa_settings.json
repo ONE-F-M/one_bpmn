@@ -52,6 +52,9 @@
   "push_token_field",
   "section_break_google_translation",
   "google_translate_api_key",
+  "section_break_script_approval",
+  "script_security_reviewer",
+  "script_security_approver",
   "section_break_ai_rate_limit",
   "column_break_ai_rate_limit",
   "lock_release_roles",
@@ -365,6 +368,26 @@
    "fieldname": "google_translate_api_key",
    "fieldtype": "Password",
    "label": "Google Translate API Key"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_script_approval",
+   "fieldtype": "Section Break",
+   "label": "Script Approval"
+  },
+  {
+   "description": "Reviews each Script Approval Request first.",
+   "fieldname": "script_security_reviewer",
+   "fieldtype": "Link",
+   "label": "Script Security Reviewer",
+   "options": "User"
+  },
+  {
+   "description": "Approves or rejects each Script Approval Request. Must have the Application Manager role.",
+   "fieldname": "script_security_approver",
+   "fieldtype": "Link",
+   "label": "Script Security Approver",
+   "options": "User"
   },
   {
    "collapsible": 1,

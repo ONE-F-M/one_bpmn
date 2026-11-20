@@ -106,6 +106,7 @@ export function useProcessScripts(pc) {
 			element_name: bo.name || bo.id,
 			element_type: (bo.$type || "").replace("bpmn:", ""),
 			process_name: process?.name || process?.id || "",
+			process: pc.props.process || "",
 			parent_type: parentType.replace("bpmn:", ""),
 			shape_kind: parentType === "bpmn:AdHocSubProcess" ? "agent_tool" : "script_task",
 			incoming,

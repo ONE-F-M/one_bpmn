@@ -318,6 +318,7 @@ import { ref, computed, nextTick, onMounted, watch } from "vue";
 import CodeMirrorEditor from "@/components/Editor/CodeMirrorEditor/CodeMirrorEditor.vue";
 import ScriptNamesHint from "@/components/Editor/ScriptNamesHint/ScriptNamesHint.vue";
 import { frappeRequest } from "frappe-ui";
+import { useLogixTestRun } from "@/composables/Logix/useLogixTestRun.js";
 // The chat half is the shared AgentChatPanel; script changes
 // arrive as onefm.script_diff cards and apply into the editor below,
 // test cases as onefm.test_cases cards that run against the linked script.
@@ -566,30 +567,20 @@ async function onLogixCardAction({ name, action, value, payload }) {
 	await saveScript();
 }
 
-// The TestCaseCard renders and requests; the host runs — it owns the
-// linked-script name, so the endpoint call lives here, not in the card.
+// The TestCaseCard renders and requests; the host owns the linked-script name, so it starts the run.
 async function runTestCase(payload) {
 	const report = payload && typeof payload.onResult === "function" ? payload.onResult : () => {};
 	if (!savedScriptName.value) {
 		report({ passed: false, summary: "Save the script first — there is nothing to run yet." });
 		return;
 	}
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/processa.api.server_scripts.run_logix_test_case",
-			method: "POST",
-			params: {
-				script_name: savedScriptName.value,
-				inputs: JSON.stringify(payload.inputs || {}),
-			},
-		});
-		report({
-			passed: result?.passed ?? false,
-			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
-		});
-	} catch {
-		report({ passed: false, summary: "Could not run the test — network error." });
-	}
+	report(
+		await useLogixTestRun({
+			scriptName: savedScriptName.value,
+			inputs: payload.inputs,
+			processContext: props.processContext,
+		}),
+	);
 }
 
 // ── Element label ─────────────────────────────────────────────────────

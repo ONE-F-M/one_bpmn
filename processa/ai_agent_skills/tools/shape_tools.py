@@ -576,13 +576,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	"""
 	from processa.processa_engine.dispatch.common import merge_task_data
 	from processa.processa_engine.engine import check_server_script
-	from processa.processa_engine.engine.script_engine import make_import_script
+	from processa.processa_engine.engine.script_engine import make_import_script, process_of
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:
 		frappe.throw(f"Server Script '{script_name}' not found or disabled (shape {bpmn_id}).")
 
-	check_server_script(script_doc)
+	check_server_script(script_doc, process_of(instance), bpmn_id)
 
 	result_dict = {}
 	local_vars = dict(task.data)

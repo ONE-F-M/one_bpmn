@@ -99,7 +99,7 @@ size processa/api/a2a.py 1241
 size processa/api/docu.py 1494
 size processa/api/production_review.py 866
 size processa/api/security.py 868
-size processa/api/server_scripts.py 942
+size processa/api/server_scripts.py 941
 size processa/patches/v1_0/inline_logix_tool_scripts.py 835
 size processa/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size processa/patches/v1_0/seed_google_connectors.py 844
@@ -113,7 +113,7 @@ size processa/ai_agent_conversations/tests/test_ai_clarification.py 854
 size processa/tests/test_connector_agent.py 957
 size processa/ai_agent_memory/tests/test_memory_tools.py 867
 size frontend/src/components/Editor/FormattingToolbar/FormattingToolbar.vue 763
-size frontend/src/components/Logix/LogixCanvas/LogixCanvas.vue 1443
+size frontend/src/components/Logix/LogixCanvas/LogixCanvas.vue 1434
 size frontend/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1122
 size frontend/src/components/Instances/BpmnDiagramViewer/BpmnDiagramViewer.vue 796
 size frontend/src/components/Instances/ElementInspector/ElementInspector.vue 799

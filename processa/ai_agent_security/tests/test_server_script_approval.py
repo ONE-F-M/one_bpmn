@@ -87,19 +87,15 @@ class TestServerScriptApproval(FrappeTestCase):
 		model.insert(ignore_permissions=True)  # test fixture
 		self.addCleanup(frappe.delete_doc, "BPMN Process Model", model.name, force=True)
 
-	def test_approved_script_listing_os_runs_import_os(self):
+	def test_the_approval_fields_on_the_script_no_longer_open_the_run(self):
 		doc = self._script("ZZ A26 Approved OS", USES_OS, processa_allowed_modules="os", processa_approved=1)
-		self.assertEqual(doc.processa_approved_by, "Administrator")
 		self.assertEqual(doc.processa_approved_hash, script_gate.script_hash(USES_OS))
-
-		task = _FakeTask()
-		_make_script_engine()._run_frappe_server_script(doc.name, task)
-		self.assertEqual(task.data["sep"], "/")
-
-	def test_unapproved_script_with_import_os_is_rejected_on_save_and_at_run(self):
-		self._link_to_model("ZZ A26 Unapproved OS")
 		with self.assertRaises(frappe.ValidationError):
-			self._script("ZZ A26 Unapproved OS", USES_OS, processa_allowed_modules="os")
+			_make_script_engine()._run_frappe_server_script(doc.name, _FakeTask())
+
+	def test_unapproved_script_with_import_os_saves_and_is_rejected_at_run(self):
+		self._link_to_model("ZZ A26 Unapproved OS")
+		self._script("ZZ A26 Unapproved OS", USES_OS, processa_allowed_modules="os")
 
 		doc = self._script("ZZ A26 Unlinked OS", USES_OS, processa_allowed_modules="os")
 		with self.assertRaises(frappe.ValidationError):

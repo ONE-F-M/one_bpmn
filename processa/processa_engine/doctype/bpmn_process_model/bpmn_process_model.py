@@ -228,9 +228,9 @@ class BPMNProcessModel(Document):
 		if not self.is_new() and not self.has_value_changed("bpmn_xml"):
 			return
 
-		from processa.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
+		from processa.ai_agent_security.code_checks.script_gate import validate_process_model_syntax
 
-		validate_process_model_scripts(self.bpmn_xml)
+		validate_process_model_syntax(self.bpmn_xml)
 
 	def validate_is_editable(self):
 		"""Ensure the model is editable on the backend level before saving it.

@@ -651,7 +651,7 @@ def check_server_script_exists(script_name: str) -> dict:
 
 
 @frappe.whitelist()
-def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
+def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "", script_task: str = "") -> dict:
 	"""Execute a Server Script the way the BPMN engine runs a Script Task and
 	return a plain-English pass/fail result.
 
@@ -675,9 +675,6 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 		script_doc = frappe.get_doc("Server Script", script_name)
 		if script_doc.script_type != "API":
 			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
-
-		from processa.processa_engine.engine import check_server_script
-		check_server_script(script_doc)
 
 		context_doctype = str(test_inputs.get("context_doctype") or "")
 		context_docname = str(test_inputs.get("context_docname") or "")
@@ -712,6 +709,8 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 
 		frappe.db.savepoint("logix_check")
 		try:
+			from processa.processa_engine.engine import check_server_script
+			check_server_script(script_doc, process or None, script_task or None)
 			exec(script_doc.script, exec_ns)  # noqa: S102
 			summary = "It worked — the script ran without any problems."
 			if result_dict:

@@ -1,0 +1,203 @@
+{
+ "actions": [],
+ "autoname": "SAR-.#####",
+ "creation": "2026-11-20 00:00:00.000000",
+ "description": "A request to let one script task use what its Server Script needs approval for. Approved, it is the proof that the script task may use the items it lists.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "process_name",
+  "script_task",
+  "script_task_label",
+  "server_script",
+  "column_break_task",
+  "status",
+  "source",
+  "requested_by",
+  "section_request",
+  "reason",
+  "requested_items",
+  "script_at_time_of_request",
+  "section_decision",
+  "reviewer",
+  "approver",
+  "column_break_decision",
+  "approved_by",
+  "approved_on",
+  "decision_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "process_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Process",
+   "options": "Process",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "The id of the script task on the map.",
+   "fieldname": "script_task",
+   "fieldtype": "Data",
+   "label": "Script Task",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "script_task_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Script Task Label"
+  },
+  {
+   "fieldname": "server_script",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Server Script",
+   "options": "Server Script",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "column_break_task",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending Review",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending Review\nPending Approval\nApproved\nRejected",
+   "read_only": 1
+  },
+  {
+   "default": "Requested",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Requested\nShipped by patch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_request",
+   "fieldtype": "Section Break",
+   "label": "Request"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  },
+  {
+   "description": "Worked out from the saved script when the request is made.",
+   "fieldname": "requested_items",
+   "fieldtype": "Table",
+   "label": "Requested Items",
+   "options": "Script Approval Request Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "script_at_time_of_request",
+   "fieldtype": "Code",
+   "label": "Script at Time of Request",
+   "options": "Python",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_decision",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "fieldname": "reviewer",
+   "fieldtype": "Link",
+   "label": "Reviewer",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "label": "Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_decision",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI Agent Security",
+ "name": "Script Approval Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Application Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Desk User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "script_task_label",
+ "track_changes": 1
+}
