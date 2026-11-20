@@ -369,7 +369,7 @@ async function runSecurityLint() {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/processa.api.security.lint_server_script",
+			url: "/api/method/processa.api.script_approvals.lint_server_script",
 			method: "POST",
 			params: { code, script_name: savedScriptName.value },
 		});

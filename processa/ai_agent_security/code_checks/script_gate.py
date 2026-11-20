@@ -21,7 +21,6 @@ from frappe.query_builder import DocType
 
 from processa.ai_agent_security.code_checks.script_validator import (
 	SYNTAX_ERROR,
-	deep_inspect_script,
 	inspect_script,
 )
 
@@ -31,19 +30,24 @@ SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 def approved_request_names(process: str, script_task: str, server_script: str) -> frozenset:
 	"""The item names on Approved Script Approval Requests for this script task."""
+	return frozenset(approved_request_items(process, script_task, server_script))
+
+
+def approved_request_items(process: str, script_task: str, server_script: str) -> dict:
+	"""Each item name on an Approved Script Approval Request for this script task, with that request."""
 	request = DocType("Script Approval Request")
 	item = DocType("Script Approval Request Item")
 	rows = (
 		frappe.qb.from_(request)
 		.join(item)
 		.on(item.parent == request.name)
-		.select(item.item_name)
+		.select(item.item_name, request.name)
 		.where(request.process_name == process)
 		.where(request.script_task == script_task)
 		.where(request.server_script == server_script)
 		.where(request.status == "Approved")
 	).run()
-	return frozenset(row[0] for row in rows)
+	return dict(rows)
 
 
 def script_task_findings(code: str, process: str, script_task: str, server_script: str) -> list[dict]:
@@ -51,11 +55,46 @@ def script_task_findings(code: str, process: str, script_task: str, server_scrip
 	return inspect_script(code, approved_request_names(process, script_task, server_script))
 
 
-def lint_code(code: str, script_name: str = "") -> list[str]:
-	"""The findings in ``code`` against the categories allowed by default; reading the saved script needs read access."""
+def lint_script(code: str, script_name: str = "", process: str = "", script_task: str = "") -> dict:
+	"""Each finding in ``code`` with its approval state, and the status and open request of its script task.
+
+	Without a Process, script task and Server Script every finding is checked against the default categories.
+	"""
 	if script_name and frappe.db.exists("Server Script", script_name):
 		frappe.get_doc("Server Script", script_name).check_permission("read")
-	return deep_inspect_script(code or "")
+	on_task = bool(process and script_task and script_name)
+	approved = approved_request_items(process, script_task, script_name) if on_task else {}
+	alternatives = dict(
+		frappe.get_list("Script Import Category", fields=["name", "sanctioned_alternative"], as_list=True)
+	)
+	findings = []
+	for finding in inspect_script(code or ""):
+		request = _covering_request(finding["name"], approved)
+		alternative = alternatives.get(finding["category"]) or ""
+		findings.append(
+			{**finding, "approved": bool(request), "request": request, "sanctioned_alternative": alternative}
+		)
+	open_request = _open_request(process, script_task, script_name) if on_task else None
+	status = _task_status(findings, open_request)
+	return {"findings": findings, "open_request": open_request, "status": status}
+
+
+def _covering_request(name: str, approved: dict) -> str | None:
+	"""The Approved request listing name or one of its dotted prefixes."""
+	parts = name.split(".")
+	for end in range(len(parts), 0, -1):
+		request = approved.get(".".join(parts[:end]))
+		if request:
+			return request
+	return None
+
+
+def _task_status(findings: list, open_request: str | None) -> str:
+	if any(f["category"] == SYNTAX_ERROR for f in findings):
+		return "Syntax error"
+	if all(f["approved"] for f in findings):
+		return "Approved" if findings else "Clear"
+	return "Requested" if open_request else "Needs approval"
 
 
 def _looks_like_python(text: str) -> bool:

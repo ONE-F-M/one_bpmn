@@ -11,7 +11,6 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
-from processa.ai_agent_security.code_checks.script_gate import lint_code
 from processa.api.common import distinct
 
 # Process Owner holds write on the pattern doctype for seeding, but only these roles edit it here.
@@ -859,10 +858,3 @@ def _is_reviewer(user: str) -> bool:
 		return bool(set(frappe.get_roles(user)) & set(reviewer_roles()))
 	except Exception:
 		return False
-
-
-@frappe.whitelist()
-def lint_server_script(code: str = "", script_name: str = "") -> dict:
-	"""The findings the script security check would report for this code, against the default categories."""
-	violations = lint_code(code, script_name)
-	return {"valid": len(violations) == 0, "violations": violations}

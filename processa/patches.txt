@@ -390,3 +390,4 @@ processa.patches.v1_0.seed_script_import_categories #19-11-2026 the Script Impor
 processa.patches.v1_0.remove_script_security_settings #19-11-2026 Processa Settings drops the seven script security fields; Script Import Category holds the rules
 processa.patches.v1_0.approve_live_script_tasks #20-11-2026 every script task on an active map gets an Approved Script Approval Request for what its script uses
 processa.patches.v1_0.remove_server_script_approval_fields #20-11-2026 Server Script loses the Processa Approval fields and the Server Script Approvals report
+processa.patches.v1_0.logix_review_passes_items_needing_approval #20-11-2026 Logix review and finalize refuse only a script that does not parse and name the items that need approval
