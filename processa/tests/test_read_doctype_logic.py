@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_registry.definitions.lucrusher import tools as ci
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
-from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
+from processa.tests.processa_imports import processa_imports
 from processa.patches.v1_0 import lucrusher_reads_doctype_logic as p
 from processa.tests.site_scripts import as_deployed
 

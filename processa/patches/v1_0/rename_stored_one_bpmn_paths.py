@@ -1,7 +1,4 @@
 import frappe
-from frappe.utils import cint
-
-from processa.ai_agent_security.code_checks.script_gate import script_hash
 
 OLD_APP = "one_bpmn"
 NEW_APP = "processa"
@@ -34,10 +31,4 @@ def renamed(text: str) -> str:
 
 def _rename_script(name: str) -> None:
 	script = frappe.db.get_value("Server Script", name, "script")
-	values = {"script": renamed(script)}
-	# The approval fields come from add_server_script_approval_fields, which runs after this patch on a site moving from one_bpmn.
-	if frappe.db.has_column("Server Script", "processa_approved"):
-		approved, approved_hash = frappe.db.get_value("Server Script", name, ["processa_approved", "processa_approved_hash"])
-		if cint(approved) and approved_hash == script_hash(script):
-			values["processa_approved_hash"] = script_hash(values["script"])
-	frappe.db.set_value("Server Script", name, values, update_modified=False)
+	frappe.db.set_value("Server Script", name, "script", renamed(script), update_modified=False)

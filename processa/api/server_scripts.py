@@ -513,7 +513,6 @@ def create_server_script(
 	doc.__newname = script_name
 	doc.script_type = script_type
 	doc.script = script
-	doc.disabled = doc.processa_pending_review = 1  # a System Manager reviews and enables it
 	if reference_doctype:
 		doc.reference_doctype = reference_doctype
 	if doctype_event:
@@ -539,7 +538,6 @@ def create_server_script(
 			doc = frappe.get_doc("Server Script", script_name)
 			doc.script_type = script_type
 			doc.script = script
-			doc.disabled = doc.processa_pending_review = 1
 			if reference_doctype is not None:
 				doc.reference_doctype = reference_doctype
 			if doctype_event is not None:
@@ -596,7 +594,6 @@ def update_server_script(
 	try:
 		doc = frappe.get_doc("Server Script", script_name)
 		doc.script = script
-		doc.disabled = doc.processa_pending_review = 1
 		if script_type:
 			doc.script_type = script_type
 		if reference_doctype is not None:
@@ -787,7 +784,7 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	frappe.db.set_value(
 		"Server Script",
 		script_name,
-		{"disabled": 1} if cint(disabled) else {"disabled": 0, "processa_pending_review": 0},
+		{"disabled": cint(disabled)},
 		update_modified=True
 	)
 

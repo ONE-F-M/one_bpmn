@@ -10,12 +10,10 @@ def after_install():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	from processa.ai_agent_security.code_checks.category_seed import seed_script_import_categories
-	from processa.ai_agent_security.code_checks.script_gate import SERVER_SCRIPT_APPROVAL_FIELDS
 	from processa.api.editability import ensure_instance_type_seeded
 	from processa.processa_engine.notifications.comment_fields import get_comment_custom_fields
 
 	ensure_instance_type_seeded()
-	create_custom_fields(SERVER_SCRIPT_APPROVAL_FIELDS)
 	create_custom_fields(get_comment_custom_fields())
 	seed_script_import_categories()
 	frappe.db.commit()

@@ -79,7 +79,7 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		for schema in adapter.schemas:
 			self.assertIs(schema["additionalProperties"], False)
 
-	def test_a_fix_the_gate_blocks_is_not_offered(self):
+	def test_a_fix_needing_approval_is_offered_and_names_the_items(self):
 		adapter = FakeAdapter(
 			{
 				"explanation": "It divides by zero.",
@@ -89,9 +89,22 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		)
 		output = self._run(adapter)
 
+		self.assertIsNotNone(output["modified_script"])
+		self.assertIn(
+			"needs approval before it can run: permission_kwarg (Identity and permissions)",
+			output["response"],
+		)
+
+	def test_a_fix_that_does_not_parse_is_not_offered(self):
+		adapter = FakeAdapter(
+			{"explanation": "It divides by zero.", "fixed_script": FIXED + "\nresult['x'] = ("},
+			{"approved": True, "issues": [], "suggestions": []},
+		)
+		output = self._run(adapter)
+
 		self.assertIsNone(output["modified_script"])
 		self.assertIn("does not pass review", output["response"])
-		self.assertIn("line 3: `doc.save(ignore_permissions=True)`", output["response"])
+		self.assertIn("Syntax error", output["response"])
 
 	def test_a_fix_that_uses_a_name_it_never_imports_is_not_offered(self):
 		adapter = FakeAdapter(
