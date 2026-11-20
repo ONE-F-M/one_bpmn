@@ -18,9 +18,14 @@ import xml.etree.ElementTree as ET
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import cint, cstr, now_datetime
 
-from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script, parse_allowed
+from processa.ai_agent_security.code_checks.script_validator import (
+	deep_inspect_script,
+	inspect_script,
+	parse_allowed,
+)
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -95,6 +100,28 @@ def approved_names(script) -> frozenset:
 	if script.get("processa_approved_hash") != script_hash(script.get("script")):
 		return frozenset()
 	return parse_allowed(script.get("processa_allowed_modules"))
+
+
+def approved_request_names(process: str, script_task: str, server_script: str) -> frozenset:
+	"""The item names on Approved Script Approval Requests for this script task."""
+	request = DocType("Script Approval Request")
+	item = DocType("Script Approval Request Item")
+	rows = (
+		frappe.qb.from_(request)
+		.join(item)
+		.on(item.parent == request.name)
+		.select(item.item_name)
+		.where(request.process_name == process)
+		.where(request.script_task == script_task)
+		.where(request.server_script == server_script)
+		.where(request.status == "Approved")
+	).run()
+	return frozenset(row[0] for row in rows)
+
+
+def script_task_findings(code: str, process: str, script_task: str, server_script: str) -> list[dict]:
+	"""Findings in code that no Approved request for this script task covers."""
+	return inspect_script(code, approved_request_names(process, script_task, server_script))
 
 
 def lint_code(code: str, script_name: str = "") -> list[str]:

@@ -69,6 +69,7 @@ permission_query_conditions = {
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
 	"Chat Message": "processa.ai_agent_conversations.permissions.chat_message_query_conditions",
 	"Doctype Change Request": "processa.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
+	"Script Approval Request": "processa.ai_agent_security.doctype.script_approval_request.script_approval_request.get_permission_query_conditions",
 	"AI Skill": "processa.ai_agent_skills.permissions.ai_skill_query_conditions",
 	"DocType": "processa.utils.doctype_permissions.doctype_query_conditions",
 }
@@ -80,6 +81,7 @@ has_permission = {
 	"AI Memory": "processa.ai_agent_memory.permissions.ai_memory_has_permission",
 	"Chat Message": "processa.ai_agent_conversations.permissions.chat_message_has_permission",
 	"Doctype Change Request": "processa.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.has_permission",
+	"Script Approval Request": "processa.ai_agent_security.doctype.script_approval_request.script_approval_request.has_permission",
 	"AI Skill": "processa.ai_agent_skills.permissions.ai_skill_has_permission",
 	"DocType": "processa.utils.doctype_permissions.doctype_has_permission",
 }
