@@ -21,7 +21,7 @@ SCRIPT_BODY = """\
 if not doc.employee:
 	frappe.throw("Employee is required")
 note = frappe.get_doc({"doctype": "Note", "title": "logix check probe", "content": doc.employee})
-note.insert(ignore_permissions=True)
+note.insert()
 result["note"] = note.name
 result["employee"] = doc.employee
 """

@@ -93,7 +93,7 @@ def _script_permission_needs(task, attrs: dict) -> dict:
 	reference = frappe.db.get_value("Server Script", attrs["serverScript"], "reference_doctype") if attrs.get("serverScript") else None
 	if reference:
 		needs[reference] = {"read", "write"}
-	for _label, code, _name in _script_task_sources(ET.tostring(task, encoding="unicode")):
+	for _label, code, _allowed, _bpmn_id, _script in _script_task_sources(ET.tostring(task, encoding="unicode")):
 		for doctype, ptype in _script_doctype_calls(code):
 			needs.setdefault(doctype, set()).add(ptype)
 	return needs

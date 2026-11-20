@@ -22,6 +22,7 @@ from frappe.query_builder import DocType
 from frappe.utils import cint, cstr, now_datetime
 
 from processa.ai_agent_security.code_checks.script_validator import (
+	SYNTAX_ERROR,
 	deep_inspect_script,
 	inspect_script,
 	parse_allowed,
@@ -203,13 +204,12 @@ def _looks_like_python(text: str) -> bool:
 	return False
 
 
-def _script_task_sources(bpmn_xml: str) -> list[tuple]:
+def _script_task_sources(bpmn_xml: str, process: str | None = None) -> list[tuple]:
 	"""
 	Resolve every script task in the diagram to the code that will run.
 
-	Returns a list of ``(label, code, allowed)`` tuples:
-	  * inline ``<bpmn:script>`` tasks -> (label, inline python, no allowed names)
-	  * ``spiffworkflow:serverScript`` tasks -> (label, Server Script .script, its approved names)
+	Returns a list of ``(label, code, allowed, bpmn_id, server_script)`` tuples. Inline code gets
+	no allowed names; a Server Script gets the names its Approved requests on ``process`` list.
 
 	Referenced Server Scripts that do not exist yet (authoring in progress) are
 	skipped — the deploy gate re-checks once they exist. Never raises: an
@@ -237,37 +237,48 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 			inline = ""
 
 		if server_script:
-			script = frappe.db.get_value(
-				"Server Script",
-				server_script,
-				["script", "processa_approved", "processa_approved_hash", "processa_allowed_modules"],
-				as_dict=True,
-			)
-			if script and script.script:
+			code = frappe.db.get_value("Server Script", server_script, "script")
+			if code:
 				sources.append((
 					_("Script Task '{0}' → Server Script '{1}'").format(bpmn_id, server_script),
-					script.script,
-					approved_names(script),
+					code,
+					approved_request_names(process, bpmn_id, server_script) if process else frozenset(),
+					bpmn_id,
+					server_script,
 				))
 		elif inline and _looks_like_python(inline):
-			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline, frozenset()))
+			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline, frozenset(), bpmn_id, ""))
 
 	return sources
 
 
-def collect_script_security_violations(bpmn_xml: str) -> list:
-	"""
-	Structurally validate every (non-exempt) script task in a diagram.
+def collect_script_security_violations(bpmn_xml: str, process: str | None = None) -> list:
+	"""Every finding on the diagram's script tasks that no Approved request on ``process`` covers.
 
-	Shared by the deploy readiness check and the authoring/deploy gate, so all
-	surfaces report exactly the same findings. Returns a list of dicts:
-	``{"label": <task → script>, "message": <violation>}``. Empty when clean.
+	Each is ``{"label", "message", "category", "request"}``; request is the open request for the task, if any.
 	"""
 	findings: list = []
-	for label, code, allowed in _script_task_sources(bpmn_xml):
-		for message in deep_inspect_script(code, allowed=allowed):
-			findings.append({"label": label, "message": message})
+	for label, code, allowed, bpmn_id, server_script in _script_task_sources(bpmn_xml, process):
+		request = _open_request(process, bpmn_id, server_script)
+		for finding in inspect_script(code, allowed):
+			findings.append(
+				{"label": label, "message": finding["message"], "category": finding["category"], "request": request}
+			)
 	return findings
+
+
+def _open_request(process: str | None, script_task: str, server_script: str) -> str | None:
+	if not (process and server_script):
+		return None
+	return frappe.db.get_value(
+		"Script Approval Request",
+		{
+			"process_name": process,
+			"script_task": script_task,
+			"server_script": server_script,
+			"status": ("in", ("Pending Review", "Pending Approval")),
+		},
+	)
 
 
 def _format_violations(messages: list) -> str:
@@ -284,21 +295,24 @@ def _format_violations(messages: list) -> str:
 	return "\n".join(f"• {m}" for m in safe)
 
 
-def validate_process_model_scripts(bpmn_xml: str) -> None:
-	"""
-	Gate every script task in a process model. Raises ``frappe.ValidationError``
-	with a concise, generic summary when any violation is found. No-op when clean.
+def validate_process_model_scripts(bpmn_xml: str, process: str | None = None) -> None:
+	"""Deploy gate: refuse the map while any script task has a finding no Approved request covers."""
+	_refuse_findings(
+		collect_script_security_violations(bpmn_xml, process),
+		_("This process can't be deployed because these script tasks need approval:"),
+	)
 
-	The user-facing message names the affected task(s) and the number of issues,
-	and points to the Deployment Readiness → Script Security panel for the full
-	per-rule breakdown — rather than dumping every rule into a modal. The complete
-	detail is written to the admin-only Frappe Error Log.
 
-	Used by both the authoring gate (model.validate) and the deploy gate
-	(compile_process_model) as a backend safety net; the deploy readiness check
-	surfaces the same findings in the UI first.
-	"""
-	findings = collect_script_security_violations(bpmn_xml)
+def validate_process_model_syntax(bpmn_xml: str) -> None:
+	"""Map save gate: refuse only a script task whose code does not parse."""
+	_refuse_findings(
+		[f for f in collect_script_security_violations(bpmn_xml) if f["category"] == SYNTAX_ERROR],
+		_("This process can't be saved because a script task has a syntax error:"),
+	)
+
+
+def _refuse_findings(findings: list, heading: str) -> None:
+	"""Log the full findings and throw one line per affected script task."""
 	if not findings:
 		return
 
@@ -316,23 +330,19 @@ def validate_process_model_scripts(bpmn_xml: str) -> None:
 		safe_label = str(f["label"]).replace("<", "").replace(">", "")
 		issue_counts[safe_label] = issue_counts.get(safe_label, 0) + 1
 
-	lines = [
-		_("This process can't be saved because one or more script tasks contain unsafe code:"),
-		"",
-	]
+	lines = [heading, ""]
 	for label, count in issue_counts.items():
 		lines.append(_("• {0} — {1} security issue(s)").format(label, count))
 	lines.append("")
 	lines.append(
 		_(
-			"Unsafe scripts are blocked to protect the system. Open Deployment "
-			"Readiness → Script Security to see each issue, or contact your administrator."
+			"Open Deployment Readiness → Script Security to see each item and request approval for it."
 		)
 	)
 
 	frappe.throw(
 		"\n".join(lines),
-		title=_("Unsafe BPMN Script Task"),
+		title=_("Script Task Security"),
 		exc=frappe.ValidationError,
 	)
 
@@ -371,9 +381,8 @@ def validate_server_script_on_save(doc, method=None) -> None:
 	"""
 	doc_event hook (Server Script ``validate``).
 
-	Runs the structural validator on the script body, but only when the Server
-	Script is linked to a BPMN process model — unrelated Server Scripts pass
-	through untouched. Raises ``frappe.ValidationError`` on any violation.
+	Refuses a syntax error in a Server Script linked to a BPMN process model; what needs
+	approval is checked at deploy and before the script runs. Unrelated Server Scripts pass through.
 	"""
 	code = getattr(doc, "script", None)
 	if not code:
@@ -381,7 +390,7 @@ def validate_server_script_on_save(doc, method=None) -> None:
 	if not is_bpmn_linked_server_script(doc.name):
 		return
 
-	violations = deep_inspect_script(code, allowed=approved_names(doc))
+	violations = [f["message"] for f in inspect_script(code) if f["category"] == SYNTAX_ERROR]
 	if violations:
 		frappe.throw(
 			_format_violations(violations),
