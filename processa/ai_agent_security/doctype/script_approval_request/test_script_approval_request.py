@@ -1,10 +1,15 @@
 # Copyright (c) 2026, one-fm and contributors
 
+import json
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_security.code_checks.script_categories import clear_category_cache
 from processa.ai_agent_security.code_checks.script_gate import script_task_findings
+from processa.ai_agent_security.doctype.script_approval_request import script_approval_request as sar
+from processa.api import script_approvals
 from processa.patches.v1_0 import seed_script_import_categories
 
 PROCESS = "Approval Test Process"
@@ -17,6 +22,10 @@ OUTSIDER = "approval-outsider@example.com"
 class TestScriptApprovalRequest(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
+		# The requests here are checked without the Script Security Approval map, deployed or not.
+		trigger = patch("processa.processa_engine.triggers.on_doc_event")
+		trigger.start()
+		self.addCleanup(trigger.stop)
 		clear_category_cache()
 		seed_script_import_categories.execute()
 		for process in (PROCESS, OTHER_PROCESS):
@@ -163,3 +172,56 @@ class TestScriptApprovalRequest(FrappeTestCase):
 		self._approved()
 		self.assertEqual(self._flagged(task=TASK), [])
 		self.assertEqual(self._flagged(task="Activity_renamed"), ["requests"])
+
+	def _approve_log(self, instance, user, action="Approve"):
+		frappe.get_doc(
+			{
+				"doctype": "BPMN Activity Log",
+				"instance": instance,
+				"task_id": frappe.generate_hash(length=12),
+				"task_name": sar.APPROVE_TASK,
+				"action": "Completed",
+				"user": user,
+				"data": json.dumps({"action": action}),
+			}
+		).db_insert()
+
+	def test_setting_approved_without_the_approve_task_is_refused(self):
+		request = self._request()
+		request.status = "Approved"
+		with self.assertRaises(frappe.PermissionError):
+			request.save()
+
+	def test_approved_is_accepted_after_the_approver_completes_approve_on_its_instance(self):
+		request = self._request()
+		self._approve_log("SAR-TEST-INSTANCE", "Administrator")
+		with patch.object(sar, "approval_instances", return_value=["SAR-TEST-INSTANCE"]):
+			request.status = "Approved"
+			request.save()
+		self.assertEqual(frappe.db.get_value("Script Approval Request", request.name, "status"), "Approved")
+
+	def test_approve_completed_by_someone_else_or_as_reject_does_not_count(self):
+		request = self._request()
+		self._approve_log("SAR-TEST-INSTANCE", OUTSIDER)
+		self._approve_log("SAR-TEST-OTHER", "Administrator", action="Reject")
+		with patch.object(sar, "approval_instances", return_value=["SAR-TEST-INSTANCE", "SAR-TEST-OTHER"]):
+			request.status = "Approved"
+			with self.assertRaises(frappe.PermissionError):
+				request.save()
+
+	def test_the_form_knows_whether_the_approval_process_started(self):
+		request = self._request()
+		request.run_method("onload")
+		self.assertFalse(request.get_onload().approval_started)
+
+	def test_retry_starts_the_process_only_when_it_has_not_started(self):
+		request = self._request()
+		with patch.object(script_approvals, "on_doc_event") as start:
+			self.assertEqual(script_approvals.retry_script_approval(request.name), {"started": False})
+		start.assert_called_once()
+		with (
+			patch.object(script_approvals, "on_doc_event") as start,
+			patch.object(script_approvals, "approval_instances", return_value=["SAR-TEST-INSTANCE"]),
+		):
+			self.assertEqual(script_approvals.retry_script_approval(request.name), {"started": True})
+		start.assert_not_called()

@@ -9,6 +9,8 @@ from processa.ai_agent_security.code_checks.script_gate import script_task_findi
 from processa.ai_agent_security.code_checks.script_validator import SYNTAX_ERROR
 
 OPEN_STATUSES = ("Pending Review", "Pending Approval")
+# The name of the Approve user task on the Script Security Approval map, as its activity log records it.
+APPROVE_TASK = "Approve"
 READ_ALL_ROLES = {"System Manager", "Application Manager"}
 
 
@@ -57,6 +59,32 @@ class ScriptApprovalRequest(Document):
 			}
 		)
 
+	def validate(self):
+		if not self.is_new() and self.has_value_changed("status") and not self.approved_through_the_map():
+			frappe.throw(
+				_("Only the Script Security Approval process changes the status of a request."),
+				frappe.PermissionError,
+			)
+
+	def onload(self):
+		self.set_onload("approval_started", bool(approval_instances(self.name)))
+
+	def approved_through_the_map(self) -> bool:
+		"""True when the status is Approved and the Approver completed Approve on this request's map."""
+		if self.status != "Approved" or not self.approver:
+			return False
+		logs = frappe.get_all(
+			"BPMN Activity Log",
+			filters={
+				"instance": ("in", approval_instances(self.name) or [""]),
+				"task_name": APPROVE_TASK,
+				"action": "Completed",
+				"user": self.approver,
+			},
+			pluck="data",
+		)
+		return any(frappe.parse_json(data or "{}").get("action") == "Approve" for data in logs)
+
 	def refuse_second_open_request(self):
 		open_request = frappe.db.get_value(
 			"Script Approval Request",
@@ -85,6 +113,15 @@ class ScriptApprovalRequest(Document):
 				"requested_items",
 				{"category": category, "item_name": item_name, "lines": ", ".join(dict.fromkeys(numbers))},
 			)
+
+
+def approval_instances(request_name: str) -> list:
+	"""The process instances started for this request."""
+	return frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Script Approval Request", "context_docname": request_name},
+		pluck="name",
+	)
 
 
 def get_permission_query_conditions(user: str | None = None) -> str:
