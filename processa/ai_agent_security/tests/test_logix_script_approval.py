@@ -1,6 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
 """Logix reads each finding with its approval state, raises a request, and lets flagged scripts through review."""
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -202,3 +204,48 @@ def _server_script(name, body):
 			"script": body,
 		}
 	).insert()
+
+
+class TestLintForTheSecurityPanel(FrappeTestCase):
+	def setUp(self):
+		super().setUp()
+		trigger = patch("processa.processa_engine.triggers.on_doc_event")
+		trigger.start()
+		self.addCleanup(trigger.stop)
+		clear_category_cache()
+		seed_script_import_categories.execute()
+		if not frappe.db.exists("Process", PROCESS):
+			frappe.get_doc(
+				{
+					"doctype": "Process",
+					"process_name": PROCESS,
+					"description": PROCESS,
+					"process_owner": "Administrator",
+				}
+			).insert()
+		_server_script(SCRIPT, "import json\n" + CODE)
+
+	def tearDown(self):
+		frappe.db.rollback()
+		clear_category_cache()
+		super().tearDown()
+
+	def test_the_lint_lists_categories_in_use_all_categories_and_the_latest_request(self):
+		request = request_script_approval(SCRIPT, PROCESS, TASK, "Fetches exchange rates")
+		frappe.db.set_value(
+			"Script Approval Request",
+			request["name"],
+			{"status": "Rejected", "decision_note": "Use a connector"},
+		)
+		result = lint_server_script("import json\n" + CODE, SCRIPT, PROCESS, TASK)
+		self.assertEqual(result["in_use"]["Python basics"], ["json"])
+		self.assertEqual(result["in_use"]["Network"], ["requests"])
+		self.assertIn({"name": "Network", "allowed_by_default": 0}, result["categories"])
+		self.assertEqual(
+			(
+				result["latest_request"]["name"],
+				result["latest_request"]["status"],
+				result["latest_request"]["decision_note"],
+			),
+			(request["name"], "Rejected", "Use a connector"),
+		)

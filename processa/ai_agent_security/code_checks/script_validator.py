@@ -74,6 +74,7 @@ class _SecurityVisitor(ast.NodeVisitor):
 		self.allowed = allowed
 		self.frappe_aliases = {"frappe": "frappe"}
 		self.findings: list[dict] = []
+		self.used: dict[str, list[str]] = {}
 		self._node: ast.AST | None = None
 
 	def visit(self, node: ast.AST) -> None:
@@ -84,6 +85,8 @@ class _SecurityVisitor(ast.NodeVisitor):
 	def report(self, name, kind, category=None, unlisted=False, detail="", line=None) -> None:
 		"""Record name when its category needs approval and the script's approval does not cover it."""
 		category = category or category_for(name)
+		if category != UNLISTED and name not in self.used.setdefault(category, []):
+			self.used[category].append(name)
 		if category == UNLISTED and not unlisted:
 			return
 		parts = name.split(".")
@@ -318,6 +321,17 @@ def inspect_script(code: str | None, allowed: frozenset = frozenset()) -> list[d
 			line=code.count("\n", 0, match.start()) + 1,
 		)
 	return visitor.findings
+
+
+def used_categories(code: str | None) -> dict[str, list[str]]:
+	"""Each category the code uses, allowed or not, with the names from it; empty when the code does not parse."""
+	try:
+		tree = ast.parse(code or "")
+	except SyntaxError:
+		return {}
+	visitor = _SecurityVisitor(frozenset())
+	visitor.visit(tree)
+	return visitor.used
 
 
 def deep_inspect_script(script_text: str | None, allowed: frozenset = frozenset()) -> list[str]:

@@ -26,6 +26,7 @@ from processa.ai_agent_security.code_checks.script_validator import (
 	import_error,
 	imported_scripts,
 	inspect_script,
+	used_categories,
 )
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -107,9 +108,12 @@ def lint_script(code: str, script_name: str = "", process: str = "", script_task
 		frappe.get_doc("Server Script", script_name).check_permission("read")
 	on_task = bool(process and script_task and script_name)
 	approved = approved_request_items(process, script_task, script_name) if on_task else {}
-	alternatives = dict(
-		frappe.get_list("Script Import Category", fields=["name", "sanctioned_alternative"], as_list=True)
+	categories = frappe.get_list(
+		"Script Import Category",
+		fields=["name", "allowed_by_default", "sanctioned_alternative"],
+		order_by="name asc",
 	)
+	alternatives = {c.name: c.sanctioned_alternative for c in categories}
 	model = process and frappe.db.get_value(
 		"BPMN Process Model", {"process_name": process}, "name", order_by="modified desc"
 	)
@@ -123,8 +127,21 @@ def lint_script(code: str, script_name: str = "", process: str = "", script_task
 			{**finding, "approved": bool(request), "request": request, "sanctioned_alternative": alternative}
 		)
 	open_request = _open_request(process, script_task, script_name) if on_task else None
-	status = _task_status(findings, open_request)
-	return {"findings": findings, "open_request": open_request, "status": status}
+	latest = on_task and frappe.get_list(
+		"Script Approval Request",
+		filters={"process_name": process, "script_task": script_task, "server_script": script_name},
+		fields=["name", "status", "decision_note"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return {
+		"findings": findings,
+		"open_request": open_request,
+		"status": _task_status(findings, open_request),
+		"latest_request": latest[0] if latest else None,
+		"in_use": used_categories(code),
+		"categories": [{"name": c.name, "allowed_by_default": c.allowed_by_default} for c in categories],
+	}
 
 
 def _covering_request(name: str, approved: dict) -> str | None:
