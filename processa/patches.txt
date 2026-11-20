@@ -388,3 +388,4 @@ processa.patches.v1_0.sandbox_tools_fall_back_to_base_branch #18-11-2026 sandbox
 processa.patches.v1_0.submit_assertions_reads_one_review #18-11-2026 Submit Assertions reads the checker's one review variable, so approved lines are no longer duplicated and rejected
 processa.patches.v1_0.seed_docu_edit_command_cases
 processa.patches.v1_0.seed_script_import_categories #19-11-2026 the Script Import Category records and the Application Manager role
+processa.patches.v1_0.seed_lucrusher_phase_routing_cases

@@ -11,6 +11,11 @@ from processa.ai_agent_conversations import session_state
 from processa.ai_agent_skills import skill_tools
 
 AGENT = "lucrusher"
+PROPOSED = {
+	"intent": "TOPOLOGY_PROPOSAL",
+	"document": {"title": "Visa", "page_count": 3},
+	"topology": {"processes": []},
+}
 
 
 class TestPreloadFallsBackToProgress(FrappeTestCase):
@@ -24,7 +29,7 @@ class TestPreloadFallsBackToProgress(FrappeTestCase):
 			self.skipTest("the LuCrusher Build Context script is not on this site")
 		self.conversation = f"_test-fallback-{frappe.generate_hash(length=6)}"
 
-	def _preloaded(self, state):
+	def _preloaded(self, state, user_text="next"):
 		activated, result = [], {}
 		with (
 			patch.object(session_state, "get_state", return_value=state),
@@ -37,7 +42,7 @@ class TestPreloadFallsBackToProgress(FrappeTestCase):
 				self.script,
 				{
 					"frappe": frappe,
-					"task_data": {"conversation_id": self.conversation, "user_text": "next"},
+					"task_data": {"conversation_id": self.conversation, "user_text": user_text},
 					"context_docname": self.conversation,
 					"agent_configuration": AGENT,
 					"instance": SimpleNamespace(
@@ -46,6 +51,7 @@ class TestPreloadFallsBackToProgress(FrappeTestCase):
 					"result": result,
 				},
 			)
+		self.result = result
 		return activated, result["preloaded_skill"]
 
 	def test_a_recorded_phase_intent_still_wins(self):
@@ -73,3 +79,41 @@ class TestPreloadFallsBackToProgress(FrappeTestCase):
 	def test_nothing_fetched_yet_preloads_nothing(self):
 		activated, chosen = self._preloaded({"intent": "CLARIFY"})
 		self.assertEqual((activated, chosen), ([], ""))
+
+
+class TestTheRequestChoosesThePhase(FrappeTestCase):
+	"""The latest message names the phase; the stored state only predicts one."""
+
+	setUp = TestPreloadFallsBackToProgress.setUp
+	_preloaded = TestPreloadFallsBackToProgress._preloaded
+
+	def test_a_migration_list_request_loads_the_migration_skill_before_the_topology_is_confirmed(self):
+		_, chosen = self._preloaded(PROPOSED, "give me the migration list")
+		self.assertEqual(chosen, "lucrusher-migration-tasks")
+		self.assertEqual(self.result["requested_phase"], "MIGRATION_TASKS")
+		self.assertIn("Requested now: the migration task list", self.result["state_block"])
+
+	def test_a_code_removal_request_has_its_own_path(self):
+		_, chosen = self._preloaded(PROPOSED, "which code should we remove?")
+		self.assertEqual(chosen, "lucrusher-migration-tasks")
+		self.assertEqual(self.result["requested_phase"], "CODE_REMOVAL")
+		self.assertIn("only CODE REMOVAL tasks", self.result["state_block"])
+
+	def test_a_topology_request_loads_the_topology_skill_after_tasks_were_drafted(self):
+		_, chosen = self._preloaded(
+			{"intent": "MIGRATION_TASKS_DRAFT", "document": {"title": "Visa", "page_count": 3}},
+			"show me the topology again",
+		)
+		self.assertEqual(chosen, "lucrusher-topology-analysis")
+		self.assertEqual(self.result["requested_phase"], "TOPOLOGY")
+
+	def test_a_request_naming_two_phases_or_none_is_asked_about(self):
+		for text in ("do the topology and the migration tasks", "what's next?"):
+			self._preloaded(PROPOSED, text)
+			self.assertEqual(self.result["requested_phase"], "UNCLEAR", text)
+			self.assertIn("intent CLARIFY", self.result["state_block"])
+
+	def test_a_confirmation_follows_the_stored_phase(self):
+		_, chosen = self._preloaded({"intent": "TOPOLOGY_CONFIRMED"}, "yes, the topology looks good")
+		self.assertEqual(self.result["requested_phase"], "")
+		self.assertEqual(chosen, "lucrusher-migration-tasks")
