@@ -1,8 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from processa import install
+from processa.ai_agent_security.code_checks.category_seed import CATEGORIES
 from processa.ai_agent_security.code_checks.script_categories import category_for, clear_category_cache
 from processa.patches.v1_0 import seed_script_import_categories
 
@@ -32,7 +36,7 @@ class TestScriptImportCategory(FrappeTestCase):
 		)
 
 	def test_seed_lists_every_category_with_names(self):
-		for category in seed_script_import_categories.CATEGORIES:
+		for category in CATEGORIES:
 			doc = frappe.get_doc("Script Import Category", category["category_name"])
 			self.assertEqual(doc.allowed_by_default, category["allowed_by_default"])
 			self.assertEqual(len(doc.names), len(category["names"]))
@@ -102,3 +106,13 @@ class TestScriptImportCategory(FrappeTestCase):
 		frappe.db.delete("Role", {"name": "Application Manager"})
 		seed_script_import_categories.execute()
 		self.assertTrue(frappe.db.exists("Role", "Application Manager"))
+
+	def test_a_fresh_install_seeds_the_categories(self):
+		with (
+			patch(
+				"processa.ai_agent_security.code_checks.category_seed.seed_script_import_categories"
+			) as seed,
+			patch("frappe.db.commit"),
+		):
+			install.after_install()
+		seed.assert_called_once_with()
