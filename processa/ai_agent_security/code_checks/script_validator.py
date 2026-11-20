@@ -24,6 +24,9 @@ FUNCTION = "Frappe function"
 BUILTIN = "Builtin"
 SYNTAX = "Syntax"
 SYNTAX_ERROR = "Syntax error"
+IMPORT_ERROR = "Script import"
+# Findings that no approval can cover.
+NOT_APPROVABLE = frozenset({SYNTAX_ERROR, IMPORT_ERROR})
 
 # Attributes that climb from any object to the interpreter globals.
 _OBJECT_GRAPH_ATTRIBUTES = frozenset({
@@ -145,6 +148,10 @@ class _SecurityVisitor(ast.NodeVisitor):
 		func = node.func
 		if isinstance(func, ast.Name):
 			self.report(func.id, BUILTIN, detail=f"{func.id}()")
+			if func.id == "import_script" and not _script_name_argument(node):
+				self.findings.append(
+					import_error("import_script", node.lineno, "import_script needs the script name in quotes")
+				)
 		elif isinstance(func, ast.Attribute) and func.attr in _CALL_ATTRIBUTE_BUILTINS:
 			self.report(func.attr, BUILTIN, detail=f".{func.attr}()")
 		if (
@@ -246,6 +253,33 @@ class _SecurityVisitor(ast.NodeVisitor):
 					)
 					break
 		self.generic_visit(node)
+
+
+def import_error(name: str, line: int | None, message: str) -> dict:
+	"""A finding about import_script, which no approval can cover."""
+	return {"category": IMPORT_ERROR, "name": name, "kind": SYNTAX, "line": line, "message": message}
+
+
+def imported_scripts(code: str | None) -> list[tuple[str, int]]:
+	"""Each script name code passes to import_script in quotes, with its line."""
+	try:
+		tree = ast.parse(code or "")
+	except SyntaxError:
+		return []
+	return [
+		(_script_name_argument(node), node.lineno)
+		for node in ast.walk(tree)
+		if isinstance(node, ast.Call)
+		and isinstance(node.func, ast.Name)
+		and node.func.id == "import_script"
+		and _script_name_argument(node)
+	]
+
+
+def _script_name_argument(node: ast.Call) -> str | None:
+	if len(node.args) == 1 and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+		return node.args[0].value
+	return None
 
 
 def _is_dunder(name: str) -> bool:

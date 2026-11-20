@@ -4,6 +4,10 @@ import frappe
 from frappe import _
 
 from processa.ai_agent_security.code_checks.script_gate import lint_script
+from processa.ai_agent_security.doctype.script_approval_request.script_approval_request import (
+	approval_instances,
+)
+from processa.processa_engine.triggers import on_doc_event
 
 
 @frappe.whitelist()
@@ -36,3 +40,13 @@ def request_script_approval(
 		}
 	).insert()
 	return {"name": request.name, "status": request.status}
+
+
+@frappe.whitelist(methods=["POST"])
+def retry_script_approval(request: str) -> dict:
+	"""Start the Script Security Approval process for a request whose start did not happen."""
+	doc = frappe.get_doc("Script Approval Request", request)
+	doc.check_permission("read")
+	if not approval_instances(doc.name):
+		on_doc_event(doc, "after_insert")
+	return {"started": bool(approval_instances(doc.name))}

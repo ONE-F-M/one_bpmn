@@ -192,7 +192,8 @@
   {
    "create": 1,
    "read": 1,
-   "role": "Desk User"
+   "role": "Desk User",
+   "write": 1
   }
  ],
  "sort_field": "modified",

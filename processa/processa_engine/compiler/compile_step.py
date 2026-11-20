@@ -192,7 +192,10 @@ def compile_model(model) -> dict:
 
 	from processa.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
 
-	validate_process_model_scripts(sanitized_xml, model.get("process_name"))
+	called_scripts = frozenset(
+		cfg.get("serverScript") for cfg in called_script_extensions.values() if cfg.get("serverScript")
+	)
+	validate_process_model_scripts(sanitized_xml, model.get("process_name"), called_scripts)
 
 	user_extensions = extract_user_task_config(sanitized_xml)
 	if user_extensions:

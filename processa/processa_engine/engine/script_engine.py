@@ -23,10 +23,11 @@ def check_server_script(script_doc, process: str | None = None, script_task: str
 
 	Without a Process and script task only the categories allowed by default apply.
 	"""
-	from processa.ai_agent_security.code_checks.script_gate import approved_request_names
+	from processa.ai_agent_security.code_checks.script_gate import approved_request_names, library_findings
 
 	allowed = approved_request_names(process, script_task, script_doc.name) if process and script_task else frozenset()
-	_check_script_permissions(script_doc.script, script_doc.name, allowed)
+	libraries = [f["message"] for f in library_findings(script_doc.script, allowed)]
+	_check_script_permissions(script_doc.script, script_doc.name, allowed, libraries)
 
 
 def process_of(instance) -> str | None:
@@ -81,7 +82,9 @@ def _refuse_nested_import(script_name: str):
 
 	frappe.throw(_("A library script cannot import another script ('{0}')").format(script_name))
 
-def _check_script_permissions(script_text: str, label: str, allowed: frozenset = frozenset()) -> None:
+def _check_script_permissions(
+	script_text: str, label: str, allowed: frozenset = frozenset(), library_violations: list | None = None
+) -> None:
 	"""Run the save-time AST validator again right before exec() and throw on any violation.
 
 	Shared by Server Script tasks, inline <bpmn:script> tasks, conditions and run_logix_test_case.
@@ -93,7 +96,7 @@ def _check_script_permissions(script_text: str, label: str, allowed: frozenset =
 
 	from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
-	violations = deep_inspect_script(script_text or "", allowed=allowed)
+	violations = deep_inspect_script(script_text or "", allowed=allowed) + (library_violations or [])
 	if violations:
 		_f.log_error(
 			title=f'BPMN Script "{label}": execution blocked',

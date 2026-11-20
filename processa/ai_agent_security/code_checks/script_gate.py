@@ -20,7 +20,11 @@ from frappe import _
 from frappe.query_builder import DocType
 
 from processa.ai_agent_security.code_checks.script_validator import (
+	IMPORT_ERROR,
+	NOT_APPROVABLE,
 	SYNTAX_ERROR,
+	import_error,
+	imported_scripts,
 	inspect_script,
 	used_categories,
 )
@@ -52,8 +56,47 @@ def approved_request_items(process: str, script_task: str, server_script: str) -
 
 
 def script_task_findings(code: str, process: str, script_task: str, server_script: str) -> list[dict]:
-	"""Findings in code that no Approved request for this script task covers."""
-	return inspect_script(code, approved_request_names(process, script_task, server_script))
+	"""Findings in code and its libraries that no Approved request for this script task covers."""
+	allowed = approved_request_names(process, script_task, server_script)
+	return inspect_script(code, allowed) + library_findings(code, allowed)
+
+
+def library_findings(
+	code: str, allowed: frozenset, map_scripts: set | None = None, task: str = ""
+) -> list[dict]:
+	"""What each library ``code`` imports needs under the importing task's approval, naming the library.
+
+	With ``map_scripts`` a library that is not a script on the same map is a finding too.
+	"""
+	findings = []
+	for library, line in imported_scripts(code):
+		if map_scripts is not None and library not in map_scripts:
+			message = _("Script Task '{0}' imports '{1}', which is not in this process").format(task, library)
+			findings.append(import_error(library, line, message))
+			continue
+		library_code = frappe.db.get_value("Server Script", library, "script") or ""
+		inner = inspect_script(library_code, allowed)
+		if imported_scripts(library_code) or any(f["category"] == IMPORT_ERROR for f in inner):
+			message = _("Library '{0}' cannot import another script").format(library)
+			findings.append(import_error(library, line, message))
+		for finding in inner:
+			if finding["category"] not in NOT_APPROVABLE:
+				message = _("{0}, through library {1}").format(finding["message"], library)
+				findings.append({**finding, "line": line, "library": library, "message": message})
+	return findings
+
+
+def map_scripts_of(bpmn_xml: str) -> set:
+	"""The Server Scripts the script tasks of a map link."""
+	return {source[4] for source in script_task_sources(bpmn_xml) if source[4]}
+
+
+def model_scripts(model_name: str) -> set:
+	"""The Server Scripts a model's script tasks link, with those of the maps it calls, from its compiled spec."""
+	bpmn_xml, spec = frappe.db.get_value("BPMN Process Model", model_name, ["bpmn_xml", "serialized_spec"])
+	compiled = (frappe.parse_json(spec or "{}") or {}).get("script_task_extensions") or {}
+	called = {cfg.get("serverScript") for cfg in compiled.values() if cfg.get("serverScript")}
+	return map_scripts_of(bpmn_xml or "") | called
 
 
 def lint_script(code: str, script_name: str = "", process: str = "", script_task: str = "") -> dict:
@@ -71,8 +114,13 @@ def lint_script(code: str, script_name: str = "", process: str = "", script_task
 		order_by="name asc",
 	)
 	alternatives = {c.name: c.sanctioned_alternative for c in categories}
+	model = process and frappe.db.get_value(
+		"BPMN Process Model", {"process_name": process}, "name", order_by="modified desc"
+	)
+	map_scripts = model_scripts(model) if model else None
 	findings = []
-	for finding in inspect_script(code or ""):
+	code = code or ""
+	for finding in inspect_script(code) + library_findings(code, frozenset(), map_scripts, script_task):
 		request = _covering_request(finding["name"], approved)
 		alternative = alternatives.get(finding["category"]) or ""
 		findings.append(
@@ -107,8 +155,9 @@ def _covering_request(name: str, approved: dict) -> str | None:
 
 
 def _task_status(findings: list, open_request: str | None) -> str:
-	if any(f["category"] == SYNTAX_ERROR for f in findings):
-		return "Syntax error"
+	for category in (SYNTAX_ERROR, IMPORT_ERROR):
+		if any(f["category"] == category for f in findings):
+			return category
 	if all(f["approved"] for f in findings):
 		return "Approved" if findings else "Clear"
 	return "Requested" if open_request else "Needs approval"
@@ -179,15 +228,19 @@ def script_task_sources(bpmn_xml: str, process: str | None = None) -> list[tuple
 	return sources
 
 
-def collect_script_security_violations(bpmn_xml: str, process: str | None = None) -> list:
+def collect_script_security_violations(
+	bpmn_xml: str, process: str | None = None, called_scripts: frozenset = frozenset()
+) -> list:
 	"""Every finding on the diagram's script tasks that no Approved request on ``process`` covers.
 
 	Each is ``{"label", "message", "category", "request"}``; request is the open request for the task, if any.
 	"""
 	findings: list = []
-	for label, code, allowed, bpmn_id, server_script in script_task_sources(bpmn_xml, process):
+	sources = script_task_sources(bpmn_xml, process)
+	map_scripts = {source[4] for source in sources if source[4]} | called_scripts
+	for label, code, allowed, bpmn_id, server_script in sources:
 		request = _open_request(process, bpmn_id, server_script)
-		for finding in inspect_script(code, allowed):
+		for finding in inspect_script(code, allowed) + library_findings(code, allowed, map_scripts, bpmn_id):
 			findings.append(
 				{"label": label, "message": finding["message"], "category": finding["category"], "request": request}
 			)
@@ -222,10 +275,12 @@ def _format_violations(messages: list) -> str:
 	return "\n".join(f"• {m}" for m in safe)
 
 
-def validate_process_model_scripts(bpmn_xml: str, process: str | None = None) -> None:
+def validate_process_model_scripts(
+	bpmn_xml: str, process: str | None = None, called_scripts: frozenset = frozenset()
+) -> None:
 	"""Deploy gate: refuse the map while any script task has a finding no Approved request covers."""
 	_refuse_findings(
-		collect_script_security_violations(bpmn_xml, process),
+		collect_script_security_violations(bpmn_xml, process, called_scripts),
 		_("This process can't be deployed because these script tasks need approval:"),
 	)
 
