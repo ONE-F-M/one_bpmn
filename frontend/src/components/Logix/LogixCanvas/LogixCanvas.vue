@@ -1,12 +1,7 @@
 <template>
 	<div class="lc-root">
 
-		<!-- ── LEFT: Chat (the shared AgentChatPanel) ──────────
-		     Both Logix surfaces (this split view and the LogixChat modal) now
-		     embed one implementation. Script changes arrive as
-		     onefm.script_diff cards — CREATE and MODIFY both round-trip; the
-		     apply-target wiring into the editor below is preserved in
-		     onLogixCardAction. DISAMBIGUATE rides the shared onefm.choice. -->
+		<!-- LEFT: chat; script changes arrive as onefm.script_diff cards handled in onLogixCardAction. -->
 		<div v-if="!props.readonly" class="lc-chat-panel">
 			<AgentChatPanel
 				agent-id="logix_agent"
@@ -51,12 +46,11 @@
 					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
 					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
 
-					<!-- Live security-lint status -->
 					<span
-						v-if="lintViolations.length"
+						v-if="flagged.length"
 						class="lc-save-status lc-lint-status"
-						:title="lintViolations.join('\n')"
-					>⚠ {{ lintViolations.length }} security issue{{ lintViolations.length > 1 ? 's' : '' }}</span>
+						:title="flaggedTitle"
+					>{{ flagged.length }} needs approval</span>
 
 					<div v-if="isLoadingScript" class="lc-loading-indicator">
 						<div class="lc-spinner-sm"></div>
@@ -123,9 +117,15 @@
 					</button>
 					<button
 						class="lc-file-btn"
+						:class="{ 'lc-file-btn--active': showSecurity }"
+						title="Security"
+						@click="showSecurity = !showSecurity; showVersionHistory = false"
+					>Security</button>
+					<button
+						class="lc-file-btn"
 						:class="{ 'lc-file-btn--active': showVersionHistory }"
-						@click="showVersionHistory = !showVersionHistory"
 						title="Version History"
+						@click="showVersionHistory = !showVersionHistory; showSecurity = false"
 					>
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
 							<circle cx="12" cy="12" r="10"/>
@@ -141,6 +141,8 @@
 			<!-- Script Settings Panel -->
 			<div class="lc-settings-panel">
 					<div class="lc-settings-grid">
+						<div v-if="flagged.length" class="lc-settings-field"><label class="lc-settings-label">Approval</label><div class="lc-settings-input">{{ approvalLabel }}</div></div>
+						<div v-if="flagged.length" class="lc-settings-field"><label class="lc-settings-label">Deploy</label><div class="lc-settings-input">{{ approvalState }}</div></div>
 						<!-- Script Type -->
 						<div class="lc-settings-field">
 							<label class="lc-settings-label">Script Type</label>
@@ -221,16 +223,15 @@
 					</div>
 			</div>
 
-			<!-- Security-lint banner: what's wrong with the script, live -->
-			<div v-if="lintViolations.length" class="lc-lint-banner">
+			<div v-if="flagged.length" class="lc-lint-banner">
 				<div class="lc-lint-banner-head">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
 					</svg>
-					{{ lintViolations.length }} security issue{{ lintViolations.length > 1 ? 's' : '' }} — must be fixed before this script can be saved or deployed
+					{{ bannerText }}
 				</div>
 				<ul class="lc-lint-list">
-					<li v-for="(v, i) in lintViolations" :key="i">{{ v }}</li>
+					<li v-for="(line, i) in flaggedLines" :key="i">{{ line }}</li>
 				</ul>
 			</div>
 
@@ -249,6 +250,12 @@
 
 		</div>
 
+		<LogixSecurityPanel
+			v-if="showSecurity"
+			v-bind="securityPanel"
+			@close="showSecurity = false"
+			@request="onRequestApproval"
+		/>
 		<!-- ── RIGHT: Version History Panel ──────────────────── -->
 		<Transition name="lc-slide-in">
 			<div v-if="showVersionHistory" class="lc-version-panel">
@@ -319,9 +326,9 @@ import CodeMirrorEditor from "@/components/Editor/CodeMirrorEditor/CodeMirrorEdi
 import ScriptNamesHint from "@/components/Editor/ScriptNamesHint/ScriptNamesHint.vue";
 import { frappeRequest } from "frappe-ui";
 import { useLogixTestRun } from "@/composables/Logix/useLogixTestRun.js";
-// The chat half is the shared AgentChatPanel; script changes
-// arrive as onefm.script_diff cards and apply into the editor below,
-// test cases as onefm.test_cases cards that run against the linked script.
+import { useLogixScriptSecurity } from "@/composables/Logix/useLogixScriptSecurity.js";
+import LogixSecurityPanel from "@/components/Logix/LogixSecurityPanel/LogixSecurityPanel.vue";
+// The chat half is the shared AgentChatPanel; onefm.script_diff and onefm.test_cases cards act on the editor.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
 import { saveStatusLabel } from "@/utils/logixSaveStatus";
@@ -355,35 +362,27 @@ const saveProblem = computed(() => (props.readonly || isDirty.value)
 	? saveStatusLabel({ readonly: props.readonly, name: canvasScriptName.value, error: saveError.value })
 	: "");
 
-// ── Live security lint ────────────────────────────────────────────────
-// Mirrors the pre-deployment gate so the author sees blocking issues as they
-// type — same checks that will reject a save/deploy.
-const lintViolations = ref([]);
+// ── Script security: the lint of the open script on its script task ───
+const { lint, requesting, requestError, runLint, requestApproval } = useLogixScriptSecurity();
+const showSecurity = ref(false);
+const flagged = computed(() => (lint.value?.findings || []).filter((f) => !f.approved));
+const flaggedTitle = computed(() => flagged.value.map((f) => f.message).join("\n"));
+const flaggedLines = computed(() => flagged.value.map((f) => `Line ${f.line}: ${f.message}. Request approval in Security.${f.sanctioned_alternative ? ` Instead: ${f.sanctioned_alternative}` : ""}`));
+const securityPanel = computed(() => ({ lint: lint.value, scriptLabel: savedScriptName.value, saved: Boolean(savedScriptName.value), dirty: isDirty.value && !isSaved.value, readonly: props.readonly, requesting: requesting.value, error: requestError.value }));
+const approvalLabel = computed(() => (lint.value?.open_request && lint.value?.latest_request?.status) || "Needs approval");
+const bannerText = computed(() => `${flagged.value.length} item${flagged.value.length > 1 ? "s need" : " needs"} approval before this map can be deployed. Saving is allowed.`);
+const approvalState = computed(() => lint.value?.open_request ? `Blocked: ${lint.value.open_request} open` : "Blocked");
+const lintNow = () => runLint({ code: canvasCode.value || "", scriptName: savedScriptName.value, processContext: props.processContext });
 let lintTimer = null;
-
-async function runSecurityLint() {
-	const code = canvasCode.value || "";
-	if (!code.trim()) {
-		lintViolations.value = [];
-		return;
-	}
-	try {
-		const res = await frappeRequest({
-			url: "/api/method/processa.api.script_approvals.lint_server_script",
-			method: "POST",
-			params: { code, script_name: savedScriptName.value },
-		});
-		lintViolations.value = res && res.violations ? res.violations : [];
-	} catch {
-		// Never let a lint failure disrupt editing.
-		lintViolations.value = [];
-	}
-}
-
 watch(canvasCode, () => {
 	if (lintTimer) clearTimeout(lintTimer);
-	lintTimer = setTimeout(runSecurityLint, 400);
+	lintTimer = setTimeout(lintNow, 400);
 });
+
+async function onRequestApproval(reason) {
+	const scriptName = savedScriptName.value;
+	if (await requestApproval({ scriptName, processContext: props.processContext, reason })) await lintNow();
+}
 
 // ── Auto-save ─────────────────────────────────────────────────────────
 let autoSaveTimer = null;
