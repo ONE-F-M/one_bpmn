@@ -10,7 +10,7 @@ from frappe import _
 from processa.ai_agent_registry.definitions.shared.helpers import tool_envelope
 from processa.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from processa.ai_agent_security.code_checks.script_validator import (
-	SYNTAX_ERROR,
+	NOT_APPROVABLE,
 	request_findings,
 	validate_script,
 )
@@ -72,8 +72,8 @@ def run_debug_stage(conversation: str) -> dict:
 		adapter, _reviewer_system(subs, shape_kind), _review_prompt(shape_kind, diff), REVIEW_SCHEMA
 	)
 	gate = validate_script(fixed)
-	syntax_errors = [f for f in gate["findings"] if f["category"] == SYNTAX_ERROR]
-	needs_approval = [f for f in gate["findings"] if f["category"] != SYNTAX_ERROR]
+	syntax_errors = [f for f in gate["findings"] if f["category"] in NOT_APPROVABLE]
+	needs_approval = [f for f in gate["findings"] if f["category"] not in NOT_APPROVABLE]
 	checks = request_findings(fixed, turn.get("user_text") or "")
 	if review.get("approved") and not syntax_errors and not checks:
 		if needs_approval:

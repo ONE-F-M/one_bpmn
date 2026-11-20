@@ -15,6 +15,7 @@ class ScriptApprovalRequestItem(Document):
 
 		category: DF.Data | None
 		item_name: DF.Data | None
+		library: DF.Data | None
 		lines: DF.Data | None
 		parent: DF.Data
 		parentfield: DF.Data
