@@ -160,7 +160,6 @@ doc_events = {
 	# Scripts pass through untouched).
 	"Server Script": {
 		"validate": [
-			"processa.ai_agent_security.code_checks.script_gate.apply_server_script_approval",
 			"processa.ai_agent_security.code_checks.script_gate.validate_server_script_on_save",
 		],
 	},

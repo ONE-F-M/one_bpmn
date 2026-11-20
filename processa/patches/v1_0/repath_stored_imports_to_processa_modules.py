@@ -1,9 +1,6 @@
 import re
 
 import frappe
-from frappe.utils import cint
-
-from processa.ai_agent_security.code_checks.script_gate import script_hash
 
 # Old module to the module that holds all of its names now.
 MOVED_MODULES = {
@@ -183,14 +180,10 @@ def _names_matching(doctype: str, fieldname: str, like: list) -> set:
 
 
 def _repath_script(name: str) -> None:
-	row = frappe.db.get_value("Server Script", name, ["script", "processa_approved", "processa_approved_hash"], as_dict=True)
-	script = repath(row.script)
-	if script == row.script:
-		return
-	values = {"script": script}
-	if cint(row.processa_approved) and row.processa_approved_hash == script_hash(row.script):
-		values["processa_approved_hash"] = script_hash(script)
-	frappe.db.set_value("Server Script", name, values, update_modified=False)
+	original = frappe.db.get_value("Server Script", name, "script")
+	script = repath(original)
+	if script != original:
+		frappe.db.set_value("Server Script", name, "script", script, update_modified=False)
 
 
 def _rewrite_import(match: re.Match) -> str:

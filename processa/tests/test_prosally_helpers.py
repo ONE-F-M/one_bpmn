@@ -19,7 +19,7 @@ from processa.patches.v1_0 import (
 )
 from processa.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
 from processa.ai_agent_security.code_checks.script_validator import deep_inspect_script
-from processa.patches.v1_0.approve_processa_imports_in_server_scripts import processa_imports
+from processa.tests.processa_imports import processa_imports
 from processa.tests.site_scripts import as_deployed
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>

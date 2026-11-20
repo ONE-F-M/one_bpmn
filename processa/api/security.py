@@ -863,6 +863,6 @@ def _is_reviewer(user: str) -> bool:
 
 @frappe.whitelist()
 def lint_server_script(code: str = "", script_name: str = "") -> dict:
-	"""The security violations the Server Script gate would find in this code, honouring the script's approval."""
+	"""The findings the script security check would report for this code, against the default categories."""
 	violations = lint_code(code, script_name)
 	return {"valid": len(violations) == 0, "violations": violations}

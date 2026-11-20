@@ -7,7 +7,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from processa.ai_agent_security.code_checks.script_categories import clear_category_cache
-from processa.ai_agent_security.code_checks.script_gate import approved_names
 from processa.ai_agent_security.code_checks.script_validator import (
 	SYNTAX_ERROR,
 	deep_inspect_script,
@@ -15,7 +14,7 @@ from processa.ai_agent_security.code_checks.script_validator import (
 	request_findings,
 	validate_script,
 )
-from processa.patches.v1_0 import approve_processa_imports_in_server_scripts, seed_script_import_categories
+from processa.patches.v1_0 import seed_script_import_categories
 
 SETTINGS_FIELDS = (
 	"section_break_script_security",
@@ -379,29 +378,3 @@ class TestRequestFindings(unittest.TestCase):
 		self.assertTrue(_rules("x = 1", "write a client script that hides the Notes field"))
 		self.assertEqual(_rules("frappe.ui.form.on('ToDo', {})", "write a client script", "javascript"), [])
 		self.assertTrue(_rules("frappe.ui.form.on('ToDo', {})", "write a server script", "javascript"))
-
-
-class TestApproveProcessaImports(_CategoryTestCase):
-	def _script(self, name, body):
-		if frappe.db.exists("Server Script", name):
-			frappe.delete_doc("Server Script", name, force=True)
-		frappe.get_doc(
-			{
-				"doctype": "Server Script",
-				"name": name,
-				"script_type": "API",
-				"api_method": frappe.scrub(name),
-				"script": body,
-			}
-		).insert()
-		return name
-
-	def test_only_scripts_whose_findings_are_processa_imports_are_approved(self):
-		shipped = self._script("Approve Test Shipped", "from processa.api import deploy\nresult['x'] = 1")
-		network = self._script("Approve Test Network", "import processa.api\nimport requests")
-		approve_processa_imports_in_server_scripts.execute()
-		script = frappe.get_doc("Server Script", shipped)
-		self.assertEqual(script.processa_approved, 1)
-		self.assertEqual(script.processa_allowed_modules, "processa.api.deploy")
-		self.assertEqual(deep_inspect_script(script.script, approved_names(script)), [])
-		self.assertEqual(frappe.db.get_value("Server Script", network, "processa_approved"), 0)

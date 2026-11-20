@@ -4,7 +4,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from processa.ai_agent_security.code_checks.script_gate import script_hash
 from processa.patches.v1_0 import repath_docu_notification_server_script_imports as P
 
 SCRIPT_NAME = "ZZ Repath Docu Notification Server Script Imports"
@@ -32,23 +31,10 @@ class TestRepathDocuNotificationServerScriptImports(FrappeTestCase):
 				"script": OLD_SCRIPT,
 			}
 		).insert()
-		frappe.db.set_value(
-			"Server Script",
-			SCRIPT_NAME,
-			{"processa_approved": 1, "processa_approved_hash": script_hash(OLD_SCRIPT)},
-		)
 
 	def test_script_imports_move(self):
 		P.execute()
 		self.assertEqual(frappe.db.get_value("Server Script", SCRIPT_NAME, "script"), NEW_SCRIPT)
-
-	def test_approval_is_not_restored_for_the_rewritten_script(self):
-		P.execute()
-		row = frappe.db.get_value(
-			"Server Script", SCRIPT_NAME, ["processa_approved", "processa_approved_hash"], as_dict=True
-		)
-		self.assertEqual(row.processa_approved_hash, script_hash(OLD_SCRIPT))
-		self.assertNotEqual(row.processa_approved_hash, script_hash(NEW_SCRIPT))
 
 	def test_running_twice_changes_nothing_more(self):
 		P.execute()
