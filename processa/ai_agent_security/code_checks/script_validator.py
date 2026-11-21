@@ -361,6 +361,8 @@ def validate_script(code: str) -> dict:
 
 
 # Names a BPMN Script Task receives without defining them; anything else must be defined or imported.
+# Fields a script must not set to a fixed value; an Apply Workflow service task sets them.
+STATUS_FIELDS = ("workflow_state", "docstatus")
 INJECTED_NAMES = ("frappe", "_", "doc", "task_data", "result", "context_doctype", "context_docname", "import_script")
 _BUILTIN_NAMES = frozenset(dir(builtins))
 _CLIENT_SCRIPT_RE = re.compile(r"\b(client[\s-]?script|form script|javascript|js)\b", re.IGNORECASE)
@@ -381,7 +383,7 @@ def request_findings(code: str, request: str, language: str = "python") -> list[
 	"""Findings for a generated script that would not run or does not follow the request, as {"rule", "line", "code"}."""
 	findings = _script_type_findings(request, language)
 	if language == "python":
-		findings += undefined_name_findings(code)
+		findings += undefined_name_findings(code) + status_change_findings(code)
 	return findings + _number_findings(code, request)
 
 
@@ -452,6 +454,77 @@ def undefined_name_findings(code: str) -> list[dict]:
 			}
 		)
 	return findings
+
+
+def status_change_findings(code: str) -> list[dict]:
+	"""One finding per line that sets workflow_state or docstatus to a fixed value, which is Apply Workflow's job."""
+	from frappe import _
+
+	try:
+		tree = ast.parse(code)
+	except SyntaxError:
+		return []
+	lines = code.splitlines()
+	findings = []
+	for line, field, value in _status_writes(tree):
+		rule = _(
+			"Line {0} sets {1} to {2} in the script. A status change belongs in an Apply Workflow service task "
+			"on the map, which saves, submits and checks the transition the way the workflow defines."
+		).format(line, field, repr(value))
+		rule += _workflow_states(field, value)
+		findings.append({"rule": rule, "line": line, "code": lines[line - 1].strip()})
+	return findings
+
+
+def _status_writes(tree: ast.AST):
+	"""(line, field, value) for each assignment, db_set or set_value that writes a fixed status."""
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Assign) and _is_fixed(node.value):
+			for target in node.targets:
+				if isinstance(target, ast.Attribute) and target.attr in STATUS_FIELDS:
+					yield node.lineno, target.attr, node.value.value
+		elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+			first = {"db_set": 0, "set_value": 2}.get(node.func.attr)
+			if first is not None:
+				for field, value in _written_pairs(node.args[first:]):
+					yield node.lineno, field, value
+
+
+def _written_pairs(args: list):
+	"""The status fields and fixed values a db_set or set_value call writes, from a field and value or a dict."""
+	if args and isinstance(args[0], ast.Dict):
+		pairs = zip(args[0].keys, args[0].values, strict=True)
+	elif len(args) >= 2:
+		pairs = [(args[0], args[1])]
+	else:
+		pairs = []
+	for key, value in pairs:
+		if isinstance(key, ast.Constant) and key.value in STATUS_FIELDS and _is_fixed(value):
+			yield key.value, value.value
+
+
+def _is_fixed(node: ast.AST) -> bool:
+	is_constant = isinstance(node, ast.Constant)
+	return is_constant and isinstance(node.value, (str, int)) and not isinstance(node.value, bool)
+
+
+def _workflow_states(field: str, value) -> str:
+	"""The Workflows with this state and its doc status, as one sentence; empty when none or for docstatus."""
+	import frappe
+	from frappe import _
+
+	if field != "workflow_state":
+		return ""
+	rows = frappe.get_all(
+		"Workflow Document State",
+		filters={"parenttype": "Workflow", "state": value},
+		fields=["parent", "doc_status"],
+		order_by="parent asc",
+	)
+	if not rows:
+		return ""
+	found = ", ".join(f"{row.parent} (doc status {row.doc_status})" for row in rows)
+	return " " + _("State {0} is in Workflow {1}; use it as the step's state.").format(value, found)
 
 
 def _number_findings(code: str, request: str) -> list[dict]:
