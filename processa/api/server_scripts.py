@@ -692,7 +692,7 @@ def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "",
 		result_dict = {}
 		# ONE namespace for globals and locals, same as the engine — separate
 		# dicts break scripts whose top-level functions call each other.
-		exec_ns = {"frappe": frappe, "__builtins__": __builtins__}
+		exec_ns = {"frappe": frappe, "_": _, "__builtins__": __builtins__}
 		exec_ns.update(task_data)
 		exec_ns.update(
 			{

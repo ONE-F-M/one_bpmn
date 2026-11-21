@@ -336,6 +336,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 		local_vars.update(
 			{
 				"frappe": _frappe,
+				"_": _frappe._,
 				# which agent this script belongs to, if any.
 				#
 				# A script task inside an agent's own map IS the agent acting, and
