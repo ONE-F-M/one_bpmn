@@ -81,7 +81,7 @@ class OpenAIAdapter(BaseLLMAdapter):
 		for entry in transcript:
 			role = entry.get("role")
 			if role == "user":
-				messages.append({"role": "user", "content": entry.get("content", "")})
+				messages.append({"role": "user", "content": _user_content(entry)})
 			elif role == "assistant":
 				msg = {"role": "assistant", "content": entry.get("content") or None}
 				calls = entry.get("tool_calls") or []
@@ -156,3 +156,17 @@ class OpenAIAdapter(BaseLLMAdapter):
 			cache_read_tokens=cache_read,
 			cache_write_tokens=cache_write,
 		)
+
+
+def _user_content(entry: dict):
+	"""The user's text, followed by any attached images as data URLs."""
+	images = entry.get("images") or []
+	if not images:
+		return entry.get("content", "")
+	return [
+		{"type": "text", "text": entry.get("content", "")},
+		*(
+			{"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
+			for i in images
+		),
+	]

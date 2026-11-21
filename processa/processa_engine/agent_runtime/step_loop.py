@@ -132,6 +132,7 @@ async def run_agent_loop(
 	budget_notes: bool = False,
 	temperature: float | None = None,
 	top_p: float | None = None,
+	images: list | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model produces a final answer or hits
 	the turn cap, or (None, AgentSuspension) when it selects a human tool."""
@@ -163,7 +164,7 @@ async def run_agent_loop(
 		)
 		transcript.append({"role": "tool_results", "results": results})
 	else:
-		transcript = [*(history or []), {"role": "user", "content": user}]
+		transcript = [*(history or []), {"role": "user", "content": user, **({"images": images} if images else {})}]
 
 	clear_tool_artifacts()
 
