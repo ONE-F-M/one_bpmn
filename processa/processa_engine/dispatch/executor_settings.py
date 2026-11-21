@@ -15,6 +15,7 @@ def executor_config(
 	messages: list | None = None,
 	tools: list | None = None,
 	resume_state: dict | None = None,
+	images: list | None = None,
 ):
 	"""The executor settings an AI Agent Task's config asks for, around the prompts, history and tools given."""
 	from processa.processa_engine.agent_runtime.executor import (
@@ -37,6 +38,7 @@ def executor_config(
 		system_prompt=system_prompt,
 		user_prompt=user_prompt,
 		messages=messages or [],
+		images=images or [],
 		temperature=float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
 		top_p=float(task_cfg.get("aiTopP") or DEFAULT_TOP_P),
 		# cint first: a shape attribute arrives as a string, and "0" is truthy.

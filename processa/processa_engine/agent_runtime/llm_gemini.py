@@ -1,3 +1,5 @@
+import base64
+
 from google import genai
 from google.genai import types
 
@@ -92,7 +94,11 @@ class GeminiAdapter(BaseLLMAdapter):
 		for entry in transcript:
 			role = entry.get("role")
 			if role == "user":
-				contents.append(types.Content(role="user", parts=[types.Part(text=entry.get("content", ""))]))
+				images = [
+					types.Part.from_bytes(data=base64.b64decode(i["data"]), mime_type=i["media_type"])
+					for i in entry.get("images") or []
+				]
+				contents.append(types.Content(role="user", parts=[types.Part(text=entry.get("content", "")), *images]))
 			elif role == "assistant":
 				parts = []
 				if entry.get("content"):

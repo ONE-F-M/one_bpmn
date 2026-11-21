@@ -24,7 +24,7 @@
 			</div>
 			<template v-for="(item, i) in transcriptItems" :key="i">
 				<!-- plain text bubbles -->
-				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user" :class="{ 'acp-msg--failed': item.failed }">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span>
+				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user" :class="{ 'acp-msg--failed': item.failed }">{{ item.text }}<Badge v-for="name in item.files || []" :key="name" class="acp-filechip" theme="gray" :label="name" />
 					<button v-if="item.failed" class="acp-retry" :disabled="busy" @click="retrySend(item)">{{ __("Not sent — Retry") }}</button>
 				</div>
 				<div v-else-if="item.kind === 'agent'" class="acp-agent-block">
@@ -134,9 +134,24 @@
 		<div v-if="busy" class="acp-locked-note" role="status">
 			{{ __("Still drawing — you can send another message when this finishes.") }}
 		</div>
-		<div v-if="pendingFile" class="acp-pending-file">
-			<span class="acp-filechip">📎 {{ pendingFile.file_name }}</span>
-			<button class="acp-tb" :title="__('Remove')" @click="pendingFile = null">✕</button>
+		<div v-if="pendingFiles.length" class="acp-pending-file">
+			<span
+				v-for="(file, index) in pendingFiles"
+				:key="`${index}-${file.file_name}`"
+				class="acp-pending-item"
+			>
+				<Badge
+					:theme="file.failed ? 'red' : 'gray'"
+					:label="file.file_name"
+				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					icon="x"
+					:label="__('Remove')"
+					@click="pendingFiles.splice(index, 1)"
+				/>
+			</span>
 		</div>
 		<div class="acp-composer">
 			<button
@@ -148,7 +163,7 @@
 			>
 				{{ uploading ? "…" : "📎" }}
 			</button>
-			<input ref="fileInput" type="file" class="acp-hidden" @change="onFilePicked" />
+			<input ref="fileInput" type="file" multiple class="acp-hidden" @change="onFilePicked" />
 			<textarea
 				ref="input"
 				v-model="draft"
@@ -218,7 +233,7 @@
 // (the id arrives on RUN_STARTED as thread_id). Unmount ends the
 // conversation — the fix for this week's orphaned Active instances.
 import MarkdownIt from "markdown-it";
-import { Dialog, FileUploadHandler, frappeRequest } from "frappe-ui";
+import { Badge, Button, Dialog, FileUploadHandler, frappeRequest } from "frappe-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "@/utils/aguiClient";
@@ -244,7 +259,7 @@ const props = defineProps({
 	// File uploads (one-ai parity). The file uploads through
 	// frappe's standard upload_file and its file_url rides the next turn's
 	// context — the transport itself stays a plain SSE GET.
-	allowUploads: { type: Boolean, default: false },
+	allowUploads: { type: Boolean, default: true },
 	// chat-surface-layout scope: hosts may force a layout regardless of the
 	// agent's surface_type — a cramped modal passes "conversation" to refuse
 	// the split. Empty = derive from configuration.
@@ -570,21 +585,22 @@ onBeforeUnmount(() => {
 
 // ── uploads ─────────────────────────────────────────────────────
 
-const pendingFile = ref(null); // { file_url, file_name }
+const pendingFiles = ref([]); // [{ file_url, file_name, failed }]
 const uploading = ref(false);
 const fileInput = ref(null);
 
 async function onFilePicked(event) {
-	const file = event.target.files && event.target.files[0];
-	if (!file) return;
+	const picked = Array.from(event.target.files || []);
+	if (!picked.length) return;
 	uploading.value = true;
 	try {
-		const uploaded = await new FileUploadHandler().upload(file, { private: false });
-		const url = uploaded && uploaded.file_url;
-		if (url) pendingFile.value = { file_url: url, file_name: file.name };
-	} catch {
-		errorMessage.value = __("The file could not be uploaded.");
-		errorOpen.value = true;
+		const uploads = await Promise.allSettled(
+			picked.map((file) => new FileUploadHandler().upload(file, { private: false }))
+		);
+		uploads.forEach((upload, index) => {
+			const url = upload.status === "fulfilled" && upload.value && upload.value.file_url;
+			pendingFiles.value.push({ file_url: url || "", file_name: picked[index].name, failed: !url });
+		});
 	} finally {
 		uploading.value = false;
 		if (fileInput.value) fileInput.value.value = "";
@@ -603,6 +619,11 @@ function newMessageId() {
 async function send(text, extraContext = null, reuseId = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
+	if (pendingFiles.value.some((file) => file.failed)) {
+		errorMessage.value = __("The file could not be uploaded.");
+		errorOpen.value = true;
+		return;
+	}
 	draft.value = "";
 	// One id per message the person typed, kept across retries. A stream that
 	// dies after the agent has already answered used to cost a second run and a
@@ -622,11 +643,10 @@ async function send(text, extraContext = null, reuseId = null) {
 	// a host that doesn't (the desk Chat dialog) must not clobber it with
 	// an empty placeholder.
 	let turnContext = { ...props.context, ...(extraContext || {}) };
-	if (pendingFile.value) {
-		turnContext.file = pendingFile.value.file_url;
-		sent.file = pendingFile.value.file_name;
-		pendingFile.value = null;
-	}
+	// Sent on every turn, empty included, so an earlier turn's files do not stay in the process data.
+	turnContext.files = pendingFiles.value.map((file) => file.file_url);
+	sent.files = pendingFiles.value.map((file) => file.file_name);
+	pendingFiles.value = [];
 	if (props.contextProvider) {
 		try {
 			turnContext = { ...turnContext, ...((await props.contextProvider()) || {}) };
@@ -1117,6 +1137,7 @@ defineExpose({ send, conversationName });
 .acp-error-text { color: var(--ig8); }
 .acp-filechip { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 11.5px;
 	background: var(--sg2); border-radius: 6px; padding: 1px 7px; color: var(--ig6); }
-.acp-pending-file { display: flex; align-items: center; gap: 6px; padding: 4px 14px 0; background: var(--sw); }
+.acp-pending-file { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 14px 0; background: var(--sw); }
+.acp-pending-item { display: inline-flex; align-items: center; gap: 2px; }
 .acp-hidden { display: none; }
 </style>

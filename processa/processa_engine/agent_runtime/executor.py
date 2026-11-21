@@ -104,6 +104,8 @@ class ExecutorConfig:
 	compaction_model: str = ""
 	run_token_budget: int | None = None
 	run_cost_budget: float | None = None
+	# Images sent with the user prompt, each {"media_type", "data"} with base64 data.
+	images: list = field(default_factory=list)
 
 
 @dataclass

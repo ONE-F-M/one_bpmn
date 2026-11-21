@@ -146,7 +146,8 @@ class DirectApiExecutor(Executor):
 			)
 		native_schema = structured_output.provider_schema(schema) if native else None
 
-		if config.tools:
+		# Images go through the model adapters, which are the only path that sends them.
+		if config.tools or config.images:
 			return self._run_with_tools(config, provider_type, api_key, model, schema, native_schema)
 
 		if provider_type == "Anthropic":
@@ -360,6 +361,7 @@ class DirectApiExecutor(Executor):
 					parallel_tool_calls=config.parallel_tool_calls,
 					thinking_budget_tokens=config.thinking_budget_tokens,
 					history=config.messages,
+					images=config.images,
 					loop_compaction={
 						"threshold": config.loop_compaction_threshold,
 						"keep_turns": config.loop_compaction_keep_turns,

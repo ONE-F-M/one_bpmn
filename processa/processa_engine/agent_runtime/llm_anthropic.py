@@ -113,7 +113,13 @@ class AnthropicAdapter(BaseLLMAdapter):
 				messages.append(
 					{
 						"role": "user",
-						"content": [{"type": "text", "text": _nonempty(entry.get("content"))}],
+						"content": [
+							{"type": "text", "text": _nonempty(entry.get("content"))},
+							*(
+								{"type": "image", "source": {"type": "base64", **image}}
+								for image in entry.get("images") or []
+							),
+						],
 					}
 				)
 			elif role == "assistant":
@@ -147,7 +153,8 @@ class AnthropicAdapter(BaseLLMAdapter):
 		if last_tool_result_block is not None:
 			last_tool_result_block["cache_control"] = {"type": "ephemeral"}
 		elif messages and messages[-1]["role"] == "user":
-			messages[-1]["content"] = _split_cacheable_prefix(messages[-1]["content"][0]["text"])
+			text, *images = messages[-1]["content"]
+			messages[-1]["content"] = _split_cacheable_prefix(text["text"]) + images
 
 		thinking = bool(thinking_budget_tokens) and not _ADAPTIVE_THINKING.search(self._model.lower())
 		kwargs: dict = {

@@ -329,6 +329,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		user_prompt = drop_duplicated_instructions(system_prompt, user_prompt)
 
+	images = []
+	if not resume_payload:
+		from processa.processa_engine.dispatch.attachments import read_attachments
+
+		images, attached_text = read_attachments((getattr(task, "data", None) or {}).get("files"))
+		if attached_text:
+			user_prompt = f"{user_prompt}\n\n{attached_text}"
+
 	config = executor_config(
 		task_cfg,
 		system_prompt,
@@ -336,6 +344,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		messages=turn_history,
 		tools=tool_specs,
 		resume_state=_checkpoint.build_resume_state(resume_payload) if resume_payload else None,
+		images=images,
 	)
 
 	context = ExecutorContext(
