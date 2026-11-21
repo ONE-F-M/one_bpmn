@@ -393,3 +393,4 @@ processa.patches.v1_0.remove_server_script_approval_fields #20-11-2026 Server Sc
 processa.patches.v1_0.logix_review_passes_items_needing_approval #20-11-2026 Logix review and finalize refuse only a script that does not parse and name the items that need approval
 processa.patches.v1_0.logix_writer_reuses_library_scripts #20-11-2026 Logix's script and tool writers call library functions on the map through import_script
 processa.patches.v1_0.add_logix_library_eval_case #20-11-2026 the Logix baseline suite checks that a library on the map is called through import_script
+processa.patches.v1_0.logix_reads_doctype_logic #21-11-2026 Logix reads the controller logic of a DocType before it writes a script for it
