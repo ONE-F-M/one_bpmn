@@ -705,6 +705,7 @@ def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "",
 			}
 		)
 
+		failure = ""
 		frappe.db.savepoint("logix_check")
 		try:
 			from processa.processa_engine.engine import check_server_script
@@ -727,14 +728,17 @@ def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "",
 					"result": None,
 					"summary": f"The script stopped and said: \"{error_msg}\"",
 				}
+			failure = frappe.get_traceback()
 			return {
 				"passed": False,
 				"result": None,
-				"summary": "Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
+				"summary": f"The script failed with this error: {type(exc).__name__}: {error_msg}",
 			}
 		finally:
 			# Dry run: whatever the script inserted or updated is undone.
 			frappe.db.rollback(save_point="logix_check")
+			if failure:
+				frappe.log_error(title=logix_helpers.CHECK_ERROR_TITLE.format(script_name), message=failure)
 
 	except Exception:
 		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())
@@ -799,7 +803,7 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 # left. The Server Script CRUD and test-runner endpoints in this module are
 # Logix TOOLING, not chat, and stay exactly where they are.
 def build_logix_turn_context(context: dict) -> dict:
-	"""Add the linked script, the library scripts on the map and the reply contract to a Logix turn."""
+	"""Add the linked script and the library scripts on the map to a Logix turn."""
 	out = dict(context or {})
 	script = out.get("current_script") or ""
 	content = None
@@ -816,11 +820,7 @@ def build_logix_turn_context(context: dict) -> dict:
 			content = frappe.get_doc("Server Script", script).script or ""
 			out["original_script_content"] = content
 
-	# Two map generations exist: the purpose-built Logix map renders the
-	# original_script_content variable directly, while a generic
-	# chat-template clone renders only {{ dialog_context }}. Folding the
-	# script and the reply contract into dialog_context serves both — the
-	# purpose-built map just sees it twice, harmlessly.
+	# The purpose-built map reads original_script_content; a generic chat-template clone reads only dialog_context.
 	parts = []
 	if content is not None:
 		parts.append("CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```" % (script, content))
@@ -829,16 +829,6 @@ def build_logix_turn_context(context: dict) -> dict:
 	if libraries:
 		out["library_scripts"] = libraries
 		parts.append(logix_helpers.library_text(libraries))
-	parts.append(
-		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
-		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE"|"GENERAL", '
-		'"response": "<short human explanation>", '
-		'"modified_script": "<the full updated script when intent is CREATE or MODIFY>", '
-		'"suggested_name": "<script name for CREATE>", '
-		'"options": ["..."] }. '
-		"Never claim you saved or applied anything — the designer applies your "
-		"proposal from a review card in the UI."
-	)
 	existing = out.get("dialog_context") or ""
 	out["dialog_context"] = (existing + "\n\n" + "\n\n".join(parts)).strip()
 	return out
