@@ -395,3 +395,4 @@ processa.patches.v1_0.logix_writer_reuses_library_scripts #20-11-2026 Logix's sc
 processa.patches.v1_0.add_logix_library_eval_case #20-11-2026 the Logix baseline suite checks that a library on the map is called through import_script
 processa.patches.v1_0.logix_tries_drafts_on_a_record #21-11-2026 Logix review runs each script task draft on a sample record and sends a failure back to the writer
 processa.patches.v1_0.logix_reads_doctype_logic #21-11-2026 Logix reads the controller logic of a DocType before it writes a script for it
+processa.patches.v1_0.seed_logix_reported_request_cases #21-11-2026 Logix Baseline gets cases for the approve-under-500, Medical Appointment, white-screen and explain-the-script requests
