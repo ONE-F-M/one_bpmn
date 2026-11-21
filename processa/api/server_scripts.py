@@ -705,6 +705,7 @@ def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "",
 			}
 		)
 
+		failure = ""
 		frappe.db.savepoint("logix_check")
 		try:
 			from processa.processa_engine.engine import check_server_script
@@ -727,14 +728,17 @@ def run_logix_test_case(script_name: str, inputs: str = "{}", process: str = "",
 					"result": None,
 					"summary": f"The script stopped and said: \"{error_msg}\"",
 				}
+			failure = frappe.get_traceback()
 			return {
 				"passed": False,
 				"result": None,
-				"summary": "Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
+				"summary": f"The script failed with this error: {type(exc).__name__}: {error_msg}",
 			}
 		finally:
 			# Dry run: whatever the script inserted or updated is undone.
 			frappe.db.rollback(save_point="logix_check")
+			if failure:
+				frappe.log_error(title=logix_helpers.CHECK_ERROR_TITLE.format(script_name), message=failure)
 
 	except Exception:
 		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())

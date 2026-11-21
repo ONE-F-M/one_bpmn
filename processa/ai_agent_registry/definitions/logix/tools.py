@@ -65,7 +65,7 @@ def run_debug_stage(conversation: str) -> dict:
 			tofile="with the fix",
 		)
 	)
-	if not fixed or not diff:
+	if not fixed or _code_lines(fixed) == _code_lines(script):
 		return _reply(conversation, explanation)
 
 	review = _ask(
@@ -86,6 +86,11 @@ def run_debug_stage(conversation: str) -> dict:
 	for f in syntax_errors + checks:
 		lines.append(f"- {f['rule']} (line {f['line']}: `{f['code']}`)" if f["line"] else f"- {f['rule']}")
 	return _reply(conversation, "\n".join(lines))
+
+
+def _code_lines(code: str) -> list[str]:
+	"""The script's non-blank lines without trailing spaces; a fix that only changes spacing changes nothing."""
+	return [line.rstrip() for line in code.splitlines() if line.strip()]
 
 
 def revert_output(conversation: str) -> dict:

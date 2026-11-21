@@ -68,6 +68,13 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		self.assertIn("```diff", adapter.prompts[1])
 		self.assertNotIn("```python", adapter.prompts[1])
 
+	def test_a_fix_that_only_changes_spacing_offers_no_change(self):
+		adapter = FakeAdapter({"explanation": "The script is fine.", "fixed_script": PASTED.replace("\n", "  \n\n")})
+		output = self._run(adapter)
+
+		self.assertFalse(output.get("diff"), output)
+		self.assertEqual(len(adapter.prompts), 1)
+
 	def test_both_model_calls_send_a_closed_schema(self):
 		adapter = FakeAdapter(
 			{"explanation": "It divides by a quantity of zero.", "fixed_script": FIXED},
@@ -140,7 +147,9 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		inputs = helpers.debug_inputs("it shows a white screen then fails", PASTED, "ZZ Rate")
 
-		self.assertEqual(inputs, {"script_text": PASTED, "last_error": TRACE})
+		self.assertEqual(inputs["script_text"], PASTED)
+		self.assertTrue(inputs["last_error"].startswith("Logged "), inputs["last_error"])
+		self.assertTrue(inputs["last_error"].endswith(TRACE), inputs["last_error"])
 
 
 class TestLogixDebugPatch(FrappeTestCase):
