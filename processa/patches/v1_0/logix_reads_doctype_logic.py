@@ -98,8 +98,9 @@ CASE_CONTEXT = {
 
 def execute():
 	_ensure_script(SCRIPT_NAME, API_METHOD, SCRIPT)
-	_update_process_model()
+	# The map only compiles once the new tool's imports are approved.
 	_approve_imports()
+	_update_process_model()
 	_add_guidance()
 	_add_eval_case()
 

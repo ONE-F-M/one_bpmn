@@ -84,3 +84,15 @@ class TestLogixReadsDoctypeLogic(FrappeTestCase):
 	def test_without_the_approval_the_gate_refuses_the_import(self):
 		with self.assertRaisesRegex(frappe.ValidationError, "needs approval"):
 			self._call(["Overtime Request"])
+
+	def test_the_tool_is_approved_before_the_map_recompiles(self):
+		calls = []
+		with (
+			patch.object(p, "_ensure_script"),
+			patch.object(p, "_approve_imports", side_effect=lambda: calls.append("approve")),
+			patch.object(p, "_update_process_model", side_effect=lambda: calls.append("compile")),
+			patch.object(p, "_add_guidance"),
+			patch.object(p, "_add_eval_case"),
+		):
+			p.execute()
+		self.assertEqual(calls, ["approve", "compile"])
